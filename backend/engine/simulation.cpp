@@ -33,7 +33,7 @@ void SimulationEngine::start() {
     paused = false;
     stop_event = false;
 
-    simulation_thread = std::make_unique<std::thread>(&SimulationEngine::simulation_loop, this);
+    simulation_thread = std::make_unique<std::thread>(&SimulationEngine::simulation_loop, this); // 开始模拟循环
 }
 
 void SimulationEngine::pause() {
@@ -114,7 +114,9 @@ void SimulationEngine::simulation_loop() {
 
         // Control frame rate
         double sleep_duration_ms = (1000.0 / target_fps) / simulation_speed;
+        //TODO 改成基于运行时间+延迟时间的精准控制。
         std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(sleep_duration_ms)));
+
     }
 }
 
