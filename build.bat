@@ -1,46 +1,46 @@
 ﻿@echo off
-echo 正在构建 EcosysQT 项目...
+echo Building EcosysQT project...
 
-REM 检查 VCPKG_ROOT 是否设置
+REM Check if VCPKG_ROOT is set
 if not defined VCPKG_ROOT (
-    echo 错误: VCPKG_ROOT 环境变量未设置
-    echo 请先运行 setup_vcpkg.bat 或 setup_vcpkg.ps1
+    echo Error: VCPKG_ROOT environment variable is not set
+    echo Please run setup_vcpkg.bat or setup_vcpkg.ps1 first
     pause
     exit /b 1
 )
 
-REM 检查 vcpkg.exe 是否存在
+REM Check if vcpkg.exe exists
 if not exist "%VCPKG_ROOT%\vcpkg.exe" (
-    echo 错误: 在 %VCPKG_ROOT% 找不到 vcpkg.exe
+    echo Error: vcpkg.exe not found in %VCPKG_ROOT%
     pause
     exit /b 1
 )
 
-echo 使用 vcpkg 路径: %VCPKG_ROOT%
+echo Using vcpkg path: %VCPKG_ROOT%
 
-REM 创建构建目录
+REM Create build directory
 if not exist build mkdir build
 
-REM 配置项目
-echo 正在配置项目...
+REM Configure project
+echo Configuring project...
 cmake --preset default
-if %ERRORLEVEL% neq 0 (
-    echo 配置失败！
+IF ERRORLEVEL 1 (
+    echo Configure failed!
     pause
     exit /b 1
 )
 
-REM 构建项目
-echo 正在构建项目...
+REM Build project
+echo Building project...
 cmake --build --preset default
-if %ERRORLEVEL% neq 0 (
-    echo 构建失败！
+IF ERRORLEVEL 1 (
+    echo Build failed!
     pause
     exit /b 1
 )
 
 echo.
-echo 构建成功！
-echo 可执行文件位于: build\Debug\MyQtApp.exe
+echo Build succeeded!
+echo Executable is at: build\Debug\MyQtApp.exe OR build-msvc\Debug\MyQtApp.exe OR build-nmake\MyQtApp.exe
 echo.
 pause

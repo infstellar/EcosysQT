@@ -27,12 +27,12 @@ find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
-# 添加 Backend/include 到头文件搜索路径
+# 添加头文件搜索路径（后端与前端 UI 接口）
 include_directories(
-    ${CMAKE_SOURCE_DIR}/Backend/include
-)
-
-# --- 添加源文件 ---
+    ${CMAKE_SOURCE_DIR}/backend/include
+    ${CMAKE_SOURCE_DIR}/ui/include
+    ${CMAKE_SOURCE_DIR}/src/ui
+)# --- 添加源文件 ---
 # 定义可执行文件及其源文件
 add_executable(MyQtApp
   main.cpp
@@ -40,15 +40,22 @@ add_executable(MyQtApp
   mainwindow.h
   mainwindow.ui
   backend/engine/simulation.cpp
-  Backend/models/ecosystem.cpp
-  Backend/models/species_base.cpp
-  Backend/models/animal.cpp
-  Backend/models/species/grass.cpp
-  Backend/models/species/cow.cpp
-  Backend/models/species/tiger.cpp
-  Backend/models/species_factory.cpp
-  Backend/models/species_config_provider_yaml.cpp
-)
+  backend/models/ecosystem.cpp
+  backend/models/species_base.cpp
+  backend/models/animal.cpp
+  backend/models/species/grass.cpp
+  backend/models/species/cow.cpp
+  backend/models/species/tiger.cpp
+  backend/models/species_factory.cpp
+  backend/models/species_config_provider_yaml.cpp
+  # 前端 UI 模块
+  src/ui/Widget.cpp
+  src/ui/Widget.h
+  src/ui/DummyBackend.cpp
+  src/ui/DummyBackend.h
+  # 资源文件（AUTORCC）
+  
+  resources/app.qrc)
 
 # --- 链接库 ---
 # 将你的可执行文件与所需库链接起来

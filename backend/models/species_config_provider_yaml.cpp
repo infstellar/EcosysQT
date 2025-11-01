@@ -5,18 +5,20 @@ YAML 物种配置提供者实现
 
 #include "species_config_provider.h"
 #include <yaml-cpp/yaml.h>
-#include <filesystem>
+#include <string>
 #include <iostream>
 // 反射: 成员名与继承枚举
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
 #include <type_traits>
 
-namespace fs = std::filesystem;
+// 使用简单的字符串拼接来处理路径，避免 GCC 8 对 std::filesystem 的兼容性问题
 
-static YAML::Node load_yaml_file(const fs::path& p) {
+// 兼容 MinGW(GCC 8) 在 Windows 下的宽/窄字符路径问题：
+// 使用 u8path 构造路径，并用 u8string 传给第三方库（如 yaml-cpp）。
+static YAML::Node load_yaml_file(const std::string& p) {
     try {
-        return YAML::LoadFile(p.string());
+        return YAML::LoadFile(p);
     } catch (const std::exception& e) {
         std::cerr << "[Config] Failed to load YAML: " << p << ", error: " << e.what() << std::endl;
         return YAML::Node();
@@ -87,21 +89,21 @@ template <class T>
 static void apply_inheritance_layers(const std::string& root_dir, const char* species_key, T& params) {
     // 1) 父类默认：species.yaml / species.species
     {
-        fs::path sp = fs::path(root_dir) / "config" / "species.yaml";
+        std::string sp = root_dir + "/config/species.yaml";
         YAML::Node sroot = load_yaml_file(sp);
         YAML::Node s = sroot["species"];
         apply_yaml_fields_by_name(s["species"], params);
     }
     // 2) 动物默认（仅当 T 继承 AnimalParams）：animal.yaml / animal.animal
     if constexpr (std::is_base_of_v<AnimalParams, T>) {
-        fs::path ap = fs::path(root_dir) / "config" / "animal.yaml";
+        std::string ap = root_dir + "/config/animal.yaml";
         YAML::Node aroot = load_yaml_file(ap);
         YAML::Node a = aroot["animal"];
         apply_yaml_fields_by_name(a["animal"], params);
     }
     // 3) 物种专属：config/species/<species_key>.yaml （species / animal / <species_key>）
     {
-        fs::path p = fs::path(root_dir) / "config" / "species" / (std::string(species_key) + ".yaml");
+        std::string p = root_dir + "/config/species/" + std::string(species_key) + ".yaml";
         YAML::Node root = load_yaml_file(p);
         YAML::Node spnode = root[species_key];
         apply_yaml_fields_by_name(spnode["species"], params);

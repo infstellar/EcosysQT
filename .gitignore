@@ -84,6 +84,7 @@ CMakeLists.txt.user*
 # vcpkg related files
 vcpkg_installed/
 .vs/
+vcpkg/
 
 .vscode/
 
