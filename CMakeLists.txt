@@ -39,6 +39,7 @@ add_executable(MyQtApp
   mainwindow.cpp
   mainwindow.h
   mainwindow.ui
+  backend/engine/simulation.cpp
   Backend/models/ecosystem.cpp
   Backend/models/species_base.cpp
   Backend/models/animal.cpp
