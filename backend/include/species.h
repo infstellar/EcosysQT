@@ -10,6 +10,13 @@
 // 前向声明
 class EcosystemState;
 
+// 物种类型枚举 (用于统计、注册等)
+enum class SpeciesType {
+    GRASS,
+    COW,
+    TIGER
+};
+
 // 生态系统中所有物种的基类
 class Species {
 public:

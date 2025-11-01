@@ -14,12 +14,7 @@
 #include "utils.h"
 
 
-// 物种类型枚举 (用于统计、注册等)
-enum class SpeciesType {
-    GRASS,
-    COW,
-    TIGER
-};
+// 物种类型枚举已在 species.h 声明
 
 // 物种类型与字符串之间的映射函数
 SpeciesType species_type_from_name(const std::string& name);
