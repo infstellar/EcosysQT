@@ -22,19 +22,17 @@ struct AnimalParams : SpeciesBaseParams {
     double detection_range = 500.0;
     std::vector<std::string> food_types = {};
     int hunting_cooldown_duration = 0;
+    int min_reproduction_age = 0;
+    int reproduction_cooldown = 0;
+    double eating_range = 0.0;
 };
 
 // 老虎特有参数（继承动物参数）
 struct TigerParams : AnimalParams {
-    int min_reproduction_age = 30;
-    int reproduction_cooldown = 800;
 };
 
 // 牛特有参数（继承动物参数）
 struct CowParams : AnimalParams {
-    double eating_range = 5.0;
-    int min_reproduction_age = 20;
-    int reproduction_cooldown = 200;
 };
 
 // 草参数（继承基础物种）
@@ -50,10 +48,10 @@ struct GrassParams : SpeciesBaseParams {
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration))
+    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range))
 BOOST_DESCRIBE_STRUCT(TigerParams, (AnimalParams),
-    (min_reproduction_age, reproduction_cooldown))
+    ())
 BOOST_DESCRIBE_STRUCT(CowParams, (AnimalParams),
-    (eating_range, min_reproduction_age, reproduction_cooldown))
+    ())
 BOOST_DESCRIBE_STRUCT(GrassParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown))

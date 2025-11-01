@@ -24,9 +24,12 @@ Tiger::Tiger(Position pos, const TigerParams& params)
              params.hunting_success_rate,
              params.detection_range,
              params.food_types,
-             params.hunting_cooldown_duration),
-      min_reproduction_age(params.min_reproduction_age),
-      base_reproduction_cooldown(params.reproduction_cooldown) {}
+             params.hunting_cooldown_duration,
+             params.min_reproduction_age,
+             params.reproduction_cooldown,
+             params.eating_range) {
+    species_name = "tiger";
+}
 
 void Tiger::update(const EcosystemState& ecosystem_state) {
     // 更新老虎状态
@@ -82,25 +85,5 @@ void Tiger::_hunt_cows(const std::vector<Cow*>& cow_list) {
 
 bool Tiger::can_reproduce() const {
     // Check if can reproduce
-    return Animal::can_reproduce() && age > min_reproduction_age;
-}
-
-std::unique_ptr<Species> Tiger::reproduce(const EcosystemState& ecosystem_state) {
-    // 繁殖以创建新老虎
-    Animal::reproduce(ecosystem_state);
-    if (!can_reproduce()) return nullptr;
-    energy -= reproduction_energy_cost;
-    reproduction_cooldown = base_reproduction_cooldown;
-    const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
-    int world_width = ecosystem_data.world_width;
-    int world_height = ecosystem_data.world_height;
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dist_x(-40, 40);
-    std::uniform_real_distribution<> dist_y(-40, 40);
-
-    double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
-    double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
-    Position new_position{new_x, new_y};
-    return g_species_factory.create("tiger", new_position);
+    return Animal::can_reproduce();
 }

@@ -24,11 +24,13 @@ Cow::Cow(Position pos, const CowParams& params)
              params.hunting_success_rate,
              params.detection_range,
              params.food_types,
-             params.hunting_cooldown_duration),
-      eating_range(params.eating_range),
-      min_reproduction_age(params.min_reproduction_age),
-      base_reproduction_cooldown(params.reproduction_cooldown)
-{}
+             params.hunting_cooldown_duration,
+             params.min_reproduction_age,
+             params.reproduction_cooldown,
+             params.eating_range)
+{
+    species_name = "cow";
+}
 
 void Cow::update(const EcosystemState& ecosystem_state) {
     // 更新牛的状态
@@ -65,25 +67,5 @@ void Cow::_eat_grass(const std::vector<Grass*>& grass_list) {
 
 bool Cow::can_reproduce() const {
     // Check if can reproduce
-    return Animal::can_reproduce() && age > min_reproduction_age;
-}
-
-std::unique_ptr<Species> Cow::reproduce(const EcosystemState& ecosystem_state) {
-    // 繁殖以创建新牛
-    Animal::reproduce(ecosystem_state);
-    if (!can_reproduce()) return nullptr;
-    energy -= reproduction_energy_cost;
-    reproduction_cooldown = base_reproduction_cooldown;
-    const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
-    int world_width = ecosystem_data.world_width;
-    int world_height = ecosystem_data.world_height;
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dist_x(-10, 10);
-    std::uniform_real_distribution<> dist_y(-10, 10);
-
-    double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
-    double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
-    Position new_position{new_x, new_y};
-    return g_species_factory.create("cow", new_position);
+    return Animal::can_reproduce();
 }

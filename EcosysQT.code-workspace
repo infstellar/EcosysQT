@@ -77,7 +77,14 @@
 			"cinttypes": "cpp",
 			"typeinfo": "cpp",
 			"valarray": "cpp",
-			"variant": "cpp"
+			"variant": "cpp",
+			"any": "cpp",
+			"bitset": "cpp",
+			"charconv": "cpp",
+			"codecvt": "cpp",
+			"forward_list": "cpp",
+			"source_location": "cpp",
+			"shared_mutex": "cpp"
 		}
 	}
 }

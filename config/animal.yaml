@@ -8,3 +8,6 @@ animal:
     detection_range: 500.0
     food_types: []
     hunting_cooldown_duration: 0
+    min_reproduction_age: 0
+    reproduction_cooldown: 0
+    eating_range: 0.0

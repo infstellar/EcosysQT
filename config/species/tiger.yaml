@@ -12,6 +12,6 @@ tiger:
     detection_range: 1000.0
     food_types: ["cow"]
     hunting_cooldown_duration: 4
-  tiger:
     min_reproduction_age: 30
     reproduction_cooldown: 800
+  tiger:

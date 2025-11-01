@@ -21,7 +21,10 @@ Animal::Animal(Position pos,
                double hunting_success_rate,
                double detection_range,
                std::vector<std::string> food_types,
-               int hunting_cooldown_duration)
+               int hunting_cooldown_duration,
+               int min_reproduction_age,
+               int base_reproduction_cooldown,
+               double eating_range)
     : Species(pos, energy, max_age, reproduction_energy_cost),
       movement_speed(movement_speed),
       energy_consumption(energy_consumption),
@@ -30,7 +33,10 @@ Animal::Animal(Position pos,
       detection_range(detection_range),
       food_types(std::move(food_types)),
       hunting_cooldown(0),
-      hunting_cooldown_duration(hunting_cooldown_duration) {}
+      hunting_cooldown_duration(hunting_cooldown_duration),
+      min_reproduction_age(min_reproduction_age),
+      base_reproduction_cooldown(base_reproduction_cooldown),
+      eating_range(eating_range) {}
 
 std::optional<Position> Animal::find_nearest_food(const EcosystemState& ecosystem_state) {
     // 寻找最近的食物源
@@ -112,4 +118,41 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
 void Animal::start_hunting_cooldown() {
     // 开始狩猎冷却 - 动物将保持静止一段时间
     hunting_cooldown = hunting_cooldown_duration;
+}
+
+bool Animal::can_reproduce() const {
+    // 动物通用繁殖判断：基础条件 + 年龄门槛
+    return Species::can_reproduce() && age > min_reproduction_age;
+}
+
+void Animal::start_reproduction_cooldown() {
+    // 开始繁殖冷却：使用基础冷却值
+    reproduction_cooldown = base_reproduction_cooldown;
+}
+
+std::unique_ptr<Species> Animal::reproduce(const EcosystemState& ecosystem_state) {
+    // 统一的动物繁殖逻辑
+    Species::reproduce(ecosystem_state);
+    if (!can_reproduce()) return nullptr;
+
+    // 扣除能量并开始冷却
+    energy -= reproduction_energy_cost;
+    start_reproduction_cooldown();
+
+    // 计算子代位置（在世界边界内的随机偏移）
+    const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
+    int world_width = ecosystem_data.world_width;
+    int world_height = ecosystem_data.world_height;
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    double radius = reproduction_spawn_radius();
+    std::uniform_real_distribution<> dist_x(-radius, radius);
+    std::uniform_real_distribution<> dist_y(-radius, radius);
+
+    double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
+    double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
+    Position new_position{new_x, new_y};
+
+    // 使用物种键创建子代（键来自 species_name）
+    return g_species_factory.create(species_name, new_position);
 }

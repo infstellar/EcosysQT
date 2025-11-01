@@ -60,11 +60,16 @@ public:
     std::vector<std::string> food_types;
     int hunting_cooldown;
     int hunting_cooldown_duration;
+    int min_reproduction_age;
+    int base_reproduction_cooldown;
+    double eating_range;
 
     Animal(Position pos, double energy = 100, int max_age = 100, double reproduction_energy_cost = 50,
            double movement_speed = 1.0, int energy_consumption = 1, double hunting_range = 5.0,
            double hunting_success_rate = 0.5, double detection_range = 500.0,
-           std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0);
+           std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
+           int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
+           double eating_range = 0.0);
 
     // 寻找最近的食物来源
     virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
@@ -74,6 +79,16 @@ public:
     virtual void intelligent_move(const class EcosystemState& ecosystem_state);
     // 开始狩猎冷却
     void start_hunting_cooldown();
+    // 通用繁殖判断（含年龄门槛）
+    bool can_reproduce() const override;
+    // 开始繁殖冷却（使用基础冷却值）
+    void start_reproduction_cooldown();
+    // 统一的繁殖实现：基于当前物种键创建子代
+    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+
+protected:
+    // 子类可覆盖的繁殖偏移半径（用于随机生成子代位置）
+    virtual double reproduction_spawn_radius() const { return 10.0; }
 };
 
 // 草类，继承自Species，实现生产者逻辑
@@ -103,9 +118,6 @@ public:
 // 牛类，继承自Animal，实现初级消费者逻辑
 class Cow : public Animal {
 public:
-    double eating_range;
-    int min_reproduction_age;
-    int base_reproduction_cooldown;
     Cow(Position pos, const struct CowParams& params);
 
     // 更新牛的状态
@@ -114,15 +126,13 @@ public:
     void _eat_grass(const std::vector<Grass*>& grass_list);
     // 检查牛是否可以繁殖
     bool can_reproduce() const override;
-    // 繁殖以创建新牛
-    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+protected:
+    double reproduction_spawn_radius() const override { return 10.0; }
 };
 
 // 老虎类，继承自Animal，实现次级消费者逻辑
 class Tiger : public Animal {
 public:
-    int min_reproduction_age;
-    int base_reproduction_cooldown;
     Tiger(Position pos, const struct TigerParams& params);
 
     // 更新老虎的状态
@@ -131,6 +141,6 @@ public:
     void _hunt_cows(const std::vector<Cow*>& cow_list);
     // 检查老虎是否可以繁殖
     bool can_reproduce() const override;
-    // 繁殖以创建新老虎
-    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+protected:
+    double reproduction_spawn_radius() const override { return 40.0; }
 };
