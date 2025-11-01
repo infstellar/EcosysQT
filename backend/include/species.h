@@ -36,6 +36,9 @@ public:
 
     // 更新物种状态 (虚函数用于多态)
     virtual void update(const EcosystemState& ecosystem_state);
+    // 更新物种状态，考虑外部环境交互 (虚函数用于多态)
+    virtual void cross_species_update(const EcosystemState& ecosystem_state);
+
     // 检查物种是否可以繁殖
     virtual bool can_reproduce() const;
     // 繁殖以创建新个体
@@ -82,8 +85,14 @@ public:
     virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
     // 向目标位置移动
     void move_towards_target(const Position& target_position, int world_width, int world_height);
-    // 智能移动：向食物移动或随机移动
+    // 智能移动：分离为目标选择与移动执行
     virtual void intelligent_move(const class EcosystemState& ecosystem_state);
+    // 目标选择：设置当前目标点（若无可用目标则置空）
+    virtual void select_target_point(const class EcosystemState& ecosystem_state);
+    // 路径规划（占位以便未来接入 A* 等算法）
+    virtual void plan_path_to_target(const class EcosystemState& ecosystem_state);
+    // 执行向当前目标点移动（沿规划路径或直接朝向）
+    void move_to_target_point(int world_width, int world_height);
     // 开始狩猎冷却
     void start_hunting_cooldown();
     // 通用繁殖判断（含年龄门槛）
@@ -96,6 +105,10 @@ public:
 protected:
     // 子类可覆盖的繁殖偏移半径（用于随机生成子代位置）
     virtual double reproduction_spawn_radius() const { return 10.0; }
+    // 当前移动目标与路径（为未来寻路预留空间）
+    std::optional<Position> current_target;
+    std::vector<Position> planned_path;
+    size_t planned_path_index;
 };
 
 // 草类，继承自Species，实现生产者逻辑

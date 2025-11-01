@@ -36,7 +36,10 @@ Animal::Animal(Position pos,
       hunting_cooldown_duration(hunting_cooldown_duration),
       min_reproduction_age(min_reproduction_age),
       base_reproduction_cooldown(base_reproduction_cooldown),
-      eating_range(eating_range) {}
+      eating_range(eating_range),
+      current_target(std::nullopt),
+      planned_path(),
+      planned_path_index(0) {}
 
 std::optional<Position> Animal::find_nearest_food(const EcosystemState& ecosystem_state) {
     // 寻找最近的食物源
@@ -78,26 +81,37 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 }
 
 void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
-    // 智能移动 - 寻找食物或随机移动
+    // 智能移动 - 分离为目标选择与移动执行
     if (!alive) return;
     if (hunting_cooldown > 0) {
         hunting_cooldown -= 1;
         return;
     }
-    
+
+    // 先选择目标点（可能为空）
+    select_target_point(ecosystem_state);
+
     int world_width = ecosystem_state.config.world_width;
     int world_height = ecosystem_state.config.world_height;
-    
-    // 寻找最近的食物
+
+    if (current_target.has_value()) {
+        // 为目标规划路径（占位，未来可替换为 A*）
+        plan_path_to_target(ecosystem_state);
+        // 执行沿路径移动一步
+        move_to_target_point(world_width, world_height);
+    } else {
+        // 无目标时采用随机游走
+        move_randomly(world_width, world_height, movement_speed);
+    }
+}
+
+void Animal::select_target_point(const EcosystemState& ecosystem_state) {
+    // 选择当前目标点：在探测范围内寻找最近的食物
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
-    
-    // 遍历所有食物类型
+
     for (const auto& food_type : food_types) {
-        // 使用通用查询接口获取探测范围内的食物
         auto food_in_range = ecosystem_state.get_species_in_range(food_type, position, detection_range);
-        
-        // 从返回的食物中找到最近的一个
         for (const auto& food : food_in_range) {
             double distance = position.distance_to(food->position);
             if (distance < min_distance) {
@@ -106,12 +120,51 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
             }
         }
     }
-    
-    // 移动到最近的食物或随机移动
+
     if (nearest_food.has_value()) {
-        move_towards_target(nearest_food.value(), world_width, world_height);
+        current_target = nearest_food.value();
     } else {
-        move_randomly(world_width, world_height, movement_speed);
+        current_target.reset();
+        planned_path.clear();
+        planned_path_index = 0;
+    }
+}
+
+void Animal::plan_path_to_target(const EcosystemState& ecosystem_state) {
+    // 路径规划占位：目前直接使用直线目标点，未来可替换为 A*
+    if (!current_target.has_value()) return;
+    planned_path.clear();
+    planned_path.push_back(current_target.value());
+    planned_path_index = 0;
+}
+
+void Animal::move_to_target_point(int world_width, int world_height) {
+    // 沿规划路径或直接朝目标移动一步
+    if (!current_target.has_value()) return;
+
+    // 若存在路径，按路径点逐步移动；否则直接朝目标
+    Position goal = current_target.value();
+    if (!planned_path.empty() && planned_path_index < planned_path.size()) {
+        goal = planned_path[planned_path_index];
+    }
+
+    // 执行移动
+    move_towards_target(goal, world_width, world_height);
+
+    // 达到当前路径点后推进到下一个点
+    double remain = position.distance_to(goal);
+    if (remain <= movement_speed) {
+        if (!planned_path.empty() && planned_path_index < planned_path.size()) {
+            planned_path_index += 1;
+            if (planned_path_index >= planned_path.size()) {
+                // 路径完成
+                planned_path.clear();
+                planned_path_index = 0;
+            }
+        } else {
+            // 直接目标已到达（近似判断），清空目标以触发重新选择
+            current_target.reset();
+        }
     }
 }
 

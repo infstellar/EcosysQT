@@ -24,10 +24,20 @@ Species::Species(Position pos, double energy, int max_age, double reproduction_e
     reproduction_energy_cost(reproduction_energy_cost) {}
 
 void Species::update(const EcosystemState& ecosystem_state) {
+    /*
+    此函数只更新对象内部状态随时间变化，不涉及外部环境的交互。
+     */
     if (!alive) return;
     // 减少繁殖冷却时间
     if (reproduction_cooldown > 0) reproduction_cooldown -= 1;
     age_one_step(); // 年龄增加一步
+}
+
+void Species::cross_species_update(const EcosystemState& ecosystem_state) {
+    /*
+    此函数更新对象内部状态随时间变化，涉及外部环境的交互。
+     */
+
 }
 
 bool Species::can_reproduce() const {
