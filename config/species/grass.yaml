@@ -1,0 +1,12 @@
+schema_version: 1
+grass:
+  species:
+    energy: 40
+    max_age: 2000
+    reproduction_energy_cost: 40
+  grass:
+    base_growth_rate: 0.9
+    reproduction_chance: 0.4
+    competition_radius: 30.0
+    max_competition_effect: 0.9
+    reproduction_cooldown: 10

@@ -83,8 +83,8 @@ public:
     double reproduction_chance;
     double competition_radius;
     double max_competition_effect;
-
-    Grass(Position pos);
+    int base_reproduction_cooldown;
+    Grass(Position pos, const struct GrassParams& params);
 
     // 计算附近草的密度 (优化版本)
     double calculate_nearby_grass_density_optimized(const EcosystemState& ecosystem_state);
@@ -104,8 +104,9 @@ public:
 class Cow : public Animal {
 public:
     double eating_range;
-
-    Cow(Position pos);
+    int min_reproduction_age;
+    int base_reproduction_cooldown;
+    Cow(Position pos, const struct CowParams& params);
 
     // 更新牛的状态
     void update(const class EcosystemState& ecosystem_state) override;
@@ -120,7 +121,9 @@ public:
 // 老虎类，继承自Animal，实现次级消费者逻辑
 class Tiger : public Animal {
 public:
-    Tiger(Position pos);
+    int min_reproduction_age;
+    int base_reproduction_cooldown;
+    Tiger(Position pos, const struct TigerParams& params);
 
     // 更新老虎的状态
     void update(const class EcosystemState& ecosystem_state) override;

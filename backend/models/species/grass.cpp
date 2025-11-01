@@ -4,6 +4,7 @@
 */
 
 #include "species.h"
+#include "species_params.h"
 #include "ecosystem.h"
 #include <random>
 #include <algorithm>
@@ -12,10 +13,14 @@
 
 // --- Grass ---
 // 草类 - 生产者
-Grass::Grass(Position pos)
-    : Species(pos, 40, 2000, 40),
-      base_growth_rate(0.9), reproduction_chance(0.4),
-      competition_radius(30.0), max_competition_effect(0.9) {}
+
+Grass::Grass(Position pos, const GrassParams& params)
+    : Species(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+      base_growth_rate(params.base_growth_rate),
+      reproduction_chance(params.reproduction_chance),
+      competition_radius(params.competition_radius),
+      max_competition_effect(params.max_competition_effect),
+      base_reproduction_cooldown(params.reproduction_cooldown) {}
 
 double Grass::calculate_nearby_grass_density_optimized(const EcosystemState& ecosystem_state) {
     // 使用Eigen矩阵计算附近区域的草密度
@@ -131,7 +136,7 @@ std::unique_ptr<Species> Grass::reproduce(const EcosystemState& ecosystem_state)
     if (new_x <= 0 || new_x >= world_width || new_y <= 0 || new_y >= world_height) return nullptr;
 
     energy -= reproduction_energy_cost;
-    reproduction_cooldown = 10;
+    reproduction_cooldown = base_reproduction_cooldown;
     Position new_position{new_x, new_y};
-    return std::make_unique<Grass>(new_position);
+    return g_species_factory.create("grass", new_position);
 }

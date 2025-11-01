@@ -4,6 +4,7 @@
 */
 
 #include "species_factory.h"
+#include "species_params.h"
 #include <stdexcept>
 
 // 全局工厂实例定义
@@ -44,18 +45,26 @@ void SpeciesFactory::clear() {
 
 // 注册所有物种的函数实现
 void register_all_species() {
-    // 注册草
-    g_species_factory.register_species("grass", [](Position pos) {
-        return std::make_unique<Grass>(pos);
+    auto provider = g_species_factory.get_config_provider();
+    if (!provider) {
+        throw std::runtime_error("Config provider must be set before registering species");
+    }
+
+    // 注册草（基于配置参数）
+    g_species_factory.register_species("grass", [provider](Position pos) {
+        GrassParams params = provider->get_grass_params();
+        return std::make_unique<Grass>(pos, params);
     });
-    
-    // 注册牛
-    g_species_factory.register_species("cow", [](Position pos) {
-        return std::make_unique<Cow>(pos);
+
+    // 注册牛（基于配置参数）
+    g_species_factory.register_species("cow", [provider](Position pos) {
+        CowParams params = provider->get_cow_params();
+        return std::make_unique<Cow>(pos, params);
     });
-    
-    // 注册老虎
-    g_species_factory.register_species("tiger", [](Position pos) {
-        return std::make_unique<Tiger>(pos);
+
+    // 注册老虎（基于配置参数）
+    g_species_factory.register_species("tiger", [provider](Position pos) {
+        TigerParams params = provider->get_tiger_params();
+        return std::make_unique<Tiger>(pos, params);
     });
 }

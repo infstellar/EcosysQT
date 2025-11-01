@@ -1,0 +1,10 @@
+schema_version: 1
+animal:
+  animal:
+    movement_speed: 1.0
+    energy_consumption: 1
+    hunting_range: 5.0
+    hunting_success_rate: 0.5
+    detection_range: 500.0
+    food_types: []
+    hunting_cooldown_duration: 0

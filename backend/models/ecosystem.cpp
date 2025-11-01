@@ -56,9 +56,21 @@ void SpeciesStatistics::set_tiger(int value) { set_count(SpeciesType::TIGER, val
 // --- SpeciesRegistry ---
 // 所有物种类型和个体的注册表
 SpeciesRegistry::SpeciesRegistry(const EcosystemConfig& config) {
-    register_species("grass", std::make_shared<Grass>(Position{0,0}), config.initial_grass);
-    register_species("cow", std::make_shared<Cow>(Position{0,0}), config.initial_cows);
-    register_species("tiger", std::make_shared<Tiger>(Position{0,0}), config.initial_tigers);
+    {
+        auto proto_unique = g_species_factory.create("grass", Position{0,0});
+        std::shared_ptr<Species> proto = std::move(proto_unique);
+        register_species("grass", proto, config.initial_grass);
+    }
+    {
+        auto proto_unique = g_species_factory.create("cow", Position{0,0});
+        std::shared_ptr<Species> proto = std::move(proto_unique);
+        register_species("cow", proto, config.initial_cows);
+    }
+    {
+        auto proto_unique = g_species_factory.create("tiger", Position{0,0});
+        std::shared_ptr<Species> proto = std::move(proto_unique);
+        register_species("tiger", proto, config.initial_tigers);
+    }
 }
 void SpeciesRegistry::register_species(const std::string& name, std::shared_ptr<Species> prototype, int initial_count) {
     registry[name] = SpeciesInfo{name, {}, initial_count};

@@ -1,0 +1,18 @@
+schema_version: 1
+cow:
+  species:
+    energy: 400
+    max_age: 4000
+    reproduction_energy_cost: 400
+  animal:
+    movement_speed: 3.0
+    energy_consumption: 2
+    hunting_range: 5.0
+    hunting_success_rate: 1.0
+    detection_range: 800.0
+    food_types: ["grass"]
+    hunting_cooldown_duration: 0
+  cow:
+    eating_range: 5.0
+    min_reproduction_age: 20
+    reproduction_cooldown: 200

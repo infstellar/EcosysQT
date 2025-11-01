@@ -12,6 +12,7 @@
 #include <vector>
 #include "species.h"
 #include "utils.h"
+#include "species_config_provider.h"
 
 class SpeciesFactory {
 public:
@@ -21,6 +22,8 @@ public:
 private:
     // 从物种名称到创建函数的映射
     std::map<std::string, Creator> creators;
+    // 配置提供者（用于构造物种所需参数）
+    std::shared_ptr<ISpeciesConfigProvider> config_provider;
 
 public:
     // 注册物种创建函数
@@ -28,6 +31,10 @@ public:
     
     // 根据名称创建物种实例
     std::unique_ptr<Species> create(const std::string& name, Position pos);
+    
+    // 注入配置提供者
+    void set_config_provider(std::shared_ptr<ISpeciesConfigProvider> provider) { config_provider = std::move(provider); }
+    std::shared_ptr<ISpeciesConfigProvider> get_config_provider() const { return config_provider; }
     
     // 获取所有已注册物种的名称
     std::vector<std::string> get_all_species_names() const;

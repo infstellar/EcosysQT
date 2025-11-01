@@ -4,6 +4,7 @@
 */
 
 #include "species.h"
+#include "species_params.h"
 #include "ecosystem.h"
 #include <random>
 #include <algorithm>
@@ -11,8 +12,21 @@
 
 // --- Tiger ---
 // 老虎类 - 次级消费者
-Tiger::Tiger(Position pos)
-    : Animal(pos, 4000, 8000, 4000, 4.0, 20, 6.0, 0.2, 1000.0, {"cow"}, 4) {}
+
+Tiger::Tiger(Position pos, const TigerParams& params)
+    : Animal(pos,
+             params.energy,
+             params.max_age,
+             params.reproduction_energy_cost,
+             params.movement_speed,
+             params.energy_consumption,
+             params.hunting_range,
+             params.hunting_success_rate,
+             params.detection_range,
+             params.food_types,
+             params.hunting_cooldown_duration),
+      min_reproduction_age(params.min_reproduction_age),
+      base_reproduction_cooldown(params.reproduction_cooldown) {}
 
 void Tiger::update(const EcosystemState& ecosystem_state) {
     // 更新老虎状态
@@ -68,7 +82,7 @@ void Tiger::_hunt_cows(const std::vector<Cow*>& cow_list) {
 
 bool Tiger::can_reproduce() const {
     // Check if can reproduce
-    return Animal::can_reproduce() && age > 30;
+    return Animal::can_reproduce() && age > min_reproduction_age;
 }
 
 std::unique_ptr<Species> Tiger::reproduce(const EcosystemState& ecosystem_state) {
@@ -76,7 +90,7 @@ std::unique_ptr<Species> Tiger::reproduce(const EcosystemState& ecosystem_state)
     Animal::reproduce(ecosystem_state);
     if (!can_reproduce()) return nullptr;
     energy -= reproduction_energy_cost;
-    reproduction_cooldown = 800;
+    reproduction_cooldown = base_reproduction_cooldown;
     const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
     int world_width = ecosystem_data.world_width;
     int world_height = ecosystem_data.world_height;
@@ -88,5 +102,5 @@ std::unique_ptr<Species> Tiger::reproduce(const EcosystemState& ecosystem_state)
     double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
     double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
     Position new_position{new_x, new_y};
-    return std::make_unique<Tiger>(new_position);
+    return g_species_factory.create("tiger", new_position);
 }

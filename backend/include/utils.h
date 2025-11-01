@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
-
+#define _USE_MATH_DEFINES // 把这行加在 #include <cmath> 之前
+#include <cmath>
 #include <vector>
 #include <string>
 #include <cmath>

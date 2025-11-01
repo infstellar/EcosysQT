@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "Ecosystem simulation Qt application",
   "dependencies": [
-    "eigen3"
+    "eigen3",
+    "nlohmann-json",
+    "spdlog",
+    "yaml-cpp",
+    "boost-pfr",
+    "boost-describe",
+    "boost-mp11"
   ]
 }

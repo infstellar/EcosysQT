@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 echo 正在构建 EcosysQT 项目...
 
 REM 检查 VCPKG_ROOT 是否设置

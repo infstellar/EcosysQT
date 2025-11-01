@@ -4,6 +4,7 @@
 */
 
 #include "species.h"
+#include "species_params.h"
 #include "ecosystem.h"
 #include <random>
 #include <algorithm>
@@ -11,19 +12,22 @@
 
 // --- Cow ---
 // 牛类 - 初级消费者
-Cow::Cow(Position pos)
-    : Animal(pos,                 // 初始位置
-             400,                 // 初始能量
-             4000,                // 最大能量
-             400,                 // 繁殖能量阈值
-             3.0,                 // 移动速度
-             2,                   // 繁殖冷却时间
-             5.0,                 // 繁殖能量消耗
-             1.0,                 // 基础能量消耗
-             800.0,               // 寿命上限
-             {"grass"},           // 可食用物种列表
-             0),                  // 初始年龄
-      eating_range(5.0)           // 吃草范围（米）
+
+Cow::Cow(Position pos, const CowParams& params)
+    : Animal(pos,
+             params.energy,
+             params.max_age,
+             params.reproduction_energy_cost,
+             params.movement_speed,
+             params.energy_consumption,
+             params.hunting_range,
+             params.hunting_success_rate,
+             params.detection_range,
+             params.food_types,
+             params.hunting_cooldown_duration),
+      eating_range(params.eating_range),
+      min_reproduction_age(params.min_reproduction_age),
+      base_reproduction_cooldown(params.reproduction_cooldown)
 {}
 
 void Cow::update(const EcosystemState& ecosystem_state) {
@@ -61,7 +65,7 @@ void Cow::_eat_grass(const std::vector<Grass*>& grass_list) {
 
 bool Cow::can_reproduce() const {
     // Check if can reproduce
-    return Animal::can_reproduce() && age > 20;
+    return Animal::can_reproduce() && age > min_reproduction_age;
 }
 
 std::unique_ptr<Species> Cow::reproduce(const EcosystemState& ecosystem_state) {
@@ -69,7 +73,7 @@ std::unique_ptr<Species> Cow::reproduce(const EcosystemState& ecosystem_state) {
     Animal::reproduce(ecosystem_state);
     if (!can_reproduce()) return nullptr;
     energy -= reproduction_energy_cost;
-    reproduction_cooldown = 200;
+    reproduction_cooldown = base_reproduction_cooldown;
     const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
     int world_width = ecosystem_data.world_width;
     int world_height = ecosystem_data.world_height;
@@ -81,5 +85,5 @@ std::unique_ptr<Species> Cow::reproduce(const EcosystemState& ecosystem_state) {
     double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
     double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
     Position new_position{new_x, new_y};
-    return std::make_unique<Cow>(new_position);
+    return g_species_factory.create("cow", new_position);
 }
