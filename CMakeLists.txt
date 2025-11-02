@@ -21,7 +21,12 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 查找我们需要的库 (通过vcpkg管理)
-find_package(Qt5 COMPONENTS Widgets REQUIRED)
+find_package(Qt5 COMPONENTS 
+    Core 
+    Gui 
+    Widgets 
+    REQUIRED
+)
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -59,10 +64,12 @@ add_executable(MyQtApp
 
 # --- 链接库 ---
 # 将你的可执行文件与所需库链接起来
-target_link_libraries(MyQtApp PRIVATE 
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    Qt5::Core
+    Qt5::Gui
     Qt5::Widgets
     Eigen3::Eigen
-    yaml-cpp::yaml-cpp
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    yaml-cpp
 )

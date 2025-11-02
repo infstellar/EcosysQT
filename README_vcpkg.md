@@ -44,7 +44,7 @@ setup_vcpkg.bat
 2. **设置环境变量**
    ```bash
    # 设置 VCPKG_ROOT 环境变量指向 vcpkg 安装目录
-   set VCPKG_ROOT=C:\path\to\vcpkg
+   set VCPKG_ROOT=C:\vcpkg
    ```
 
 3. **安装 CMake 和 Ninja**
