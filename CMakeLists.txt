@@ -65,5 +65,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Eigen3::Eigen
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    yaml-cpp
+    yaml-cpp::yaml-cpp
 )
