@@ -6,10 +6,13 @@
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <memory>
 #include "Widget.h"
 #include "ecosystem.h"
 #include "simulation.h"
+#include "species_factory.h"
+#include "species_config_provider.h"
 
 /**
  * 主函数 - 程序入口
@@ -106,6 +109,30 @@ int main(int argc, char *argv[])
     // 输出当前工作目录（用于调试资源文件路径）
     QString currentPath = QDir::currentPath();
     qDebug() << "当前工作目录:" << currentPath;
+    // 设定并验证 YAML 配置根目录，然后注入配置提供者并注册物种
+    auto configExistsAt = [](const QString& dir) -> bool {
+        return QFileInfo(QDir(dir).filePath("config/species.yaml")).exists();
+    };
+    QString exeDir = QCoreApplication::applicationDirPath();
+    QString configRoot = currentPath;
+    if (!configExistsAt(configRoot)) {
+        if (configExistsAt(exeDir)) {
+            configRoot = exeDir;
+        } else {
+            QString parentExeDir = QDir(exeDir).filePath("..");
+            if (configExistsAt(parentExeDir)) {
+                configRoot = QDir(parentExeDir).absolutePath();
+            } else {
+                QString parentCurrent = QDir(currentPath).filePath("..");
+                if (configExistsAt(parentCurrent)) {
+                    configRoot = QDir(parentCurrent).absolutePath();
+                }
+            }
+        }
+    }
+    qDebug() << "YAML 配置根目录:" << configRoot;
+    g_species_factory.set_config_provider(std::make_shared<YamlSpeciesConfigProvider>(configRoot.toStdString()));
+    register_all_species();
     
     try {
         // ========== 步骤 2: 创建生态系统配置 ==========

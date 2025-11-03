@@ -11,16 +11,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/vcpkg_installed",
-        "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw810_64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw810_64/bin/g++.exe",
-        "CMAKE_MAKE_PROGRAM": "C:/Qt/Tools/mingw810_64/bin/mingw32-make.exe"
-      },
-      "environment": {
-        "VCPKG_DEFAULT_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_FEATURE_FLAGS": "manifests",
-        "PATH": "C:/Qt/Tools/mingw810_64/bin;$penv{PATH}"
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic"
       }
     },
     {
@@ -33,16 +24,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/build-release/vcpkg_installed",
-        "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw810_64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw810_64/bin/g++.exe",
-        "CMAKE_MAKE_PROGRAM": "C:/Qt/Tools/mingw810_64/bin/mingw32-make.exe"
-      },
-      "environment": {
-        "VCPKG_DEFAULT_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_FEATURE_FLAGS": "manifests",
-        "PATH": "C:/Qt/Tools/mingw810_64/bin;$penv{PATH}"
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic"
       }
     }
   ],

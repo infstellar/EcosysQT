@@ -22,13 +22,13 @@ REM Create build directory
 if not exist build mkdir build
 
 REM Configure project
-echo Configuring project...
-cmake --preset default
-IF ERRORLEVEL 1 (
-    echo Configure failed!
-    pause
-    exit /b 1
-)
+@REM echo Configuring project...
+@REM cmake --preset default
+@REM IF ERRORLEVEL 1 (
+@REM     echo Configure failed!
+@REM     pause
+@REM     exit /b 1
+@REM )
 
 REM Build project
 echo Building project...
