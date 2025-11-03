@@ -1,4 +1,4 @@
-# vcpkg 设置脚本
+﻿# vcpkg 设置脚本
 Write-Host "正在设置 vcpkg 环境..." -ForegroundColor Green
 
 # 检查是否已经设置了 VCPKG_ROOT
