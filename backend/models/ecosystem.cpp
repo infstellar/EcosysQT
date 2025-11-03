@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <iostream>
 #include <Eigen/Dense>
+#include <cmath>
 
 // --- SpeciesType <-> string 映射函数 ---
 SpeciesType species_type_from_name(const std::string& name) {
@@ -126,6 +127,17 @@ void SpeciesRegistry::filter_all_alive() {
 EcosystemState::EcosystemState(const EcosystemConfig& config)
     : config(config), time_step(0), current_day(1), current_quadrum(1), current_year(1), 
       current_quadrum_name("Aprimay"), species_registry(config), births(), deaths(), population_history() {
+    // --- 均匀网格初始化 ---
+    // 选择一个合适的单元格尺寸，后续可根据物种参数调整
+    cell_size = 100.0;
+    grid_width = static_cast<int>(std::ceil(static_cast<double>(config.world_width) / cell_size));
+    grid_height = static_cast<int>(std::ceil(static_cast<double>(config.world_height) / cell_size));
+
+    // 调整网格大小以匹配维度（每个单元格为一个 Species 指针列表）
+    spatial_grid.resize(static_cast<size_t>(grid_width),
+        std::vector<std::vector<std::shared_ptr<Species>>>(static_cast<size_t>(grid_height))
+    );
+
     initialize_populations();
 }
 

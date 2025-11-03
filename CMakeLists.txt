@@ -41,6 +41,7 @@ include_directories(
 add_executable(MyQtApp
   main.cpp
   backend/engine/simulation.cpp
+  backend/engine/thread_pool.cpp
   backend/models/ecosystem.cpp
   backend/models/species_base.cpp
   backend/models/animal.cpp

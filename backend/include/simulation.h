@@ -3,6 +3,7 @@
 
 #include "ecosystem.h"
 #include "utils.h" // 包含 EcosystemStateData 的定义
+#include "thread_pool.h" // 线程池并发工具
 #include <thread>
 #include <atomic>
 #include <functional>
@@ -46,6 +47,8 @@ private:
 
     EcosystemConfig config;
     std::unique_ptr<EcosystemState> ecosystem;
+    // 并发线程池（阶段 0：基础设施）
+    std::unique_ptr<ThreadPool> thread_pool;
 
     std::atomic<bool> running;
     std::atomic<bool> paused;

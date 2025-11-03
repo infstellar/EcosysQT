@@ -135,5 +135,20 @@ public:
         const std::string& species_name, 
         const Position& center, 
         double radius) const;
+
+    // 并发只读接口：访问空间网格与参数
+    const std::vector<std::vector<std::vector<std::shared_ptr<Species>>>>& get_spatial_grid() const { return spatial_grid; }
+    double get_cell_size() const { return cell_size; }
+    int get_grid_width() const { return grid_width; }
+    int get_grid_height() const { return grid_height; }
+    
+private:
+    // --- 均匀网格 (Spatial Hash) ---
+    // 网格本身：一个2D数组，每个单元格(Cell)包含一个物种指针列表
+    std::vector<std::vector<std::vector<std::shared_ptr<Species>>>> spatial_grid;
+    // 网格参数
+    double cell_size{100.0};
+    int grid_width{0};
+    int grid_height{0};
 };
 #endif // ECOSYSTEM_H

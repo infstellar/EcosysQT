@@ -13,6 +13,8 @@
 // 前向声明
 class Species;
 
+// 交互请求类型已迁移至 interaction.h
+
 // 表示2D空间中坐标的位置结构体
 struct Position {
     double x;
