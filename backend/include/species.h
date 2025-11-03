@@ -86,8 +86,8 @@ public:
            double hunting_success_rate = 0.5, double detection_range = 500.0,
            std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
            int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
-           double eating_range = 0.0, double max_energy, double satisfied_threshold_ratio,
-           double starving_threshold_ratio, int wandering_duration);
+           double eating_range = 0.0, double max_energy = 100.0, double satisfied_threshold_ratio = 0.8,
+           double starving_threshold_ratio = 0.2, int wandering_duration = 50);
 
     void update(const EcosystemState& ecosystem_state) override;
     // 寻找最近的食物来源
