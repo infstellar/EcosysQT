@@ -124,7 +124,8 @@ void SpeciesRegistry::filter_all_alive() {
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
-    : config(config), time_step(0), species_registry(config), births(), deaths(), population_history() {
+    : config(config), time_step(0), current_day(1), current_quadrum(1), current_year(1), 
+      current_quadrum_name("Aprimay"), species_registry(config), births(), deaths(), population_history() {
     initialize_populations();
 }
 
@@ -152,6 +153,10 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.world_width = config.world_width;
     state.world_height = config.world_height;
     state.time_step = time_step;
+    state.current_day = current_day;
+    state.current_quadrum = current_quadrum;
+    state.current_year = current_year;
+    state.current_quadrum_name = current_quadrum_name;
 
     // 填充species_lists map
     for (const auto& species_name : species_registry.get_all_species_names()) {
@@ -186,6 +191,25 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
 }
 
 /*
+使用统一逻辑更新时间状态
+*/
+void EcosystemState::update_time() {
+    // --- 时间推进与计算 ---
+    time_step++; // tick 递增
+    
+    // 根据 time_step (tick) 计算天、季度、年
+    current_day = (time_step / 30000) + 1;
+    current_year = ((current_day - 1) / 60) + 1;
+    // 计算当前是本年度的第几天 (1-60)
+    int day_of_year = ((current_day - 1) % 60) + 1;
+    current_quadrum = ((day_of_year - 1) / 15) + 1;
+
+    // 根据季度设置名称
+    static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
+    current_quadrum_name = quadrum_names[current_quadrum - 1];
+}
+
+/*
 使用统一逻辑更新所有物种
 */
 void EcosystemState::update_species() {
@@ -210,7 +234,6 @@ void EcosystemState::handle_reproduction() {
                 auto offspring = individual->reproduce(*this); // 调用物种的繁殖方法
                 if (offspring) new_individuals.push_back(std::move(offspring)); // 加入新个体列表
                 // std::move 将 unique_ptr 的所有权转移给 push_back，避免拷贝，提高效率
-                if (offspring) new_individuals.push_back(std::move(offspring)); 
             }
         }
         species_registry.extend_individuals(name, new_individuals);
@@ -295,6 +318,10 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     time_step = 0;
+    current_day = 1;
+    current_quadrum = 1;
+    current_year = 1;
+    current_quadrum_name = "Aprimay";
     species_registry.clear_all();
     births.reset();
     deaths.reset();

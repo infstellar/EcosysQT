@@ -124,20 +124,21 @@ void SimulationEngine::update_ecosystem() {
     // The logic from Python's _update_ecosystem is now encapsulated
     // within the C++ EcosystemState methods.
     
-    // 1. Update all species (includes movement, energy loss, etc.)
+    // 1. Update time
+    ecosystem->update_time();
+
+    // 2. Update all species (includes movement, energy loss, etc.)
     ecosystem->update_species();
 
-    // 2. Handle reproduction
+    // 3. Handle reproduction
     ecosystem->handle_reproduction();
 
-    // 3. Clean up dead individuals
+    // 4. Clean up dead individuals
     ecosystem->cleanup_dead();
 
-    // 4. Update statistics
+    // 5. Update statistics
     ecosystem->update_statistics();
 
-    // 5. Increment time step
-    ecosystem->time_step++;
 }
 
 // --- SimulationController Implementation ---

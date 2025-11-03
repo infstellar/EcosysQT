@@ -29,6 +29,10 @@ struct EcosystemStateData {
     int world_height;
     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;
     int time_step;
+    int current_day;
+    int current_quadrum;
+    int current_year;
+    std::string current_quadrum_name;
     Eigen::MatrixXd grass_positions_array; // 对应Python中的numpy数组
     std::vector<std::shared_ptr<Species>> alive_grass_objects;
 };

@@ -107,6 +107,10 @@ class EcosystemState {
 public:
     EcosystemConfig config;
     int time_step;
+    int current_day;
+    int current_quadrum;
+    int current_year;
+    std::string current_quadrum_name;
     SpeciesRegistry species_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
@@ -116,6 +120,7 @@ public:
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
+    void update_time();
     void update_species();
     void handle_reproduction();
     void update_statistics();
