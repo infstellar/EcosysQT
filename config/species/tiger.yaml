@@ -14,4 +14,7 @@ tiger:
     hunting_cooldown_duration: 4
     min_reproduction_age: 30
     reproduction_cooldown: 800
+    satisfied_threshold_ratio: 0.7
+    starving_threshold_ratio: 0.25
+    wandering_duration: 80
   tiger:

@@ -59,6 +59,13 @@ public:
     virtual ~Species() = default;
 };
 
+// 动物饱食状态枚举
+enum class HungerState {
+    SATISFIED,   // 吃饱了，低欲望，倾向于随机移动（逛街）
+    NORMAL,      // 正常状态，根据物种习性决定行为
+    STARVING     // 饥饿状态，高欲望，主动寻找食物
+};
+
 // 动物类，继承自Species，添加移动和狩猎逻辑
 class Animal : public Species {
 public:
@@ -79,8 +86,10 @@ public:
            double hunting_success_rate = 0.5, double detection_range = 500.0,
            std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
            int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
-           double eating_range = 0.0);
+           double eating_range = 0.0, double max_energy, double satisfied_threshold_ratio,
+           double starving_threshold_ratio, int wandering_duration);
 
+    void update(const EcosystemState& ecosystem_state) override;
     // 寻找最近的食物来源
     virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
     // 向目标位置移动
@@ -102,6 +111,9 @@ public:
     // 统一的繁殖实现：基于当前物种键创建子代
     std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
 
+    // 获取当前捕食意愿（0-1），应为虚函数以支持不同动物的特殊逻辑
+    virtual double get_hunting_desire() const;
+
 protected:
     // 子类可覆盖的繁殖偏移半径（用于随机生成子代位置）
     virtual double reproduction_spawn_radius() const { return 10.0; }
@@ -109,6 +121,20 @@ protected:
     std::optional<Position> current_target;
     std::vector<Position> planned_path;
     size_t planned_path_index;
+
+    // 新增状态管理成员
+    HungerState hunger_state;
+    double satisfied_threshold;    // 吃饱阈值（基于最大能量的比例）
+    double starving_threshold;     // 饥饿阈值（基于最大能量的比例）
+    double base_movement_speed;    // 基础移动速度
+    double base_energy_consumption; // 基础能量消耗
+    bool is_wandering;             // 是否处于逛街状态
+    int wandering_cooldown;        // 逛街冷却/持续时间
+
+    // 更新饱食状态
+    void update_hunger_state();
+    // 根据状态调整能耗和速度
+    void adjust_stats_by_state();
 };
 
 // 草类，继承自Species，实现生产者逻辑

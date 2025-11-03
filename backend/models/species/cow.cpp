@@ -27,40 +27,27 @@ Cow::Cow(Position pos, const CowParams& params)
              params.hunting_cooldown_duration,
              params.min_reproduction_age,
              params.reproduction_cooldown,
-             params.eating_range)
+             params.eating_range,
+             params.energy, // Use initial energy as max_energy
+             params.satisfied_threshold_ratio,
+             params.starving_threshold_ratio,
+             params.wandering_duration)
 {
     species_name = "cow";
 }
 
 void Cow::update(const EcosystemState& ecosystem_state) {
-    // 更新牛的状态
     Animal::update(ecosystem_state);
     if (!alive) return;
-    intelligent_move(ecosystem_state);
-    energy -= energy_consumption;
-    
-    // 使用通用查询接口寻找附近的草
-    auto grass_in_range = ecosystem_state.get_species_in_range("grass", position, eating_range);
-    
-    // 吃草
-    for (const auto& grass : grass_in_range) {
-        if (grass->alive) {
-            energy = std::min(max_energy, energy + grass->energy);
-            grass->die_from_predation("Cow");
-            break;
-        }
-    }
-    
-    if (energy <= 0) die_from_starvation();
-}
 
-void Cow::_eat_grass(const std::vector<Grass*>& grass_list) {
-    // 吃草
-    for (auto* grass : grass_list) {
-        if (grass->alive && position.distance_to(grass->position) <= eating_range) {
-            energy = std::min(max_energy, energy + grass->energy);
-            grass->die_from_predation("Cow");
-            break;
+    if (hunger_state != HungerState::SATISFIED) {
+        auto grass_in_range = ecosystem_state.get_species_in_range("grass", position, eating_range);
+        for (const auto& grass : grass_in_range) {
+            if (grass->alive) {
+                energy = std::min(max_energy, energy + grass->energy);
+                grass->die_from_predation("Cow");
+                break;
+            }
         }
     }
 }

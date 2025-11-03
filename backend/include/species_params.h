@@ -25,6 +25,9 @@ struct AnimalParams : SpeciesBaseParams {
     int min_reproduction_age = 0;
     int reproduction_cooldown = 0;
     double eating_range = 0.0;
+    double satisfied_threshold_ratio = 0.8;   // 吃饱阈值比例
+    double starving_threshold_ratio = 0.2;    // 饥饿阈值比例
+    int wandering_duration = 50;              // 逛街持续时间
 };
 
 // 老虎特有参数（继承动物参数）
@@ -48,7 +51,7 @@ struct GrassParams : SpeciesBaseParams {
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range))
+    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration))
 BOOST_DESCRIBE_STRUCT(TigerParams, (AnimalParams),
     ())
 BOOST_DESCRIBE_STRUCT(CowParams, (AnimalParams),

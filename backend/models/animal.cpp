@@ -24,9 +24,15 @@ Animal::Animal(Position pos,
                int hunting_cooldown_duration,
                int min_reproduction_age,
                int base_reproduction_cooldown,
-               double eating_range)
+               double eating_range,
+               double max_energy,
+               double satisfied_threshold_ratio,
+               double starving_threshold_ratio,
+               int wandering_duration)
     : Species(pos, energy, max_age, reproduction_energy_cost),
+      base_movement_speed(movement_speed),
       movement_speed(movement_speed),
+      base_energy_consumption(energy_consumption),
       energy_consumption(energy_consumption),
       hunting_range(hunting_range),
       hunting_success_rate(hunting_success_rate),
@@ -39,7 +45,76 @@ Animal::Animal(Position pos,
       eating_range(eating_range),
       current_target(std::nullopt),
       planned_path(),
-      planned_path_index(0) {}
+      planned_path_index(0),
+      hunger_state(HungerState::NORMAL),
+      satisfied_threshold(max_energy * satisfied_threshold_ratio),
+      starving_threshold(max_energy * starving_threshold_ratio),
+      is_wandering(false),
+      wandering_cooldown(wandering_duration) {}
+
+void Animal::update(const EcosystemState& ecosystem_state) {
+    Species::update(ecosystem_state);
+    if (!alive) return;
+
+    update_hunger_state();
+    adjust_stats_by_state();
+
+    energy -= energy_consumption;
+
+    if (is_wandering) {
+        move_randomly(ecosystem_state.config.world_width, ecosystem_state.config.world_height, movement_speed);
+    } else {
+        intelligent_move(ecosystem_state);
+    }
+}
+
+void Animal::update_hunger_state() {
+    if (energy >= satisfied_threshold) {
+        hunger_state = HungerState::SATISFIED;
+    } else if (energy <= starving_threshold) {
+        hunger_state = HungerState::STARVING;
+    } else {
+        hunger_state = HungerState::NORMAL;
+    }
+}
+
+void Animal::adjust_stats_by_state() {
+    switch (hunger_state) {
+        case HungerState::SATISFIED:
+            is_wandering = true;
+            wandering_cooldown = 100; // Example value, should be configurable
+            movement_speed = base_movement_speed * 0.8;
+            energy_consumption = base_energy_consumption * 0.8;
+            break;
+        case HungerState::STARVING:
+            is_wandering = false;
+            movement_speed = base_movement_speed * 2.0;
+            energy_consumption = base_energy_consumption * 2.0;
+            break;
+        case HungerState::NORMAL:
+        default:
+            if (wandering_cooldown > 0) {
+                wandering_cooldown--;
+            } else {
+                is_wandering = false;
+            }
+            movement_speed = base_movement_speed;
+            energy_consumption = base_energy_consumption;
+            break;
+    }
+}
+
+double Animal::get_hunting_desire() const {
+    switch (hunger_state) {
+        case HungerState::STARVING:
+            return 1.0;
+        case HungerState::NORMAL:
+            return 0.5;
+        case HungerState::SATISFIED:
+        default:
+            return 0.0;
+    }
+}
 
 std::optional<Position> Animal::find_nearest_food(const EcosystemState& ecosystem_state) {
     // 寻找最近的食物源

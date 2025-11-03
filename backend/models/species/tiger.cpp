@@ -27,53 +27,31 @@ Tiger::Tiger(Position pos, const TigerParams& params)
              params.hunting_cooldown_duration,
              params.min_reproduction_age,
              params.reproduction_cooldown,
-             params.eating_range) {
+             params.eating_range,
+             params.energy, // Use initial energy as max_energy
+             params.satisfied_threshold_ratio,
+             params.starving_threshold_ratio,
+             params.wandering_duration) {
     species_name = "tiger";
 }
 
 void Tiger::update(const EcosystemState& ecosystem_state) {
-    // 更新老虎状态
     Animal::update(ecosystem_state);
-    if (energy <= reproduction_energy_cost / 3) {
-        hunting_success_rate = 0.2 + 0.6 * (1.0 - age / (double)max_age);
-    } else {
-        hunting_success_rate = 0.2;
-    }
     if (!alive) return;
-    intelligent_move(ecosystem_state);
-    energy -= energy_consumption;
-    
-    // 使用通用查询接口寻找附近的牛
+
+    double desire = get_hunting_desire();
+    if (desire <= 0) return;
+
     auto cows_in_range = ecosystem_state.get_species_in_range("cow", position, hunting_range);
-    
-    // 狩猎牛
+    if (cows_in_range.empty()) return;
+
     static std::random_device rd;
     static std::mt19937 gen(rd());
     std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
 
-    for (const auto& cow : cows_in_range) {
-        if (cow->alive) {
-            if (hunt_dist(gen) < hunting_success_rate) {
-                energy = std::min(max_energy, energy + cow->energy);
-                cow->die_from_predation("Tiger");
-                start_hunting_cooldown();
-                break;
-            }
-        }
-    }
-    
-    if (energy <= 0) die_from_starvation();
-}
-
-void Tiger::_hunt_cows(const std::vector<Cow*>& cow_list) {
-    // 狩猎牛
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
-
-    for (auto* cow : cow_list) {
-        if (cow->alive && position.distance_to(cow->position) <= hunting_range) {
-            if (hunt_dist(gen) < hunting_success_rate) {
+    if (hunt_dist(gen) < hunting_success_rate * desire) {
+        for (const auto& cow : cows_in_range) {
+            if (cow->alive) {
                 energy = std::min(max_energy, energy + cow->energy);
                 cow->die_from_predation("Tiger");
                 start_hunting_cooldown();

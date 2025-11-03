@@ -11,3 +11,6 @@ animal:
     min_reproduction_age: 0
     reproduction_cooldown: 0
     eating_range: 0.0
+    satisfied_threshold_ratio: 0.8
+    starving_threshold_ratio: 0.2
+    wandering_duration: 50

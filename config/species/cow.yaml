@@ -15,4 +15,7 @@ cow:
     min_reproduction_age: 20
     reproduction_cooldown: 200
     eating_range: 8.0
+    satisfied_threshold_ratio: 0.9
+    starving_threshold_ratio: 0.3
+    wandering_duration: 150
   cow:
