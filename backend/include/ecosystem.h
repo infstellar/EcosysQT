@@ -2,7 +2,8 @@
 生态系统数据模型
 管理整个生态系统状态和数据 (C++ 迁移版本)
 */
-
+#ifndef ECOSYSTEM_H
+#define ECOSYSTEM_H
 // #pragma once
 #include <vector>
 #include <string>
@@ -130,3 +131,4 @@ public:
         const Position& center, 
         double radius) const;
 };
+#endif // ECOSYSTEM_H

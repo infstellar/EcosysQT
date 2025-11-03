@@ -35,15 +35,11 @@ find_package(spdlog CONFIG REQUIRED)
 # 添加头文件搜索路径（后端与前端 UI 接口）
 include_directories(
     ${CMAKE_SOURCE_DIR}/backend/include
-    ${CMAKE_SOURCE_DIR}/ui/include
     ${CMAKE_SOURCE_DIR}/src/ui
 )# --- 添加源文件 ---
 # 定义可执行文件及其源文件
 add_executable(MyQtApp
   main.cpp
-  mainwindow.cpp
-  mainwindow.h
-  mainwindow.ui
   backend/engine/simulation.cpp
   backend/models/ecosystem.cpp
   backend/models/species_base.cpp
@@ -56,8 +52,6 @@ add_executable(MyQtApp
   # 前端 UI 模块
   src/ui/Widget.cpp
   src/ui/Widget.h
-  src/ui/DummyBackend.cpp
-  src/ui/DummyBackend.h
   # 资源文件（AUTORCC）
   
   resources/app.qrc)
