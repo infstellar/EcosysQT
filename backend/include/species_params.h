@@ -25,6 +25,7 @@ struct AnimalParams : SpeciesBaseParams {
     int min_reproduction_age = 0;
     int reproduction_cooldown = 0;
     double eating_range = 0.0;
+    double energy_efficiency = 1.0; //能量利用率，默认为100%
     double satisfied_threshold_ratio = 0.8;   // 吃饱阈值比例
     double starving_threshold_ratio = 0.2;    // 饥饿阈值比例
     int wandering_duration = 50;              // 逛街持续时间

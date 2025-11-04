@@ -31,7 +31,9 @@ Tiger::Tiger(Position pos, const TigerParams& params)
              params.energy, // Use initial energy as max_energy
              params.satisfied_threshold_ratio,
              params.starving_threshold_ratio,
-             params.wandering_duration) {
+             params.wandering_duration, 
+             params.energy_efficiency) 
+{
     species_name = "tiger";
 }
 
@@ -52,7 +54,7 @@ void Tiger::update(const EcosystemState& ecosystem_state) {
     if (hunt_dist(gen) < hunting_success_rate * desire) {
         for (const auto& cow : cows_in_range) {
             if (cow->alive) {
-                energy = std::min(max_energy, energy + cow->energy);
+                energy = std::min(max_energy, energy + (cow->energy * this->energy_efficiency));
                 cow->die_from_predation("Tiger");
                 start_hunting_cooldown();
                 break;
