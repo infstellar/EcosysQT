@@ -24,16 +24,18 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_cowCount(0)
     , m_tigerCount(0)
     , m_timeStep(0)
+    , m_currentYear(1)   // 初始化新增变量
+    , m_currentDay(1)    // 初始化新增变量
+    , m_currentQuadrumName("Aprimay") // 初始化新增变量
 {
     m_backgroundImage.load(":/images/grass.png");
     if (m_backgroundImage.isNull()) {
         qDebug() << "警告: 背景图加载失败，使用纯色背景";
     }
     
-    m_elapsedTimer.start();
     
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
-    m_updateTimer->start(1000);
+    m_updateTimer->start(16);
     
     if (m_controller) {
         m_currentData = m_controller->get_data();
@@ -126,7 +128,9 @@ void Widget::updateStatistics()
     m_tigerCount = 0;
     
     m_timeStep = m_currentData.time_step;
-    
+    m_currentYear = m_currentData.current_year;
+    m_currentDay = m_currentData.current_day;
+    m_currentQuadrumName = m_currentData.current_quadrum_name;
     // ========== 遍历 map：物种名称 -> 个体列表 ==========
     /**
      * C++17 结构化绑定语法：
@@ -257,15 +261,16 @@ void Widget::paintEvent(QPaintEvent *event)
      * 信息面板布局：
      * 
      * ┌────────────────────────────┐
-     * │ 运行时间: 00:05:23         │ ← 30px
-     * │ 时间步: 1500               │ ← 54px
-     * │ 总数量: 85                 │ ← 78px
-     * │ 草:  █ 60                  │ ← 102px
-     * │ 牛:  █ 20                  │ ← 126px
-     * │ 老虎: █ 5                  │ ← 150px
+     * │ 年: 1   天: 1              │
+     * │ 季: Aprimay                │
+     * │ 时间步: 0                  │
+     * │ 总数量: 85                 │
+     * │ 草:  █ 60                  │
+     * │ 牛:  █ 20                  │
+     * │ 老虎: █ 5                  │
      * └────────────────────────────┘
      */
-    QRectF infoRect(10, 10, 280, 160);
+    QRectF infoRect(10, 10, 280, 184);
     painter.setBrush(QColor(0, 0, 0, 180));
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(infoRect, 5, 5);
@@ -277,7 +282,10 @@ void Widget::paintEvent(QPaintEvent *event)
     int textY = 30;
     int lineHeight = 24;
     
-    painter.drawText(20, textY, "运行时间: " + formatElapsedTime());
+    painter.drawText(20, textY, QString("年: %1   天: %2").arg(m_currentYear).arg(m_currentDay));
+    textY += lineHeight;
+    
+    painter.drawText(20, textY, QString("季: %1").arg(QString::fromStdString(m_currentQuadrumName)));
     textY += lineHeight;
     
     painter.drawText(20, textY, QString("时间步: %1").arg(m_timeStep));
@@ -300,19 +308,6 @@ void Widget::paintEvent(QPaintEvent *event)
     painter.drawText(20, textY, "老虎: ");
     painter.fillRect(70, textY - 14, 18, 18, getColorForType(SpeciesType::TIGER));
     painter.drawText(95, textY, QString::number(m_tigerCount));
-}
-
-QString Widget::formatElapsedTime() const
-{
-    qint64 elapsed = m_elapsedTimer.elapsed();
-    int seconds = (elapsed / 1000) % 60;
-    int minutes = (elapsed / 60000) % 60;
-    int hours = (elapsed / 3600000);
-    
-    return QString("%1:%2:%3")
-        .arg(hours, 2, 10, QChar('0'))
-        .arg(minutes, 2, 10, QChar('0'))
-        .arg(seconds, 2, 10, QChar('0'));
 }
 
 QColor Widget::getColorForType(SpeciesType type) const

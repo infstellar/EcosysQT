@@ -90,7 +90,6 @@ private:
     // ========== UI 资源 ==========
     
     QPixmap m_backgroundImage;
-    QElapsedTimer m_elapsedTimer;
     QTimer* m_updateTimer;
     
     // ========== 统计数据缓存 ==========
@@ -99,7 +98,10 @@ private:
     int m_cowCount;
     int m_tigerCount;
     int m_timeStep;
-    
+    int m_currentYear;          // 当前年份
+    int m_currentDay;           // 当前天数
+    std::string m_currentQuadrumName; // 当前季度名称
+
     // ========== 辅助函数 ==========
     
     void updateStatistics();
@@ -115,7 +117,6 @@ private:
      */
     QPointF toScreenCoords(const Position& pos) const;
     
-    QString formatElapsedTime() const;
     
     /**
      * 从物种名称转换为 SpeciesType 枚举

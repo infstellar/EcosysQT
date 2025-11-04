@@ -124,8 +124,7 @@ void SpeciesRegistry::filter_all_alive() {
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
-    : config(config), time_step(0), current_day(1), current_quadrum(1), current_year(1), 
-      current_quadrum_name("Aprimay"), species_registry(config), births(), deaths(), population_history() {
+    : config(config), time_step(0), species_registry(config), births(), deaths(), population_history() {
     initialize_populations();
 }
 
@@ -146,6 +145,31 @@ void EcosystemState::initialize_populations() {
 }
 
 /*
+使用getter函数算出时间
+*/
+int EcosystemState::get_current_day() const {
+    return (time_step / 30000) + 1;
+}
+
+int EcosystemState::get_current_year() const {
+    return ((get_current_day() - 1) / 60) + 1;
+}
+
+int EcosystemState::get_current_quadrum() const {
+    int day_of_year = ((get_current_day() - 1) % 60) + 1;
+    return ((day_of_year - 1) / 15) + 1;
+}
+
+std::string EcosystemState::get_current_quadrum_name() const {
+    static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
+    int quadrum_index = get_current_quadrum() - 1;
+    if (quadrum_index >= 0 && quadrum_index < 4) {
+        return quadrum_names[quadrum_index];
+    }
+    return "Unknown"; // 安全保护
+}
+
+/*
 获取用于模拟和前端的生态系统状态快照
 */
 EcosystemStateData EcosystemState::get_ecosystem_state() const {
@@ -153,10 +177,10 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.world_width = config.world_width;
     state.world_height = config.world_height;
     state.time_step = time_step;
-    state.current_day = current_day;
-    state.current_quadrum = current_quadrum;
-    state.current_year = current_year;
-    state.current_quadrum_name = current_quadrum_name;
+    state.current_day = get_current_day();
+    state.current_quadrum = get_current_quadrum();
+    state.current_year = get_current_year();
+    state.current_quadrum_name = get_current_quadrum_name();
 
     // 填充species_lists map
     for (const auto& species_name : species_registry.get_all_species_names()) {
@@ -196,17 +220,6 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
 void EcosystemState::update_time() {
     // --- 时间推进与计算 ---
     time_step++; // tick 递增
-    
-    // 根据 time_step (tick) 计算天、季度、年
-    current_day = (time_step / 30000) + 1;
-    current_year = ((current_day - 1) / 60) + 1;
-    // 计算当前是本年度的第几天 (1-60)
-    int day_of_year = ((current_day - 1) % 60) + 1;
-    current_quadrum = ((day_of_year - 1) / 15) + 1;
-
-    // 根据季度设置名称
-    static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
-    current_quadrum_name = quadrum_names[current_quadrum - 1];
 }
 
 /*
@@ -318,10 +331,6 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     time_step = 0;
-    current_day = 1;
-    current_quadrum = 1;
-    current_year = 1;
-    current_quadrum_name = "Aprimay";
     species_registry.clear_all();
     births.reset();
     deaths.reset();

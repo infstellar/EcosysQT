@@ -107,16 +107,18 @@ class EcosystemState {
 public:
     EcosystemConfig config;
     int time_step;
-    int current_day;
-    int current_quadrum;
-    int current_year;
-    std::string current_quadrum_name;
     SpeciesRegistry species_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
     std::vector<std::map<SpeciesType, int>> population_history;
 
     EcosystemState(const EcosystemConfig& config);
+
+    // 用于实时计算时间的 getter 函数
+    int get_current_day() const;
+    int get_current_quadrum() const;
+    int get_current_year() const;
+    std::string get_current_quadrum_name() const;
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
