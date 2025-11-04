@@ -165,6 +165,16 @@ public:
         const Position& center, 
         double radius) const;
 
+    /**
+     * @brief [线程安全] 基于空间网格的粗查询，返回附近单元格中的所有物种。
+     * @param center 查询中心点
+     * @param radius 查询半径（用于确定应访问的网格单元）
+     * @return 包含周围单元格内所有物种指针的列表（结果未去重，也可能包含超出精确半径的个体）
+     */
+    std::vector<std::shared_ptr<Species>> get_nearby_species_broad(
+        const Position& center,
+        double radius) const;
+
     // 并发只读接口：访问空间网格与参数
     const std::vector<std::vector<std::vector<std::shared_ptr<Species>>>>& get_spatial_grid() const { return spatial_grid; }
     double get_cell_size() const { return cell_size; }
@@ -186,8 +196,8 @@ private:
     std::unordered_map<Species*, double> energy_changes;
     // 标记待移除的物种集合。
     std::unordered_set<Species*> marked_for_death;
-    // 标记待出生的新物种的位置列表。
-    std::vector<Position> marked_for_birth;
+    // 标记待出生的新物种的父代指针。
+    std::vector<std::shared_ptr<Species>> reproduction_parents;
 
     // 线程局部的随机数生成器。
     static thread_local std::mt19937 thread_local_rng;

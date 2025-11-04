@@ -37,30 +37,45 @@ Tiger::Tiger(Position pos, const TigerParams& params)
     species_name = "tiger";
 }
 
-void Tiger::update(const EcosystemState& ecosystem_state) {
-    Animal::update(ecosystem_state);
-    if (!alive) return;
+void Tiger::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    Animal::decide(ecosystem_state, rng);
+    if (!alive) {
+        return;
+    }
 
-    double desire = get_hunting_desire();
-    if (desire <= 0) return;
+    const double desire = get_hunting_desire();
+    if (desire <= 0.0) {
+        return;
+    }
 
-    auto cows_in_range = ecosystem_state.get_species_in_range("cow", position, hunting_range);
-    if (cows_in_range.empty()) return;
+    auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, hunting_range);
+    if (nearby_entities.empty()) {
+        return;
+    }
 
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
     std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
-
-    if (hunt_dist(gen) < hunting_success_rate * desire) {
-        for (const auto& cow : cows_in_range) {
-            if (cow->alive) {
-                energy = std::min(max_energy, energy + (cow->energy * this->energy_efficiency));
-                cow->die_from_predation("Tiger");
-                start_hunting_cooldown();
-                break;
+    if (hunt_dist(rng) < hunting_success_rate * desire) {
+        for (const auto& entity : nearby_entities) {
+            if (!entity || !entity->alive) {
+                continue;
             }
+            if (entity->species_name != "cow") {
+                continue;
+            }
+            if (position.distance_to(entity->position) > hunting_range) {
+                continue;
+            }
+
+            AttemptToEatRequest hunt_request{shared_from_this(), entity};
+            ecosystem_state.submit_interaction_request(std::move(hunt_request));
+            start_hunting_cooldown();
+            break;
         }
     }
+}
+
+void Tiger::apply(const EcosystemState& ecosystem_state) {
+    Animal::apply(ecosystem_state);
 }
 
 bool Tiger::can_reproduce() const {

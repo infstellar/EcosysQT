@@ -21,23 +21,26 @@ Species::Species(Position pos, double energy, int max_age, double reproduction_e
     reproduction_cooldown(0),
     death_reason(""),
     species_name("Species"),
-    reproduction_energy_cost(reproduction_energy_cost) {}
+    reproduction_energy_cost(reproduction_energy_cost),
+    pending_spawn_position(std::nullopt) {}
 
-void Species::update(const EcosystemState& ecosystem_state) {
-    /*
-    此函数只更新对象内部状态随时间变化，不涉及外部环境的交互。
-     */
-    if (!alive) return;
-    // 减少繁殖冷却时间
-    if (reproduction_cooldown > 0) reproduction_cooldown -= 1;
-    age_one_step(); // 年龄增加一步
+void Species::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    (void)ecosystem_state; // 基类暂不使用共享状态
+    (void)rng; // 基类暂不使用随机性
+    if (!alive) {
+        return;
+    }
+    if (reproduction_cooldown > 0) {
+        reproduction_cooldown -= 1;
+    }
+    age += 1;
+    if (age >= max_age) {
+        die("Old age");
+    }
 }
 
-void Species::cross_species_update(const EcosystemState& ecosystem_state) {
-    /*
-    此函数更新对象内部状态随时间变化，涉及外部环境的交互。
-     */
-
+void Species::apply(const EcosystemState& ecosystem_state) {
+    (void)ecosystem_state; // 基类当前无额外应用逻辑
 }
 
 bool Species::can_reproduce() const {
@@ -50,13 +53,12 @@ std::unique_ptr<Species> Species::reproduce(const EcosystemState& ecosystem_stat
     return nullptr;
 }
 
-void Species::move_randomly(int world_width, int world_height, double speed) {
-    // 随机移动
-    if (!alive) return;
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
+void Species::move_randomly(int world_width, int world_height, double speed, std::mt19937& rng) {
+    if (!alive) {
+        return;
+    }
     std::uniform_real_distribution<> angle_dist(0, 2 * M_PI);
-    double angle = angle_dist(gen);
+    double angle = angle_dist(rng);
     double dx = std::cos(angle) * speed;
     double dy = std::sin(angle) * speed;
     // 使用边界约束更新位置
@@ -81,3 +83,12 @@ void Species::die(const std::string& reason) {
 void Species::die_from_old_age() { die("Old age"); }
 void Species::die_from_starvation() { die("Starvation"); }
 void Species::die_from_predation(const std::string& predator_name) { die("Predation by " + predator_name); }
+
+std::optional<Position> Species::consume_pending_spawn_position() {
+    if (!pending_spawn_position.has_value()) {
+        return std::nullopt;
+    }
+    auto result = pending_spawn_position;
+    pending_spawn_position.reset();
+    return result;
+}

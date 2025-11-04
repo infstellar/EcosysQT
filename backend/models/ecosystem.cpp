@@ -4,6 +4,7 @@
 */
 
 #include "ecosystem.h"
+#include "thread_pool.h"
 #include <random>
 #include <algorithm>
 #include <Eigen/Dense>
@@ -18,6 +19,12 @@ thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}(
 thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
 
 // --- SpeciesType <-> string 映射函数 ---
+/**
+ * @brief 将物种名称字符串转换为 SpeciesType 枚举。
+ * @param name 物种的名称 (例如, "grass")。
+ * @return 对应的 SpeciesType 枚举值。
+ * @throws std::invalid_argument 如果物种名称未知。
+ */
 SpeciesType species_type_from_name(const std::string& name) {
     if (name == "grass") return SpeciesType::GRASS;
     if (name == "cow") return SpeciesType::COW;
@@ -25,6 +32,11 @@ SpeciesType species_type_from_name(const std::string& name) {
     throw std::invalid_argument("Unknown species name: " + name);
 }
 
+/**
+ * @brief 将 SpeciesType 枚举转换为物种名称字符串。
+ * @param type SpeciesType 枚举值。
+ * @return 对应的物种名称字符串，如果类型无效则返回空字符串。
+ */
 std::string name_from_species_type(SpeciesType type) {
     switch(type) {
         case SpeciesType::GRASS: return "grass";
@@ -254,89 +266,146 @@ void EcosystemState::update_statistics() {
 }
 
 /**
- * @brief 准备进行新一轮的并发更新。
+ * @brief 为并发更新周期准备生态系统状态。
  *
- * 此函数在每个模拟步骤的开始被调用，用于清理和重置与并发更新相关的状态。
- * 主要包括：
- * 1. 清空空间哈希网格，为重新构建索引做准备。
- * 2. 清理上一轮的交互请求、能量变更、死亡标记和出生标记。
+ * 这是多阶段并发更新的第一步。此函数通过清理上一周期的状态并重建
+ * 空间哈希网格来为新的模拟周期做准备。主要操作包括：
+ * 1. 清空空间网格，为重新填充做准备。
+ * 2. 清理所有用于并发控制的请求队列和状态跟踪器（如死亡、出生、能量变化等）。
+ * 3. 遍历所有存活的个体，根据它们当前的位置将其重新插入到空间网格中。
+ *    这确保了在决策阶段，所有空间查询（如邻居查找）都使用最新的数据。
  */
 void EcosystemState::prepare_for_update() {
-    // TODO(阶段后续): 基于均匀网格构建空间索引，取代旧的四叉树方案。
+    // 遍历并清空空间网格中的每个单元格
     for (auto& column : spatial_grid) {
         for (auto& cell : column) {
             cell.clear();
         }
     }
 
-    staged_requests.clear();
-    main_thread_requests.clear();
-    energy_changes.clear();
-    marked_for_death.clear();
-    marked_for_birth.clear();
+    staged_requests.clear();      // 清空暂存的交互请求
+    main_thread_requests.clear(); // 清空主线程处理的请求
+    energy_changes.clear();       // 清空能量变化记录
+    marked_for_death.clear();     // 清空待移除的生物体列表
+    reproduction_parents.clear(); // 清空待新生的父代列表
+
+    // 检查网格尺寸是否有效，无效则直接返回
+    if (grid_width <= 0 || grid_height <= 0) {
+        return;
+    }
+
+    // Rebuild spatial grid so decision phase has up-to-date neighborhood queries.
+    const auto species_names = species_registry.get_all_species_names(); // 获取所有物种的名称
+    // 遍历每个物种
+    for (const auto& name : species_names) {
+        auto& list = species_registry.get_species_list(name); // 获取该物种的生物体列表
+        // 遍历该物种中的每个生物体
+        for (auto& individual : list) {
+            // 如果生物体无效或已死亡，则跳过
+            if (!individual || !individual->alive) {
+                continue;
+            }
+
+            // 使用向下取整以确保负坐标也映射到正确单元。
+            const double normalized_x = individual->position.x / cell_size;
+            const double normalized_y = individual->position.y / cell_size;
+            int cell_x = static_cast<int>(std::floor(normalized_x));
+            int cell_y = static_cast<int>(std::floor(normalized_y));
+
+            // 确保x坐标在网格边界内
+            cell_x = std::clamp(cell_x, 0, grid_width - 1);
+            // 确保y坐标在网格边界内
+            cell_y = std::clamp(cell_y, 0, grid_height - 1);
+
+            // 将生物体添加到对应的网格单元中
+            spatial_grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)].push_back(individual);
+        }
+    }
 }
 
 /**
- * @brief 将所有物种的决策任务分派到线程池中并行执行。
+ * @brief 将决策阶段的任务分派给线程池。
  *
- * 此函数是并发更新的第一阶段（决策阶段）。它将每个物种的更新（决策）任务
- * 分割成小块（chunk），并提交到线程池中。每个任务都会在一个单独的线程中
- * 执行物种的 `update`（未来将是 `decide`）方法。
+ * 这个函数负责将生态系统中所有物种的决策过程并行化。它将每个物种的个体列表（动物和植物）分成块，
+ * 并为每个块提交一个任务到线程池中。
  *
- * 为了实现无锁的交互请求收集，每个工作线程都会被分配一个专属的请求队列。
- * `activate_request_queue` 和 `restore_request_queue` 用于管理当前线程
- * 正在使用的队列，确保线程安全。
+ * 主要步骤如下：
+ * 1.  **调整工作队列**：确保每个工作线程都有一个请求队列，用于存储交互请求。
+ * 2.  **定义块提交逻辑**：创建一个 lambda 函数 `submit_chunk`，用于将指定范围的个体提交给线程池执行决策。
+ * 3.  **任务并行执行**：
+ *      - 在每个任务中，首先确定当前线程的工作索引。
+ *      - 为当前线程激活对应的请求队列，以便在决策过程中可以安全地提交交互请求。
+ *      - 遍历块中的每个个体，调用其 `decide` 方法。
+ *      - 决策完成后，恢复之前的请求队列状态。
+ * 4.  **分派任务**：遍历所有动物和植物，使用 `submit_chunk` 将它们分块并提交到线程池。
  *
- * @param pool 要使用的线程池。
+ * @param pool 用于执行任务的线程池。
  */
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
-    constexpr std::size_t chunk_size = 512;
+    // 定义每个任务处理的个体数量。选择一个较大的值可以减少任务创建的开销，
+    // 但也可能导致负载不均。1024 是一个在开销和负载均衡之间的合理权衡。
+    constexpr std::size_t chunk_size = 1024;
 
+    // 确保 `worker_request_queues` 的大小与线程池的工作线程数一致。
+    // 如果不一致（例如，线程池大小在运行时发生变化），则重新分配队列。
     const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());
     if (worker_request_queues.size() != worker_count) {
         worker_request_queues.assign(worker_count, {});
     }
+    // 在新一轮决策开始前，清空所有线程的请求队列。
     for (auto& queue : worker_request_queues) {
         queue.clear();
     }
 
+    // 定义一个 lambda 函数，用于将一部分个体（一个“块”）的决策任务提交到线程池。
+    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<Species>>& list,
+                                            std::size_t begin,
+                                            std::size_t end) {
+        // 向线程池提交一个新任务。
+        pool.submit([this, &list, begin, end] {
+            // 获取当前工作线程的索引，以便找到对应的请求队列。
+            const auto worker_index = ThreadPool::current_worker_index();
+            std::vector<InteractionRequest>* active_queue = nullptr;
+            // 确保工作索引在有效范围内，然后获取该线程的请求队列指针。
+            if (worker_index < worker_request_queues.size()) {
+                active_queue = &worker_request_queues[worker_index];
+            }
+
+            // 激活当前线程的请求队列。`submit_interaction_request` 将把请求放入此队列。
+            // `activate_request_queue` 返回先前的队列，以便在任务结束时恢复。
+            auto* previous_queue = activate_request_queue(active_queue);
+            // 遍历分配给该任务的个体。
+            auto& rng = get_thread_local_rng();
+            for (std::size_t i = begin; i < end; ++i) {
+                auto& individual = list[i];
+                if (!individual) {
+                    continue;
+                }
+                individual->decide(*this, rng);
+            }
+            // 任务完成，恢复之前的请求队列。这对于嵌套任务或单线程回退情况很重要。
+            restore_request_queue(previous_queue);
+        });
+    };
+
+    // 遍历所有已注册的物种，为它们分派决策任务。
     const auto species_names = species_registry.get_all_species_names();
     for (const auto& name : species_names) {
         auto& list = species_registry.get_species_list(name);
-        if (list.empty()) continue;
-
-        if (list.size() <= chunk_size) {
-            pool.submit([this, &list] {
-                const auto worker_index = ThreadPool::current_worker_index();
-                auto* previous_queue = activate_request_queue(worker_index < worker_request_queues.size()
-                    ? &worker_request_queues[worker_index]
-                    : nullptr);
-                for (auto& individual : list) {
-                    if (individual->alive) {
-                        individual->update(*this); // TODO: replace with decide() once available
-                    }
-                }
-                restore_request_queue(previous_queue);
-            });
+        if (list.empty()) {
             continue;
         }
 
-        for (std::size_t offset = 0; offset < list.size(); offset += chunk_size) {
-            const std::size_t start = offset;
-            const std::size_t end = std::min(offset + chunk_size, list.size());
-            pool.submit([this, &list, start, end] {
-                const auto worker_index = ThreadPool::current_worker_index();
-                auto* previous_queue = activate_request_queue(worker_index < worker_request_queues.size()
-                    ? &worker_request_queues[worker_index]
-                    : nullptr);
-                for (std::size_t i = start; i < end; ++i) {
-                    auto& individual = list[i];
-                    if (individual->alive) {
-                        individual->update(*this); // TODO: replace with decide() once available
-                    }
-                }
-                restore_request_queue(previous_queue);
-            });
+        // 如果个体数量小于或等于块大小，则直接提交一个任务。
+        if (list.size() <= chunk_size) {
+            submit_chunk(list, 0, list.size());
+            continue;
+        }
+
+        // 如果个体数量大于块大小，则分块提交任务。
+        for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, list.size());
+            submit_chunk(list, begin, end);
         }
     }
 }
@@ -352,7 +421,10 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
  * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
  */
 void EcosystemState::resolve_interactions() {
+    // 清空上一轮的暂存请求。
     staged_requests.clear();
+    // 将所有工作线程的本地请求队列中的请求移动到统一的 `staged_requests` 队列中。
+    // 使用 `std::make_move_iterator` 可以高效地转移请求，避免不必要的拷贝。
     for (auto& queue : worker_request_queues) {
         if (!queue.empty()) {
             staged_requests.insert(staged_requests.end(),
@@ -362,6 +434,7 @@ void EcosystemState::resolve_interactions() {
         }
     }
 
+    // 如果主线程（或单线程模式）也有请求，同样移入暂存队列。
     if (!main_thread_requests.empty()) {
         staged_requests.insert(staged_requests.end(),
                                std::make_move_iterator(main_thread_requests.begin()),
@@ -369,27 +442,37 @@ void EcosystemState::resolve_interactions() {
         main_thread_requests.clear();
     }
 
+    // 如果没有需要处理的请求，则提前返回。
     if (staged_requests.empty()) {
         return;
     }
 
+    // 遍历所有暂存的请求，并根据其类型进行处理。
     for (auto& request : staged_requests) {
+        // 使用 `std::visit` 和 `std::variant` 来处理不同类型的请求。
         std::visit([this](auto&& req) {
             using RequestType = std::decay_t<decltype(req)>;
+            // 处理“尝试捕食”请求。
             if constexpr (std::is_same_v<RequestType, AttemptToEatRequest>) {
                 auto& initiator = req.initiator;
                 auto& target = req.target;
+                // 确保发起者和目标都存在且都存活。
                 if (!initiator || !target) return;
                 if (!initiator->alive || !target->alive) return;
 
-                if (marked_for_death.contains(target.get())) return;
+                // 检查目标是否已经被其他捕食者标记为死亡，以避免重复处理。
+                if (marked_for_death.find(target.get()) != marked_for_death.end()) return;
 
+                // 将目标标记为死亡，并将其能量转移给发起者。
                 marked_for_death.insert(target.get());
                 energy_changes[initiator.get()] += target->energy;
+            // 处理“尝试繁殖”请求。
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRequest>) {
                 auto& parent = req.parent;
-                if (!parent || !parent->alive) return;
-                marked_for_birth.push_back(parent->position);
+                if (!parent || !parent->alive) {
+                    return;
+                }
+                reproduction_parents.push_back(parent);
             }
         }, request);
     }
@@ -405,7 +488,39 @@ void EcosystemState::resolve_interactions() {
  * @param pool 要使用的线程池。
  */
 void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
-    (void)pool; // 阶段 1：暂未引入并发应用逻辑，预留接口
+    constexpr std::size_t chunk_size = 1024;
+
+    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<Species>>& list,
+                                            std::size_t begin,
+                                            std::size_t end) {
+        pool.submit([this, &list, begin, end] {
+            for (std::size_t i = begin; i < end; ++i) {
+                auto& individual = list[i];
+                if (!individual) {
+                    continue;
+                }
+                individual->apply(*this);
+            }
+        });
+    };
+
+    const auto species_names = species_registry.get_all_species_names();
+    for (const auto& name : species_names) {
+        auto& list = species_registry.get_species_list(name);
+        if (list.empty()) {
+            continue;
+        }
+
+        if (list.size() <= chunk_size) {
+            submit_chunk(list, 0, list.size());
+            continue;
+        }
+
+        for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, list.size());
+            submit_chunk(list, begin, end);
+        }
+    }
 }
 
 /**
@@ -419,41 +534,57 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
  * 并发控制和逻辑。
  */
 void EcosystemState::apply_registry_changes() {
-    // 处理阶段 3/4 的累积结果（目前保持原有串行逻辑）
+    // --- 阶段 3/4：应用变更 --- 
+    // 遍历所有物种，处理繁殖、死亡和能量变化。
+
+    // 用于临时存储本轮出生的新个体。
+    std::unordered_map<std::string, std::vector<std::shared_ptr<Species>>> newborns_by_species;
+    newborns_by_species.reserve(reproduction_parents.size());
+
+    // --- 出生处理 ---
+    for (auto& parent : reproduction_parents) {
+        if (!parent || !parent->alive) {
+            continue;
+        }
+
+        const auto spawn_position = parent->consume_pending_spawn_position();
+        if (!spawn_position.has_value()) {
+            continue;
+        }
+
+        auto offspring_unique = g_species_factory.create(parent->species_name, spawn_position.value());
+        if (!offspring_unique) {
+            continue;
+        }
+
+        std::shared_ptr<Species> offspring = std::move(offspring_unique);
+        offspring->position = spawn_position.value();
+        newborns_by_species[parent->species_name].push_back(std::move(offspring));
+    }
+
     for (const auto& name : species_registry.get_all_species_names()) {
         auto& list = species_registry.get_species_list(name);
 
-    std::vector<std::shared_ptr<Species>> new_individuals;
-    new_individuals.reserve(list.size() / 2);
-
-        for (auto& individual : list) {
-            if (individual->can_reproduce()) {
-                auto offspring = individual->reproduce(*this);
-                if (offspring) new_individuals.push_back(std::move(offspring));
-            }
-        }
-
-        if (!new_individuals.empty()) {
-            species_registry.extend_individuals(name, new_individuals);
-            SpeciesType type = species_type_from_name(name);
-            births.increment(type, new_individuals.size());
-            spdlog::get("ecosim")->info("{} {} new {} individuals born",
-                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
-                new_individuals.size(), name);
-        }
-
         int dead_count = 0;
         for (auto& individual : list) {
-            if (!individual->alive || marked_for_death.contains(individual.get())) {
-                individual->alive = false;
-                ++dead_count;
-            } else {
-                auto energy_it = energy_changes.find(individual.get());
-                if (energy_it != energy_changes.end()) {
-                    individual->energy += energy_it->second;
+            if (!individual) {
+                continue;
+            }
+
+            if (marked_for_death.find(individual.get()) != marked_for_death.end()) {
+                if (individual->alive) {
+                    individual->alive = false;
+                    ++dead_count;
                 }
+                continue;
+            }
+
+            auto energy_it = energy_changes.find(individual.get());
+            if (energy_it != energy_changes.end()) {
+                individual->energy += energy_it->second;
             }
         }
+
         if (dead_count > 0) {
             SpeciesType type = species_type_from_name(name);
             deaths.increment(type, dead_count);
@@ -461,12 +592,24 @@ void EcosystemState::apply_registry_changes() {
         }
 
         species_registry.filter_alive(name);
+
+        auto newborn_it = newborns_by_species.find(name);
+        if (newborn_it != newborns_by_species.end() && !newborn_it->second.empty()) {
+            species_registry.extend_individuals(name, newborn_it->second);
+            SpeciesType type = species_type_from_name(name);
+            births.increment(type, newborn_it->second.size());
+            spdlog::get("ecosim")->info("{} {} new {} individuals born",
+                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
+                newborn_it->second.size(), name);
+        }
     }
 
+    // --- 清理状态 ---
+    // 清理本轮的状态标记，为下一轮更新做准备。
     marked_for_death.clear();
     energy_changes.clear();
     staged_requests.clear();
-    marked_for_birth.clear();
+    reproduction_parents.clear();
 }
 
 /**
@@ -484,9 +627,11 @@ std::mt19937& EcosystemState::get_thread_local_rng() {
  * @param request 要提交的交互请求。
  */
 void EcosystemState::submit_interaction_request(InteractionRequest request) {
+    // 如果当前线程有一个活动的请求队列（在工作线程中），则将请求添加到该队列。
     if (tls_active_queue) {
         tls_active_queue->push_back(std::move(request));
     } else {
+        // 否则（在主线程或单线程模式下），将请求添加到主线程的请求队列。
         main_thread_requests.push_back(std::move(request));
     }
 }
@@ -512,9 +657,14 @@ void EcosystemState::restore_request_queue(std::vector<InteractionRequest>* prev
     tls_active_queue = previous_queue;
 }
 
-/*
-获取所有物种的当前种群数量
-*/
+/**
+ * @brief 获取所有物种的当前种群数量。
+ *
+ * 此函数遍历所有已注册的物种，并查询它们当前的个体数量，
+ * 然后将结果汇总到一个 `SpeciesStatistics` 对象中。
+ *
+ * @return 包含各种群数量的 `SpeciesStatistics` 对象。
+ */
 SpeciesStatistics EcosystemState::get_species_counts() const {
     SpeciesStatistics stats;
     for (const auto& name : species_registry.get_all_species_names()) {
@@ -525,9 +675,14 @@ SpeciesStatistics EcosystemState::get_species_counts() const {
     return stats;
 }
 
-/*
-获取所有物种的详细数据 (用于前端/统计)
-*/
+/**
+ * @brief 获取所有物种的详细个体数据，主要用于前端显示或详细分析。
+ *
+ * 此函数遍历所有物种，并为每个存活的个体收集详细信息，
+ * 如 ID、位置、能量、年龄等，然后将这些数据组织成 `SpeciesPopulationData` 结构。
+ *
+ * @return 包含所有物种详细个体数据的 `SpeciesPopulationData` 对象。
+ */
 SpeciesPopulationData EcosystemState::get_species_data() const {
     SpeciesPopulationData data;
     for (const auto& name : species_registry.get_all_species_names()) {
@@ -536,7 +691,9 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
         for (const auto& individual : list) {
             if (individual->alive) {
                 BaseIndividualData ind;
-                ind.id = reinterpret_cast<std::uintptr_t>(individual.get()); // 使用地址作为id (C++ 迁移)
+                // 使用个体的内存地址作为其唯一ID。这在C++端是可行的，但在跨语言
+                // 或持久化场景下需要更稳定的ID生成策略。
+                ind.id = reinterpret_cast<std::uintptr_t>(individual.get());
                 ind.position = PositionData{individual->position.x, individual->position.y};
                 ind.energy = individual->energy;
                 ind.age = individual->age;
@@ -550,9 +707,14 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
     return data;
 }
 
-/*
-使用统一逻辑将生态系统重置为初始状态
-*/
+/**
+ * @brief 将生态系统重置为初始状态。
+ *
+ * 此函数用于重置整个模拟，包括时间、所有种群、统计数据和历史记录。
+ * 它会应用新的配置，并重新初始化种群。
+ *
+ * @param new_config 要应用的新生态系统配置。
+ */
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     time_step = 0;
@@ -560,12 +722,22 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     births.reset();
     deaths.reset();
     population_history.clear();
+    // 清理并发更新相关的状态
+    staged_requests.clear();
+    main_thread_requests.clear();
+    energy_changes.clear();
+    marked_for_death.clear();
+    reproduction_parents.clear();
     initialize_populations();
 }
 
-/*
-检查并返回已灭绝的物种
-*/
+/**
+ * @brief 检查并返回已灭绝的物种列表。
+ *
+ * 如果一个物种的种群数量降为 0，则认为该物种已灭绝。
+ *
+ * @return 包含所有已灭绝物种名称的字符串向量。
+ */
 std::vector<std::string> EcosystemState::check_extinction() const {
     std::vector<std::string> extinct;
     for (const auto& name : species_registry.get_all_species_names()) {
@@ -575,9 +747,18 @@ std::vector<std::string> EcosystemState::check_extinction() const {
     return extinct;
 }
 
-/*
-通用查询接口：获取指定范围内的物种个体
-*/
+/**
+ * @brief 在指定的圆形范围内查询特定物种的个体。
+ *
+ * 这是一个通用的空间查询接口，用于查找给定中心点和半径范围内的所有
+ * 存活个体。这是一个简单的线性扫描实现，对于大规模查询，可以替换为
+ * 基于空间哈希网格的更高效实现。
+ *
+ * @param species_name 要查询的物种名称。
+ * @param center 查询区域的中心点。
+ * @param radius 查询区域的半径。
+ * @return 在指定范围内的所有存活个体的共享指针列表。
+ */
 std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     const std::string& species_name, 
     const Position& center, 
@@ -585,16 +766,16 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     
     std::vector<std::shared_ptr<Species>> result;
     
-    // 检查物种是否存在
+    // 首先检查物种是否存在于注册表中。
     auto it = species_registry.registry.find(species_name);
     if (it == species_registry.registry.end()) {
-        return result; // 返回空列表
+        return result; // 如果物种不存在，返回空列表。
     }
     
-    // 遍历该物种的所有个体
+    // 遍历该物种的所有个体。
     const auto& species_list = it->second.list;
     for (const auto& individual : species_list) {
-        // 检查个体是否存活且在指定范围内
+        // 检查个体是否存活，并且其位置是否在指定的圆形范围内。
         if (individual->alive && 
             individual->position.distance_to(center) <= radius) {
             result.push_back(individual);
@@ -602,4 +783,41 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     }
     
     return result;
+}
+
+std::vector<std::shared_ptr<Species>> EcosystemState::get_nearby_species_broad(
+    const Position& center,
+    double radius) const {
+
+    std::vector<std::shared_ptr<Species>> nearby;
+    if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
+        return nearby;
+    }
+
+    const double inverse_cell = 1.0 / cell_size;
+    const double min_x = (center.x - radius) * inverse_cell;
+    const double max_x = (center.x + radius) * inverse_cell;
+    const double min_y = (center.y - radius) * inverse_cell;
+    const double max_y = (center.y + radius) * inverse_cell;
+
+    int x_min = static_cast<int>(std::floor(min_x));
+    int x_max = static_cast<int>(std::floor(max_x));
+    int y_min = static_cast<int>(std::floor(min_y));
+    int y_max = static_cast<int>(std::floor(max_y));
+
+    for (int x = x_min; x <= x_max; ++x) {
+        if (x < 0 || x >= grid_width) {
+            continue;
+        }
+        for (int y = y_min; y <= y_max; ++y) {
+            if (y < 0 || y >= grid_height) {
+                continue;
+            }
+            const auto& cell = spatial_grid[static_cast<std::size_t>(x)][static_cast<std::size_t>(y)];
+            // TODO: Reuse a shared buffer to avoid repeated allocations.
+            nearby.insert(nearby.end(), cell.begin(), cell.end());
+        }
+    }
+
+    return nearby;
 }

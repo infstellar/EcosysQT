@@ -37,20 +37,37 @@ Cow::Cow(Position pos, const CowParams& params)
     species_name = "cow";
 }
 
-void Cow::update(const EcosystemState& ecosystem_state) {
-    Animal::update(ecosystem_state);
-    if (!alive) return;
-
-    if (hunger_state != HungerState::SATISFIED) {
-        auto grass_in_range = ecosystem_state.get_species_in_range("grass", position, eating_range);
-        for (const auto& grass : grass_in_range) {
-            if (grass->alive) {
-                energy = std::min(max_energy, energy + (grass->energy * this->energy_efficiency));
-                grass->die_from_predation("Cow");
-                break;
-            }
-        }
+void Cow::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    Animal::decide(ecosystem_state, rng);
+    if (!alive) {
+        return;
     }
+
+    // 只在饥饿状态下尝试提交吃草请求，避免无谓竞争。
+    if (hunger_state == HungerState::SATISFIED) {
+        return;
+    }
+
+    auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, eating_range);
+    for (const auto& entity : nearby_entities) {
+        if (!entity || !entity->alive) {
+            continue;
+        }
+        if (entity->species_name != "grass") {
+            continue;
+        }
+        if (position.distance_to(entity->position) > eating_range) {
+            continue;
+        }
+
+        AttemptToEatRequest eat_request{shared_from_this(), entity};
+        ecosystem_state.submit_interaction_request(std::move(eat_request));
+        break;
+    }
+}
+
+void Cow::apply(const EcosystemState& ecosystem_state) {
+    Animal::apply(ecosystem_state);
 }
 
 bool Cow::can_reproduce() const {

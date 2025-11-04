@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <random>
+#include <optional>
 #include "utils.h"
 
 // 前向声明
@@ -18,7 +20,7 @@ enum class SpeciesType {
 };
 
 // 生态系统中所有物种的基类
-class Species {
+class Species : public std::enable_shared_from_this<Species> {
 public:
     Position position;
     double energy;
@@ -34,17 +36,17 @@ public:
     // 构造函数
     Species(Position pos, double energy = 100, int max_age = 100, double reproduction_energy_cost = 50);
 
-    // 更新物种状态 (虚函数用于多态)
-    virtual void update(const EcosystemState& ecosystem_state);
-    // 更新物种状态，考虑外部环境交互 (虚函数用于多态)
-    virtual void cross_species_update(const EcosystemState& ecosystem_state);
+    // 阶段 2: 决策阶段 - 仅读共享状态，允许修改自身局部状态
+    virtual void decide(EcosystemState& ecosystem_state, std::mt19937& rng);
+    // 阶段 4: 应用阶段 - 只写自身状态，读取共享状态
+    virtual void apply(const EcosystemState& ecosystem_state);
 
     // 检查物种是否可以繁殖
     virtual bool can_reproduce() const;
     // 繁殖以创建新个体
     virtual std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state);
     // 在世界边界内随机移动
-    virtual void move_randomly(int world_width, int world_height, double speed = 1.0);
+    virtual void move_randomly(int world_width, int world_height, double speed, std::mt19937& rng);
     // 年龄增加一步
     virtual void age_one_step();
     // 标记为死亡并记录原因
@@ -57,6 +59,10 @@ public:
     virtual void die_from_predation(const std::string& predator_name);
     // 虚析构函数，用于安全的多态删除
     virtual ~Species() = default;
+
+    // --- 阶段化更新暂存 ---
+    std::optional<Position> pending_spawn_position;
+    std::optional<Position> consume_pending_spawn_position();
 };
 
 // 动物饱食状态枚举
@@ -90,7 +96,8 @@ public:
            double eating_range = 0.0, double max_energy = 100.0, double satisfied_threshold_ratio = 0.8,
            double starving_threshold_ratio = 0.2, int wandering_duration = 50,double energy_efficiency = 1.0);
 
-    void update(const EcosystemState& ecosystem_state) override;
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
+    void apply(const EcosystemState& ecosystem_state) override;
     // 寻找最近的食物来源
     virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
     // 向目标位置移动
@@ -136,6 +143,11 @@ protected:
     void update_hunger_state();
     // 根据状态调整能耗和速度
     void adjust_stats_by_state();
+
+    enum class PendingMoveMode { None, Wander, Path };
+    PendingMoveMode pending_move_mode{PendingMoveMode::None};
+    std::optional<Position> wander_target;
+    bool skip_movement{false};
 };
 
 // 草类，继承自Species，实现生产者逻辑
@@ -146,16 +158,13 @@ public:
     double competition_radius;
     double max_competition_effect;
     int base_reproduction_cooldown;
+    double pending_growth{0.0};
     Grass(Position pos, const struct GrassParams& params);
-
-    // 计算附近草的密度 (优化版本)
-    double calculate_nearby_grass_density_optimized(const EcosystemState& ecosystem_state);
-    // 计算附近草的密度 (备用版本)
-    double calculate_nearby_grass_density(const EcosystemState& ecosystem_state);
     // 获取根据竞争调整的生长率
     double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);
     // 更新草的状态
-    void update(const class EcosystemState& ecosystem_state) override;
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
+    void apply(const class EcosystemState& ecosystem_state) override;
     // 检查草是否可以繁殖
     bool can_reproduce() const override;
     // 繁殖以创建新草
@@ -168,7 +177,8 @@ public:
     Cow(Position pos, const struct CowParams& params);
 
     // 更新牛的状态
-    void update(const class EcosystemState& ecosystem_state) override;
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
+    void apply(const class EcosystemState& ecosystem_state) override;
     // 从列表中吃草
     void _eat_grass(const std::vector<Grass*>& grass_list);
     // 检查牛是否可以繁殖
@@ -183,7 +193,8 @@ public:
     Tiger(Position pos, const struct TigerParams& params);
 
     // 更新老虎的状态
-    void update(const class EcosystemState& ecosystem_state) override;
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
+    void apply(const class EcosystemState& ecosystem_state) override;
     // 从列表中狩猎牛
     void _hunt_cows(const std::vector<Cow*>& cow_list);
     // 检查老虎是否可以繁殖

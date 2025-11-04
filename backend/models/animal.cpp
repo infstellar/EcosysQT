@@ -54,19 +54,94 @@ Animal::Animal(Position pos,
       wandering_cooldown(wandering_duration),
       energy_efficiency(energy_efficiency){}
 
-void Animal::update(const EcosystemState& ecosystem_state) {
-    Species::update(ecosystem_state);
-    if (!alive) return;
+void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    Species::decide(ecosystem_state, rng);
+    if (!alive) {
+        return;
+    }
+
+    // 每轮决策前重置待执行动作，避免残留状态污染。
+    pending_move_mode = PendingMoveMode::None;
+    wander_target.reset();
+    skip_movement = false;
 
     update_hunger_state();
     adjust_stats_by_state();
 
-    energy -= energy_consumption;
+    if (hunting_cooldown > 0) {
+        hunting_cooldown -= 1;
+        skip_movement = true;
+    }
 
-    if (is_wandering) {
-        move_randomly(ecosystem_state.config.world_width, ecosystem_state.config.world_height, movement_speed);
-    } else {
-        intelligent_move(ecosystem_state);
+    if (!skip_movement) {
+        select_target_point(ecosystem_state);
+        if (current_target.has_value()) {
+            plan_path_to_target(ecosystem_state);
+            pending_move_mode = PendingMoveMode::Path;
+        } else {
+            // 游走行为：预先生成目标点，由应用阶段执行实际移动。
+            const int world_width = ecosystem_state.config.world_width;
+            const int world_height = ecosystem_state.config.world_height;
+            std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
+            const double angle = angle_dist(rng);
+            const double dx = std::cos(angle) * movement_speed;
+            const double dy = std::sin(angle) * movement_speed;
+            Position candidate{
+                std::max(0.0, std::min(static_cast<double>(world_width), position.x + dx)),
+                std::max(0.0, std::min(static_cast<double>(world_height), position.y + dy))
+            };
+            wander_target = candidate;
+            pending_move_mode = PendingMoveMode::Wander;
+        }
+    }
+
+    // 基础繁殖逻辑：满足条件即可提交繁殖请求。
+    if (can_reproduce() && !pending_spawn_position.has_value()) {
+        const double radius = reproduction_spawn_radius();
+        std::uniform_real_distribution<> dist_angle(0.0, 2 * M_PI);
+        std::uniform_real_distribution<> dist_radius(0.0, radius);
+        const double angle = dist_angle(rng);
+        const double distance = dist_radius(rng);
+        Position spawn_candidate{
+            std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_width), position.x + std::cos(angle) * distance)),
+            std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_height), position.y + std::sin(angle) * distance))
+        };
+        pending_spawn_position = spawn_candidate;
+        energy -= reproduction_energy_cost;
+        start_reproduction_cooldown();
+        ecosystem_state.submit_interaction_request(AttemptToReproduceRequest{shared_from_this()});
+    }
+}
+
+void Animal::apply(const EcosystemState& ecosystem_state) {
+    Species::apply(ecosystem_state);
+    if (!alive) {
+        return;
+    }
+
+    const int world_width = ecosystem_state.config.world_width;
+    const int world_height = ecosystem_state.config.world_height;
+
+    switch (pending_move_mode) {
+        case PendingMoveMode::Path:
+            move_to_target_point(world_width, world_height);
+            break;
+        case PendingMoveMode::Wander:
+            if (wander_target.has_value()) {
+                move_towards_target(wander_target.value(), world_width, world_height);
+                wander_target.reset();
+            }
+            break;
+        case PendingMoveMode::None:
+        default:
+            break;
+    }
+
+    pending_move_mode = PendingMoveMode::None;
+
+    energy -= energy_consumption;
+    if (energy <= 0.0) {
+        die_from_starvation();
     }
 }
 
@@ -178,7 +253,8 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
         move_to_target_point(world_width, world_height);
     } else {
         // 无目标时采用随机游走
-        move_randomly(world_width, world_height, movement_speed);
+    auto& rng = const_cast<EcosystemState&>(ecosystem_state).get_thread_local_rng();
+    move_randomly(world_width, world_height, movement_speed, rng);
     }
 }
 
@@ -187,14 +263,19 @@ void Animal::select_target_point(const EcosystemState& ecosystem_state) {
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
 
-    for (const auto& food_type : food_types) {
-        auto food_in_range = ecosystem_state.get_species_in_range(food_type, position, detection_range);
-        for (const auto& food : food_in_range) {
-            double distance = position.distance_to(food->position);
-            if (distance < min_distance) {
-                min_distance = distance;
-                nearest_food = food->position;
-            }
+    const auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, detection_range);
+    for (const auto& entity : nearby_entities) {
+        if (!entity || !entity->alive) {
+            continue;
+        }
+        if (std::find(food_types.begin(), food_types.end(), entity->species_name) == food_types.end()) {
+            continue;
+        }
+
+        double distance = position.distance_to(entity->position);
+        if (distance <= detection_range && distance < min_distance) {
+            min_distance = distance;
+            nearest_food = entity->position;
         }
     }
 
@@ -261,28 +342,6 @@ void Animal::start_reproduction_cooldown() {
 }
 
 std::unique_ptr<Species> Animal::reproduce(const EcosystemState& ecosystem_state) {
-    // 统一的动物繁殖逻辑
-    Species::reproduce(ecosystem_state);
-    if (!can_reproduce()) return nullptr;
-
-    // 扣除能量并开始冷却
-    energy -= reproduction_energy_cost;
-    start_reproduction_cooldown();
-
-    // 计算子代位置（在世界边界内的随机偏移）
-    const auto& ecosystem_data = ecosystem_state.get_ecosystem_state();
-    int world_width = ecosystem_data.world_width;
-    int world_height = ecosystem_data.world_height;
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    double radius = reproduction_spawn_radius();
-    std::uniform_real_distribution<> dist_x(-radius, radius);
-    std::uniform_real_distribution<> dist_y(-radius, radius);
-
-    double new_x = std::max(0.0, std::min((double)world_width, position.x + dist_x(gen)));
-    double new_y = std::max(0.0, std::min((double)world_height, position.y + dist_y(gen)));
-    Position new_position{new_x, new_y};
-
-    // 使用物种键创建子代（键来自 species_name）
-    return g_species_factory.create(species_name, new_position);
+    (void)ecosystem_state;
+    return nullptr;
 }

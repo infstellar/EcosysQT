@@ -8,5 +8,5 @@ grass:
     base_growth_rate: 0.9
     reproduction_chance: 0.4
     competition_radius: 30.0
-    max_competition_effect: 0.9
+    max_competition_effect: 0.99
     reproduction_cooldown: 10
