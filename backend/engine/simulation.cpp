@@ -5,13 +5,14 @@
 // --- SimulationEngine Implementation ---
 
 SimulationEngine::SimulationEngine(const EcosystemConfig& config)
-    : config(config),
-      ecosystem(std::make_unique<EcosystemState>(config)),
-      running(false),
-      paused(false),
-      simulation_speed(1.0),
-      target_fps(30),
-      stop_event(false) {}
+        : config(config),
+            ecosystem(std::make_unique<EcosystemState>(config)),
+            thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
+            running(false),
+            paused(false),
+            simulation_speed(1.0),
+            target_fps(30),
+            stop_event(false) {}
 
 SimulationEngine::~SimulationEngine() {
     stop();
@@ -127,14 +128,42 @@ void SimulationEngine::update_ecosystem() {
     // 1. Update time
     ecosystem->update_time();
 
-    // 2. Update all species (includes movement, energy loss, etc.)
-    ecosystem->update_species();
+    // 2. 分阶段并发更新
+    // 使用线程池来并发处理物种的决策和应用阶段，以提高性能。
+    // 如果线程池可用，则将更新任务（决策、应用）分派给线程池中的多个线程。
+    // 在每个阶段之间，需要等待所有任务完成，以确保数据一致性。
+    // `resolve_interactions` 是一个同步点，它处理所有物种决策后的交互，例如捕食。
+    if (thread_pool) {
+        // 准备阶段：为并发更新做准备，例如构建空间哈希。
+        ecosystem->prepare_for_update();
+        // 决策阶段：将所有物种的决策任务分派给线程池。
+        ecosystem->dispatch_decision_tasks(*thread_pool);
+        thread_pool->wait_for_completion();
 
-    // 3. Handle reproduction
-    ecosystem->handle_reproduction();
+        // 交互解决阶段：同步解决所有物种间的交互。
+        ecosystem->resolve_interactions();
 
-    // 4. Clean up dead individuals
-    ecosystem->cleanup_dead();
+        // 应用阶段：将所有物种的状态更新任务分派给线程池。
+        ecosystem->dispatch_apply_tasks(*thread_pool);
+        thread_pool->wait_for_completion();
+    } else {
+        // 如果没有可用的线程池，则回退到单线程执行。
+        // 这确保了即使在不支持多线程的环境下，模拟也能正确运行。
+        ThreadPool fallback_pool(1);
+        ecosystem->prepare_for_update();
+        ecosystem->dispatch_decision_tasks(fallback_pool);
+        fallback_pool.wait_for_completion();
+
+        ecosystem->resolve_interactions();
+
+        ecosystem->dispatch_apply_tasks(fallback_pool);
+        fallback_pool.wait_for_completion();
+    }
+
+    // 3. 应用注册表变更
+    // 在所有物种更新完成后，统一处理出生和死亡等注册表变更。
+    // 这可以避免在迭代过程中修改集合，从而简化并发控制。
+    ecosystem->apply_registry_changes();
 
     // 5. Update statistics
     ecosystem->update_statistics();

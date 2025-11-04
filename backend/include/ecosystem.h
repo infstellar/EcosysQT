@@ -10,9 +10,17 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <mutex>
+#include <random>
+#include <unordered_map>
+#include <unordered_set>
 #include "species.h"
 #include "species_factory.h"
 #include "utils.h"
+#include "interaction_requests.h"
+
+// 前向声明避免循环依赖
+class ThreadPool;
 
 
 // 物种类型枚举已在 species.h 声明
@@ -123,10 +131,29 @@ public:
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
     void update_time();
-    void update_species();
-    void handle_reproduction();
     void update_statistics();
-    void cleanup_dead();
+
+    // --- 新的并发更新阶段 ---
+    // 这些方法构成了并发更新循环的核心，取代了原有的单线程 `update_species`。
+
+    // 准备阶段：在并发更新前调用，用于构建空间哈希等准备工作。
+    void prepare_for_update();
+    // 决策任务分派：将所有物种的决策任务（如移动、觅食）提交到线程池。
+    void dispatch_decision_tasks(ThreadPool& pool);
+    // 交互解决：在所有决策任务完成后，同步处理它们之间的交互（如捕食）。
+    void resolve_interactions();
+    // 应用任务分派：将所有物种的状态更新任务（如能量变化、位置更新）提交到线程池。
+    void dispatch_apply_tasks(ThreadPool& pool);
+    // 应用注册表变更：在所有更新应用后，统一处理物种的出生和死亡。
+    void apply_registry_changes();
+
+    // --- 线程安全 RNG ---
+    // 为每个线程提供一个独立的随机数生成器，避免锁竞争。
+    std::mt19937& get_thread_local_rng();
+
+    // 决策阶段提交交互请求（线程本地，无锁）
+    // 在决策阶段，物种可以通过此方法提交交互请求（如捕食），这些请求将被暂存并在稍后解决。
+    void submit_interaction_request(InteractionRequest request);
     SpeciesStatistics get_species_counts() const;
     SpeciesPopulationData get_species_data() const;
     void reset(const EcosystemConfig& config);
@@ -145,6 +172,33 @@ public:
     int get_grid_height() const { return grid_height; }
     
 private:
+    // --- 并发阶段共享状态 ---
+    // 这些数据结构用于在并发更新的不同阶段之间传递状态。
+
+    // 每个工作线程的交互请求队列，用于无锁地收集来自不同线程的请求。
+    std::vector<std::vector<InteractionRequest>> worker_request_queues;
+    // 主线程的请求队列（未使用，但可用于调试或单线程回退）。
+    std::vector<InteractionRequest> main_thread_requests;
+    // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
+    std::vector<InteractionRequest> staged_requests;
+
+    // 存储能量变化的映射，键为物种指针，值为能量变化量。
+    std::unordered_map<Species*, double> energy_changes;
+    // 标记待移除的物种集合。
+    std::unordered_set<Species*> marked_for_death;
+    // 标记待出生的新物种的位置列表。
+    std::vector<Position> marked_for_birth;
+
+    // 线程局部的随机数生成器。
+    static thread_local std::mt19937 thread_local_rng;
+    // 线程局部的活动请求队列指针，指向当前线程应该使用的请求队列。
+    static thread_local std::vector<InteractionRequest>* tls_active_queue;
+
+    // 激活并返回一个新的请求队列，同时保存前一个队列。
+    std::vector<InteractionRequest>* activate_request_queue(std::vector<InteractionRequest>* queue);
+    // 恢复到前一个请求队列。
+    void restore_request_queue(std::vector<InteractionRequest>* previous_queue);
+
     // --- 均匀网格 (Spatial Hash) ---
     // 网格本身：一个2D数组，每个单元格(Cell)包含一个物种指针列表
     std::vector<std::vector<std::vector<std::shared_ptr<Species>>>> spatial_grid;

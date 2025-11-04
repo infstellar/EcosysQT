@@ -9,6 +9,13 @@
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
 #include <cmath>
+#include <limits>
+#include <cassert>
+#include <type_traits>
+#include <iterator>
+
+thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}()};
+thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
 
 // --- SpeciesType <-> string 映射函数 ---
 SpeciesType species_type_from_name(const std::string& name) {
@@ -236,44 +243,6 @@ void EcosystemState::update_time() {
 }
 
 /*
-使用统一逻辑更新所有物种
-*/
-void EcosystemState::update_species() {
-    for (const auto& name : species_registry.get_all_species_names()) {
-        auto& list = species_registry.get_species_list(name);
-        for (auto& individual : list) {
-            individual->update(*this);
-        }
-    }
-}
-
-
-/*
-使用统一逻辑处理所有物种的繁殖
-*/
-void EcosystemState::handle_reproduction() {
-    for (const auto& name : species_registry.get_all_species_names()) {
-        auto& list = species_registry.get_species_list(name);
-        std::vector<std::shared_ptr<Species>> new_individuals;
-        for (auto& individual : list) {
-            if (individual->can_reproduce()) {
-                auto offspring = individual->reproduce(*this); // 调用物种的繁殖方法
-                if (offspring) new_individuals.push_back(std::move(offspring)); // 加入新个体列表
-                // std::move 将 unique_ptr 的所有权转移给 push_back，避免拷贝，提高效率
-            }
-        }
-        species_registry.extend_individuals(name, new_individuals);
-        SpeciesType type = species_type_from_name(name);
-        births.increment(type, new_individuals.size());
-        if (!new_individuals.empty()) {
-            spdlog::get("ecosim")->info("{} {} new {} individuals born",
-                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
-                new_individuals.size(), name);
-        }
-    }
-}
-
-/*
 更新统计信息并维护种群历史
 */
 void EcosystemState::update_statistics() {
@@ -284,21 +253,263 @@ void EcosystemState::update_statistics() {
         population_history.erase(population_history.begin(), population_history.end() - 100);
 }
 
-/*
-使用统一逻辑从所有物种中移除死亡个体
-*/
-void EcosystemState::cleanup_dead() {
-    for (const auto& name : species_registry.get_all_species_names()) {
-        auto& list = species_registry.get_species_list(name);
-        int dead_count = std::count_if(list.begin(), list.end(),
-            [](const std::shared_ptr<Species>& s){ return !s->alive; });
-        SpeciesType type = species_type_from_name(name);
-        deaths.increment(type, dead_count);
-        species_registry.filter_alive(name);
-        if (dead_count > 0) {
-            spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
+/**
+ * @brief 准备进行新一轮的并发更新。
+ *
+ * 此函数在每个模拟步骤的开始被调用，用于清理和重置与并发更新相关的状态。
+ * 主要包括：
+ * 1. 清空空间哈希网格，为重新构建索引做准备。
+ * 2. 清理上一轮的交互请求、能量变更、死亡标记和出生标记。
+ */
+void EcosystemState::prepare_for_update() {
+    // TODO(阶段后续): 基于均匀网格构建空间索引，取代旧的四叉树方案。
+    for (auto& column : spatial_grid) {
+        for (auto& cell : column) {
+            cell.clear();
         }
     }
+
+    staged_requests.clear();
+    main_thread_requests.clear();
+    energy_changes.clear();
+    marked_for_death.clear();
+    marked_for_birth.clear();
+}
+
+/**
+ * @brief 将所有物种的决策任务分派到线程池中并行执行。
+ *
+ * 此函数是并发更新的第一阶段（决策阶段）。它将每个物种的更新（决策）任务
+ * 分割成小块（chunk），并提交到线程池中。每个任务都会在一个单独的线程中
+ * 执行物种的 `update`（未来将是 `decide`）方法。
+ *
+ * 为了实现无锁的交互请求收集，每个工作线程都会被分配一个专属的请求队列。
+ * `activate_request_queue` 和 `restore_request_queue` 用于管理当前线程
+ * 正在使用的队列，确保线程安全。
+ *
+ * @param pool 要使用的线程池。
+ */
+void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
+    constexpr std::size_t chunk_size = 512;
+
+    const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());
+    if (worker_request_queues.size() != worker_count) {
+        worker_request_queues.assign(worker_count, {});
+    }
+    for (auto& queue : worker_request_queues) {
+        queue.clear();
+    }
+
+    const auto species_names = species_registry.get_all_species_names();
+    for (const auto& name : species_names) {
+        auto& list = species_registry.get_species_list(name);
+        if (list.empty()) continue;
+
+        if (list.size() <= chunk_size) {
+            pool.submit([this, &list] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                auto* previous_queue = activate_request_queue(worker_index < worker_request_queues.size()
+                    ? &worker_request_queues[worker_index]
+                    : nullptr);
+                for (auto& individual : list) {
+                    if (individual->alive) {
+                        individual->update(*this); // TODO: replace with decide() once available
+                    }
+                }
+                restore_request_queue(previous_queue);
+            });
+            continue;
+        }
+
+        for (std::size_t offset = 0; offset < list.size(); offset += chunk_size) {
+            const std::size_t start = offset;
+            const std::size_t end = std::min(offset + chunk_size, list.size());
+            pool.submit([this, &list, start, end] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                auto* previous_queue = activate_request_queue(worker_index < worker_request_queues.size()
+                    ? &worker_request_queues[worker_index]
+                    : nullptr);
+                for (std::size_t i = start; i < end; ++i) {
+                    auto& individual = list[i];
+                    if (individual->alive) {
+                        individual->update(*this); // TODO: replace with decide() once available
+                    }
+                }
+                restore_request_queue(previous_queue);
+            });
+        }
+    }
+}
+
+/**
+ * @brief 解决在决策阶段产生的所有交互请求。
+ *
+ * 此函数是并发更新的第二阶段（交互解决阶段）。它首先将所有工作线程的
+ * 本地请求队列中的请求移动到一个统一的 `staged_requests` 队列中，
+ * 然后遍历这些请求，并根据请求类型（如捕食、繁殖）更新相关的状态
+ * （如标记死亡、记录能量变化、标记出生）。
+ *
+ * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
+ */
+void EcosystemState::resolve_interactions() {
+    staged_requests.clear();
+    for (auto& queue : worker_request_queues) {
+        if (!queue.empty()) {
+            staged_requests.insert(staged_requests.end(),
+                                   std::make_move_iterator(queue.begin()),
+                                   std::make_move_iterator(queue.end()));
+            queue.clear();
+        }
+    }
+
+    if (!main_thread_requests.empty()) {
+        staged_requests.insert(staged_requests.end(),
+                               std::make_move_iterator(main_thread_requests.begin()),
+                               std::make_move_iterator(main_thread_requests.end()));
+        main_thread_requests.clear();
+    }
+
+    if (staged_requests.empty()) {
+        return;
+    }
+
+    for (auto& request : staged_requests) {
+        std::visit([this](auto&& req) {
+            using RequestType = std::decay_t<decltype(req)>;
+            if constexpr (std::is_same_v<RequestType, AttemptToEatRequest>) {
+                auto& initiator = req.initiator;
+                auto& target = req.target;
+                if (!initiator || !target) return;
+                if (!initiator->alive || !target->alive) return;
+
+                if (marked_for_death.contains(target.get())) return;
+
+                marked_for_death.insert(target.get());
+                energy_changes[initiator.get()] += target->energy;
+            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRequest>) {
+                auto& parent = req.parent;
+                if (!parent || !parent->alive) return;
+                marked_for_birth.push_back(parent->position);
+            }
+        }, request);
+    }
+}
+
+/**
+ * @brief 将所有物种的状态应用任务分派到线程池。
+ *
+ * （此阶段目前为占位符，预留用于未来的并发应用逻辑）。
+ * 在这个阶段，可以并行地应用在 `resolve_interactions` 中计算出的状态变更，
+ * 例如，实际更新物种的能量、位置等。
+ *
+ * @param pool 要使用的线程池。
+ */
+void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
+    (void)pool; // 阶段 1：暂未引入并发应用逻辑，预留接口
+}
+
+/**
+ * @brief 应用所有在更新周期中累积的注册表变更。
+ *
+ * 此函数是更新周期的最后阶段，负责处理物种的出生和死亡。
+ * 它会遍历所有物种，处理繁殖请求（创建新个体），并根据 `marked_for_death`
+ * 集合移除死亡的个体。同时，它也会应用累积的能量变化，并更新统计数据。
+ *
+ * 将这些变更放在最后统一处理，可以避免在迭代物种列表时修改它，从而简化
+ * 并发控制和逻辑。
+ */
+void EcosystemState::apply_registry_changes() {
+    // 处理阶段 3/4 的累积结果（目前保持原有串行逻辑）
+    for (const auto& name : species_registry.get_all_species_names()) {
+        auto& list = species_registry.get_species_list(name);
+
+    std::vector<std::shared_ptr<Species>> new_individuals;
+    new_individuals.reserve(list.size() / 2);
+
+        for (auto& individual : list) {
+            if (individual->can_reproduce()) {
+                auto offspring = individual->reproduce(*this);
+                if (offspring) new_individuals.push_back(std::move(offspring));
+            }
+        }
+
+        if (!new_individuals.empty()) {
+            species_registry.extend_individuals(name, new_individuals);
+            SpeciesType type = species_type_from_name(name);
+            births.increment(type, new_individuals.size());
+            spdlog::get("ecosim")->info("{} {} new {} individuals born",
+                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
+                new_individuals.size(), name);
+        }
+
+        int dead_count = 0;
+        for (auto& individual : list) {
+            if (!individual->alive || marked_for_death.contains(individual.get())) {
+                individual->alive = false;
+                ++dead_count;
+            } else {
+                auto energy_it = energy_changes.find(individual.get());
+                if (energy_it != energy_changes.end()) {
+                    individual->energy += energy_it->second;
+                }
+            }
+        }
+        if (dead_count > 0) {
+            SpeciesType type = species_type_from_name(name);
+            deaths.increment(type, dead_count);
+            spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
+        }
+
+        species_registry.filter_alive(name);
+    }
+
+    marked_for_death.clear();
+    energy_changes.clear();
+    staged_requests.clear();
+    marked_for_birth.clear();
+}
+
+/**
+ * @brief 获取当前线程的本地随机数生成器。
+ *
+ * @return std::mt19937& 对线程局部RNG的引用。
+ */
+std::mt19937& EcosystemState::get_thread_local_rng() {
+    return thread_local_rng;
+}
+
+/**
+ * @brief 提交一个交互请求到当前线程的活动队列。
+ *
+ * @param request 要提交的交互请求。
+ */
+void EcosystemState::submit_interaction_request(InteractionRequest request) {
+    if (tls_active_queue) {
+        tls_active_queue->push_back(std::move(request));
+    } else {
+        main_thread_requests.push_back(std::move(request));
+    }
+}
+
+/**
+ * @brief 激活一个新的请求队列作为当前线程的活动队列。
+ *
+ * @param queue 要激活的队列的指针。
+ * @return std::vector<InteractionRequest>* 先前活动的队列的指针，用于稍后恢复。
+ */
+std::vector<InteractionRequest>* EcosystemState::activate_request_queue(std::vector<InteractionRequest>* queue) {
+    auto* previous = tls_active_queue;
+    tls_active_queue = queue;
+    return previous;
+}
+
+/**
+ * @brief 恢复先前活动的请求队列。
+ *
+ * @param previous_queue 要恢复的队列的指针。
+ */
+void EcosystemState::restore_request_queue(std::vector<InteractionRequest>* previous_queue) {
+    tls_active_queue = previous_queue;
 }
 
 /*
