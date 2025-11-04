@@ -6,8 +6,8 @@
 #include "ecosystem.h"
 #include <random>
 #include <algorithm>
-#include <iostream>
 #include <Eigen/Dense>
+#include <spdlog/spdlog.h>
 
 // --- SpeciesType <-> string 映射函数 ---
 SpeciesType species_type_from_name(const std::string& name) {
@@ -166,6 +166,7 @@ std::string EcosystemState::get_current_quadrum_name() const {
     if (quadrum_index >= 0 && quadrum_index < 4) {
         return quadrum_names[quadrum_index];
     }
+    spdlog::get("ecosim")->warn("get_current_quadrum_name 返回了未知值，请检查时间计算逻辑");
     return "Unknown"; // 安全保护
 }
 
@@ -253,8 +254,9 @@ void EcosystemState::handle_reproduction() {
         SpeciesType type = species_type_from_name(name);
         births.increment(type, new_individuals.size());
         if (!new_individuals.empty()) {
-            std::cout << (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅")
-                      << " " << new_individuals.size() << " new " << name << " individuals born\n";
+            spdlog::get("ecosim")->info("{} {} new {} individuals born",
+                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
+                new_individuals.size(), name);
         }
     }
 }
@@ -282,7 +284,7 @@ void EcosystemState::cleanup_dead() {
         deaths.increment(type, dead_count);
         species_registry.filter_alive(name);
         if (dead_count > 0) {
-            std::cout << "💀 " << dead_count << " " << name << " individuals died\n";
+            spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
         }
     }
 }

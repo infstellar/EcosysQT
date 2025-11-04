@@ -6,7 +6,7 @@ YAML 物种配置提供者实现
 #include "species_config_provider.h"
 #include <yaml-cpp/yaml.h>
 #include <string>
-#include <iostream>
+#include <spdlog/spdlog.h>
 // 反射: 成员名与继承枚举
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
@@ -20,7 +20,7 @@ static YAML::Node load_yaml_file(const std::string& p) {
     try {
         return YAML::LoadFile(p);
     } catch (const std::exception& e) {
-        std::cerr << "[Config] Failed to load YAML: " << p << ", error: " << e.what() << std::endl;
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Failed to load YAML: {}, error: {}", p, e.what());
         return YAML::Node();
     }
 }

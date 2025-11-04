@@ -8,8 +8,11 @@
 #include <QDir>
 #include <QFileInfo>
 #include <memory>
+#include <vector>
+#include <spdlog/spdlog.h>
 #include "Widget.h"
 #include "ecosystem.h"
+#include "logging.h"
 #include "simulation.h"
 #include "species_factory.h"
 #include "species_config_provider.h"
@@ -103,6 +106,14 @@
  */
 int main(int argc, char *argv[])
 {
+    QDir().mkpath("logs");
+    Logging::init("logs/ecosim.log");
+    auto logger = spdlog::get(Logging::MAIN_LOGGER_NAME);
+    if (!logger) {
+        qWarning() << "Failed to acquire logger:" << QString::fromStdString(Logging::MAIN_LOGGER_NAME);
+        Logging::shutdown();
+        return 1;
+    }
     // ========== 步骤 1: 初始化 Qt 应用程序 ==========
     QApplication app(argc, argv);
     
@@ -216,7 +227,8 @@ int main(int argc, char *argv[])
          */
         controller->start();
         
-        qDebug() << "模拟引擎已启动";
+    qDebug() << "模拟引擎已启动";
+    logger->info("Logging setup complete. Starting simulation...");
         
         // ========== 步骤 5: 创建可视化窗口 ==========
         /**
@@ -358,6 +370,7 @@ int main(int argc, char *argv[])
         controller->stop();
         
         qDebug() << "程序正常退出";
+        Logging::shutdown();
         return result;
         
     } catch (const std::exception& e) {
@@ -376,6 +389,7 @@ int main(int argc, char *argv[])
          * - unique_ptr 会自动清理已分配的资源
          */
         qDebug() << "错误:" << e.what();
+        Logging::shutdown();
         return -1;
     }
 }
