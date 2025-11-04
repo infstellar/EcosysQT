@@ -18,4 +18,5 @@ cow:
     satisfied_threshold_ratio: 0.9
     starving_threshold_ratio: 0.3
     wandering_duration: 150
+    energy_efficiency: 0.5
   cow:

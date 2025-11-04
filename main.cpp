@@ -1,15 +1,18 @@
 //前端注:main.cpp里调用的：
 //Widget.h，ecosystem.h，simulation.h都包含了ecosystem.h
 //编译器每次编译到#include "ecosystem.h"时，
-//都会把ecosystem.h的内容插入到当前位置,从而导致重复定义错误
+//都会把ecosystem.h的内容插入到当前位置,从而导致重复定释错误
 //故ecosystem.h必须写#ifndef防止重复包含
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <memory>
+#include <vector>
+#include <spdlog/spdlog.h>
 #include "Widget.h"
 #include "ecosystem.h"
+#include "logging.h"
 #include "simulation.h"
 #include "species_factory.h"
 #include "species_config_provider.h"
@@ -103,12 +106,21 @@
  */
 int main(int argc, char *argv[])
 {
+    QDir().mkpath("logs");
+    Logging::init("logs/ecosim.log");
+    auto logger = spdlog::get(Logging::MAIN_LOGGER_NAME);
+    if (!logger) {
+        qWarning() << "Failed to acquire logger:" << QString::fromStdString(Logging::MAIN_LOGGER_NAME);
+        Logging::shutdown();
+        return 1;
+    }
     // ========== 步骤 1: 初始化 Qt 应用程序 ==========
     QApplication app(argc, argv);
     
     // 输出当前工作目录（用于调试资源文件路径）
     QString currentPath = QDir::currentPath();
     qDebug() << "当前工作目录:" << currentPath;
+    
     // 设定并验证 YAML 配置根目录，然后注入配置提供者并注册物种
     auto configExistsAt = [](const QString& dir) -> bool {
         return QFileInfo(QDir(dir).filePath("config/species.yaml")).exists();
@@ -215,7 +227,8 @@ int main(int argc, char *argv[])
          */
         controller->start();
         
-        qDebug() << "模拟引擎已启动";
+    qDebug() << "模拟引擎已启动";
+    logger->info("Logging setup complete. Starting simulation...");
         
         // ========== 步骤 5: 创建可视化窗口 ==========
         /**
@@ -262,16 +275,16 @@ int main(int argc, char *argv[])
         qDebug() << "世界大小:" << initialData.world_width << "x" << initialData.world_height;
         qDebug() << "时间步:" << initialData.time_step;
         
-        // 统计初始种群
+        // 统计初始种群（遍历 map）
         /**
          * species_lists 的实际结构：
          * std::map<std::string, std::vector<std::shared_ptr<Species>>>
          * 
-         * map 的内容：
+         * map 的内容（注意：后端使用小写键名）：
          * {
-         *     "Grass": [Species智能指针1, Species智能指针2, ...],
-         *     "Cow":   [Species智能指针1, Species智能指针2, ...],
-         *     "Tiger": [Species智能指针1, Species智能指针2, ...]
+         *     "grass": [Species智能指针1, Species智能指针2, ...],
+         *     "cow":   [Species智能指针1, Species智能指针2, ...],
+         *     "tiger": [Species智能指针1, Species智能指针2, ...]
          * }
          * 
          * C++17 结构化绑定语法：
@@ -279,19 +292,19 @@ int main(int argc, char *argv[])
          * 
          * 等价于传统写法：
          * for (const auto& pair : map) {
-         *     const std::string& species_name = pair.first;   // map 的 key
+         *     const std::string& species_name = pair.first;   // map 的 key（小写）
          *     const std::vector<std::shared_ptr<Species>>& individuals = pair.second;  // map 的 value
          * }
          * 
          * species_name 的可能值：
-         * - "Grass"  草
-         * - "Cow"    牛
-         * - "Tiger"  老虎
+         * - "grass"  草（小写）
+         * - "cow"    牛（小写）
+         * - "tiger"  老虎（小写）
          * 
          * individuals 是该物种的所有个体（智能指针列表）
          */
         for (const auto& [species_name, individuals] : initialData.species_lists) {
-            // species_name: const std::string& (物种名称)
+            // species_name: const std::string& (物种名称，小写)
             // individuals:  const std::vector<std::shared_ptr<Species>>& (个体列表)
             
             int alive_count = 0;
@@ -357,6 +370,7 @@ int main(int argc, char *argv[])
         controller->stop();
         
         qDebug() << "程序正常退出";
+        Logging::shutdown();
         return result;
         
     } catch (const std::exception& e) {
@@ -375,6 +389,7 @@ int main(int argc, char *argv[])
          * - unique_ptr 会自动清理已分配的资源
          */
         qDebug() << "错误:" << e.what();
+        Logging::shutdown();
         return -1;
     }
 }

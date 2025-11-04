@@ -24,16 +24,18 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_cowCount(0)
     , m_tigerCount(0)
     , m_timeStep(0)
+    , m_currentYear(1)   // 初始化新增变量
+    , m_currentDay(1)    // 初始化新增变量
+    , m_currentQuadrumName("Aprimay") // 初始化新增变量
 {
     m_backgroundImage.load(":/images/grass.png");
     if (m_backgroundImage.isNull()) {
         qDebug() << "警告: 背景图加载失败，使用纯色背景";
     }
     
-    m_elapsedTimer.start();
     
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
-    m_updateTimer->start(1000);
+    m_updateTimer->start(16);
     
     if (m_controller) {
         m_currentData = m_controller->get_data();
@@ -80,9 +82,9 @@ void Widget::updateFrame()
      * species_lists 的结构（关键！）：
      * std::map<std::string, std::vector<std::shared_ptr<Species>>>
      * {
-     *     "Grass": [Species智能指针1, Species智能指针2, ...],
-     *     "Cow":   [Species智能指针1, Species智能指针2, ...],
-     *     "Tiger": [Species智能指针1, Species智能指针2, ...]
+     *     "grass": [Species智能指针1, Species智能指针2, ...],  // ← 注意：小写！
+     *     "cow":   [Species智能指针1, Species智能指针2, ...],
+     *     "tiger": [Species智能指针1, Species智能指针2, ...]
      * }
      * 
      * Species 基类的成员（定义在 species.h）：
@@ -111,7 +113,7 @@ void Widget::updateFrame()
  * 
  * 数据来源：
  * m_currentData.species_lists (std::map<std::string, std::vector<std::shared_ptr<Species>>>)
- *   └─ map 的 key   (std::string 物种名称 "Grass"/"Cow"/"Tiger")
+ *   └─ map 的 key   (std::string 物种名称 "grass"/"cow"/"tiger") ← 注意：后端使用小写！
  *   └─ map 的 value (std::vector<std::shared_ptr<Species>> 个体列表)
  *       └─ individual->alive (bool 是否存活)
  */
@@ -126,7 +128,9 @@ void Widget::updateStatistics()
     m_tigerCount = 0;
     
     m_timeStep = m_currentData.time_step;
-    
+    m_currentYear = m_currentData.current_year;
+    m_currentDay = m_currentData.current_day;
+    m_currentQuadrumName = m_currentData.current_quadrum_name;
     // ========== 遍历 map：物种名称 -> 个体列表 ==========
     /**
      * C++17 结构化绑定语法：
@@ -138,13 +142,13 @@ void Widget::updateStatistics()
      *     const std::vector<std::shared_ptr<Species>>& individuals = pair.second;
      * }
      * 
-     * species_name 的可能值：
-     * - "Grass"  草
-     * - "Cow"    牛
-     * - "Tiger"  老虎
+     * species_name 的可能值（后端实际使用的键名）：
+     * - "grass"  草（注意：小写！）
+     * - "cow"    牛（注意：小写！）
+     * - "tiger"  老虎（注意：小写！）
      */
     for (const auto& [species_name, individuals] : m_currentData.species_lists) {
-        // species_name: const std::string& ("Grass", "Cow", "Tiger")
+        // species_name: const std::string& ("grass", "cow", "tiger")
         // individuals:  const std::vector<std::shared_ptr<Species>>&
         
         int alive_count = 0;
@@ -157,12 +161,12 @@ void Widget::updateStatistics()
             }
         }
         
-        // 根据物种名称更新对应的计数器
-        if (species_name == "Grass") {
+        // ✅ 修复：根据小写的物种名称更新对应的计数器
+        if (species_name == "grass") {
             m_grassCount = alive_count;
-        } else if (species_name == "Cow") {
+        } else if (species_name == "cow") {
             m_cowCount = alive_count;
-        } else if (species_name == "Tiger") {
+        } else if (species_name == "tiger") {
             m_tigerCount = alive_count;
         }
     }
@@ -195,9 +199,9 @@ void Widget::paintEvent(QPaintEvent *event)
      * 
      * map 的结构：
      * {
-     *     "Grass": [Species对象指针1, Species对象指针2, ...],
-     *     "Cow":   [Species对象指针1, Species对象指针2, ...],
-     *     "Tiger": [Species对象指针1, Species对象指针2, ...]
+     *     "grass": [Species对象指针1, Species对象指针2, ...],
+     *     "cow":   [Species对象指针1, Species对象指针2, ...],
+     *     "tiger": [Species对象指针1, Species对象指针2, ...]
      * }
      * 
      * Species 基类的成员：
@@ -257,15 +261,16 @@ void Widget::paintEvent(QPaintEvent *event)
      * 信息面板布局：
      * 
      * ┌────────────────────────────┐
-     * │ 运行时间: 00:05:23         │ ← 30px
-     * │ 时间步: 1500               │ ← 54px
-     * │ 总数量: 85                 │ ← 78px
-     * │ 草:  █ 60                  │ ← 102px
-     * │ 牛:  █ 20                  │ ← 126px
-     * │ 老虎: █ 5                  │ ← 150px
+     * │ 年: 1   天: 1              │
+     * │ 季: Aprimay                │
+     * │ 时间步: 0                  │
+     * │ 总数量: 85                 │
+     * │ 草:  █ 60                  │
+     * │ 牛:  █ 20                  │
+     * │ 老虎: █ 5                  │
      * └────────────────────────────┘
      */
-    QRectF infoRect(10, 10, 280, 160);
+    QRectF infoRect(10, 10, 280, 184);
     painter.setBrush(QColor(0, 0, 0, 180));
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(infoRect, 5, 5);
@@ -277,7 +282,10 @@ void Widget::paintEvent(QPaintEvent *event)
     int textY = 30;
     int lineHeight = 24;
     
-    painter.drawText(20, textY, "运行时间: " + formatElapsedTime());
+    painter.drawText(20, textY, QString("年: %1   天: %2").arg(m_currentYear).arg(m_currentDay));
+    textY += lineHeight;
+    
+    painter.drawText(20, textY, QString("季: %1").arg(QString::fromStdString(m_currentQuadrumName)));
     textY += lineHeight;
     
     painter.drawText(20, textY, QString("时间步: %1").arg(m_timeStep));
@@ -300,19 +308,6 @@ void Widget::paintEvent(QPaintEvent *event)
     painter.drawText(20, textY, "老虎: ");
     painter.fillRect(70, textY - 14, 18, 18, getColorForType(SpeciesType::TIGER));
     painter.drawText(95, textY, QString::number(m_tigerCount));
-}
-
-QString Widget::formatElapsedTime() const
-{
-    qint64 elapsed = m_elapsedTimer.elapsed();
-    int seconds = (elapsed / 1000) % 60;
-    int minutes = (elapsed / 60000) % 60;
-    int hours = (elapsed / 3600000);
-    
-    return QString("%1:%2:%3")
-        .arg(hours, 2, 10, QChar('0'))
-        .arg(minutes, 2, 10, QChar('0'))
-        .arg(seconds, 2, 10, QChar('0'));
 }
 
 QColor Widget::getColorForType(SpeciesType type) const
@@ -372,15 +367,28 @@ QPointF Widget::toScreenCoords(const Position& pos) const
     return QPointF(screenX, screenY);
 }
 
+/**
+ * 从物种名称转换为 SpeciesType 枚举
+ * 
+ * @param species_name 物种名称字符串（后端使用小写："grass", "cow", "tiger"）
+ * @return SpeciesType 枚举值
+ * 
+ * 映射关系（注意：后端使用小写键名）：
+ * - "grass" → SpeciesType::GRASS
+ * - "cow"   → SpeciesType::COW
+ * - "tiger" → SpeciesType::TIGER
+ * - 其他    → SpeciesType::GRASS (默认)
+ */
 SpeciesType Widget::getSpeciesTypeFromName(const std::string& species_name) const
 {
-    if (species_name == "Grass") {
+    // ✅ 修复：匹配后端使用的小写键名
+    if (species_name == "grass") {
         return SpeciesType::GRASS;
-    } else if (species_name == "Cow") {
+    } else if (species_name == "cow") {
         return SpeciesType::COW;
-    } else if (species_name == "Tiger") {
+    } else if (species_name == "tiger") {
         return SpeciesType::TIGER;
     }
     
-    return SpeciesType::GRASS;
+    return SpeciesType::GRASS;  // 默认值
 }

@@ -17,4 +17,5 @@ tiger:
     satisfied_threshold_ratio: 0.7
     starving_threshold_ratio: 0.25
     wandering_duration: 80
+    energy_efficiency: 0.3
   tiger:

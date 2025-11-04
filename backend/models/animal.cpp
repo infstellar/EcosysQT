@@ -28,7 +28,8 @@ Animal::Animal(Position pos,
                double max_energy,
                double satisfied_threshold_ratio,
                double starving_threshold_ratio,
-               int wandering_duration)
+               int wandering_duration,
+               double energy_efficiency)
     : Species(pos, energy, max_age, reproduction_energy_cost),
       base_movement_speed(movement_speed),
       movement_speed(movement_speed),
@@ -50,7 +51,8 @@ Animal::Animal(Position pos,
       satisfied_threshold(max_energy * satisfied_threshold_ratio),
       starving_threshold(max_energy * starving_threshold_ratio),
       is_wandering(false),
-      wandering_cooldown(wandering_duration) {}
+      wandering_cooldown(wandering_duration),
+      energy_efficiency(energy_efficiency){}
 
 void Animal::update(const EcosystemState& ecosystem_state) {
     Species::update(ecosystem_state);

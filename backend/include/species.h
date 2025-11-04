@@ -80,6 +80,7 @@ public:
     int min_reproduction_age;
     int base_reproduction_cooldown;
     double eating_range;
+    double energy_efficiency; //能量利用率
 
     Animal(Position pos, double energy = 100, int max_age = 100, double reproduction_energy_cost = 50,
            double movement_speed = 1.0, int energy_consumption = 1, double hunting_range = 5.0,
@@ -87,7 +88,7 @@ public:
            std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
            int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
            double eating_range = 0.0, double max_energy = 100.0, double satisfied_threshold_ratio = 0.8,
-           double starving_threshold_ratio = 0.2, int wandering_duration = 50);
+           double starving_threshold_ratio = 0.2, int wandering_duration = 50,double energy_efficiency = 1.0);
 
     void update(const EcosystemState& ecosystem_state) override;
     // 寻找最近的食物来源

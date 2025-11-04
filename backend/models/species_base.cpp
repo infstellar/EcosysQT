@@ -13,7 +13,7 @@
 // 基础物种类
 Species::Species(Position pos, double energy, int max_age, double reproduction_energy_cost)
     : position(pos),
-    energy(reproduction_energy_cost),
+    energy(energy),
     max_energy(energy * 4),
     age(0),
     max_age(max_age),

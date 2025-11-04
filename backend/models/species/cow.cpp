@@ -31,7 +31,8 @@ Cow::Cow(Position pos, const CowParams& params)
              params.energy, // Use initial energy as max_energy
              params.satisfied_threshold_ratio,
              params.starving_threshold_ratio,
-             params.wandering_duration)
+             params.wandering_duration, 
+             params.energy_efficiency)
 {
     species_name = "cow";
 }
@@ -44,7 +45,7 @@ void Cow::update(const EcosystemState& ecosystem_state) {
         auto grass_in_range = ecosystem_state.get_species_in_range("grass", position, eating_range);
         for (const auto& grass : grass_in_range) {
             if (grass->alive) {
-                energy = std::min(max_energy, energy + grass->energy);
+                energy = std::min(max_energy, energy + (grass->energy * this->energy_efficiency));
                 grass->die_from_predation("Cow");
                 break;
             }

@@ -50,6 +50,7 @@ add_executable(MyQtApp
   backend/models/species/tiger.cpp
   backend/models/species_factory.cpp
   backend/models/species_config_provider_yaml.cpp
+    backend/engine/logging.cpp
   # 前端 UI 模块
   src/ui/Widget.cpp
   src/ui/Widget.h
