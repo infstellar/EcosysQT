@@ -5,6 +5,7 @@
 
 #include "species.h"
 #include "ecosystem.h"
+#include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
 #include <cmath>
@@ -55,6 +56,7 @@ Animal::Animal(Position pos,
       energy_efficiency(energy_efficiency){}
 
 void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    ZoneScoped;
     Species::decide(ecosystem_state, rng);
     if (!alive) {
         return;
@@ -114,6 +116,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 }
 
 void Animal::apply(const EcosystemState& ecosystem_state) {
+    ZoneScoped;
     Species::apply(ecosystem_state);
     if (!alive) {
         return;

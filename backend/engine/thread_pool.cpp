@@ -1,8 +1,10 @@
 #include "thread_pool.h"
+#include "tracy/Tracy.hpp"
 
 #include <cassert>
 #include <algorithm>
 #include <limits>
+#include <string>
 
 namespace {
 // 线程局部存储（TLS）变量，用于存储每个工作线程的唯一索引。
@@ -79,6 +81,9 @@ std::size_t ThreadPool::current_worker_index() {
 void ThreadPool::worker_loop(std::size_t worker_index) {
     // 在线程开始时，设置其TLS索引。
     tls_worker_index = worker_index;
+
+    std::string thread_name = "Worker " + std::to_string(worker_index);
+    tracy::SetThreadName(thread_name.c_str());
     while (true) {
         std::function<void()> task;
         {

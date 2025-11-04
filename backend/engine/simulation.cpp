@@ -1,4 +1,5 @@
 #include "simulation.h"
+#include "tracy/Tracy.hpp"
 #include <chrono>
 #include <iostream>
 
@@ -118,10 +119,12 @@ void SimulationEngine::simulation_loop() {
         //TODO 改成基于运行时间+延迟时间的精准控制。
         std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(sleep_duration_ms)));
 
+        FrameMark;
     }
 }
 
 void SimulationEngine::update_ecosystem() {
+    ZoneScoped;
     // The logic from Python's _update_ecosystem is now encapsulated
     // within the C++ EcosystemState methods.
     
@@ -134,39 +137,73 @@ void SimulationEngine::update_ecosystem() {
     // 在每个阶段之间，需要等待所有任务完成，以确保数据一致性。
     // `resolve_interactions` 是一个同步点，它处理所有物种决策后的交互，例如捕食。
     if (thread_pool) {
-        // 准备阶段：为并发更新做准备，例如构建空间哈希。
-        ecosystem->prepare_for_update();
-        // 决策阶段：将所有物种的决策任务分派给线程池。
-        ecosystem->dispatch_decision_tasks(*thread_pool);
-        thread_pool->wait_for_completion();
-
-        // 交互解决阶段：同步解决所有物种间的交互。
-        ecosystem->resolve_interactions();
-
-        // 应用阶段：将所有物种的状态更新任务分派给线程池。
-        ecosystem->dispatch_apply_tasks(*thread_pool);
-        thread_pool->wait_for_completion();
+        {
+            ZoneScopedN("Prepare Update");
+            ecosystem->prepare_for_update();
+        }
+        {
+            ZoneScopedN("Dispatch Decision");
+            ecosystem->dispatch_decision_tasks(*thread_pool);
+        }
+        {
+            ZoneScopedN("Wait Decision");
+            thread_pool->wait_for_completion();
+        }
+        {
+            ZoneScopedN("Resolve Interactions");
+            ecosystem->resolve_interactions();
+        }
+        {
+            ZoneScopedN("Dispatch Apply");
+            ecosystem->dispatch_apply_tasks(*thread_pool);
+        }
+        {
+            ZoneScopedN("Wait Apply");
+            thread_pool->wait_for_completion();
+        }
     } else {
         // 如果没有可用的线程池，则回退到单线程执行。
         // 这确保了即使在不支持多线程的环境下，模拟也能正确运行。
         ThreadPool fallback_pool(1);
-        ecosystem->prepare_for_update();
-        ecosystem->dispatch_decision_tasks(fallback_pool);
-        fallback_pool.wait_for_completion();
-
-        ecosystem->resolve_interactions();
-
-        ecosystem->dispatch_apply_tasks(fallback_pool);
-        fallback_pool.wait_for_completion();
+        {
+            ZoneScopedN("Prepare Update");
+            ecosystem->prepare_for_update();
+        }
+        {
+            ZoneScopedN("Dispatch Decision");
+            ecosystem->dispatch_decision_tasks(fallback_pool);
+        }
+        {
+            ZoneScopedN("Wait Decision");
+            fallback_pool.wait_for_completion();
+        }
+        {
+            ZoneScopedN("Resolve Interactions");
+            ecosystem->resolve_interactions();
+        }
+        {
+            ZoneScopedN("Dispatch Apply");
+            ecosystem->dispatch_apply_tasks(fallback_pool);
+        }
+        {
+            ZoneScopedN("Wait Apply");
+            fallback_pool.wait_for_completion();
+        }
     }
 
     // 3. 应用注册表变更
     // 在所有物种更新完成后，统一处理出生和死亡等注册表变更。
     // 这可以避免在迭代过程中修改集合，从而简化并发控制。
-    ecosystem->apply_registry_changes();
+    {
+        ZoneScopedN("Apply Registry Changes");
+        ecosystem->apply_registry_changes();
+    }
 
     // 5. Update statistics
-    ecosystem->update_statistics();
+    {
+        ZoneScopedN("Update Statistics");
+        ecosystem->update_statistics();
+    }
 
 }
 

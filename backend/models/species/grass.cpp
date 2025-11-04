@@ -6,6 +6,7 @@
 #include "species.h"
 #include "species_params.h"
 #include "ecosystem.h"
+#include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
 #include <cmath>
@@ -57,6 +58,7 @@ double Grass::get_competition_adjusted_growth_rate(const EcosystemState& ecosyst
 }
 
 void Grass::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    ZoneScoped;
     Species::decide(ecosystem_state, rng);
     if (!alive) {
         return;
@@ -84,6 +86,7 @@ void Grass::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 }
 
 void Grass::apply(const EcosystemState& ecosystem_state) {
+    ZoneScoped;
     Species::apply(ecosystem_state);
     if (!alive) {
         pending_growth = 0.0;

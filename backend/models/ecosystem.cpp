@@ -5,6 +5,7 @@
 
 #include "ecosystem.h"
 #include "thread_pool.h"
+#include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
 #include <Eigen/Dense>
@@ -789,6 +790,7 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_nearby_species_broad(
     const Position& center,
     double radius) const {
 
+    ZoneScoped;
     std::vector<std::shared_ptr<Species>> nearby;
     if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
         return nearby;
