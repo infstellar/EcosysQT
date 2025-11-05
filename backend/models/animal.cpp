@@ -55,7 +55,10 @@ Animal::Animal(Position pos,
       is_wandering(false),
       wandering_cooldown(wandering_duration),
       wander_radius(wander_radius),
-      energy_efficiency(energy_efficiency){}
+      energy_efficiency(energy_efficiency){
+    // 初始化本帧步长为当前移动速度（未缩放）
+    current_step_speed = movement_speed;
+}
 
 void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
@@ -149,6 +152,11 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
         return;
     }
 
+    // 按毫秒缩放本帧步长，提升不同帧率/速度下移动一致性
+    const double move_time_scale_ms = 33.333333; // 约一帧，保持与植物一致
+    const double dt_scale = ecosystem_state.get_delta_time_ms() / std::max(1e-9, move_time_scale_ms);
+    current_step_speed = movement_speed * dt_scale;
+
     const int world_width = ecosystem_state.config.world_width;
     const int world_height = ecosystem_state.config.world_height;
 
@@ -160,8 +168,9 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
             if (wander_target.has_value()) {
                 const Position target = wander_target.value();
                 move_towards_target(target, world_width, world_height);
-                // 只有完全到达目标才清除并允许选择下一个游荡点
-                if (position.distance_to(target) <= movement_speed) {
+                // 平滑到达阈值：避免门槛效应导致抖动
+                const double arrival_threshold = std::max(1.0, current_step_speed * 0.5);
+                if (position.distance_to(target) <= arrival_threshold) {
                     wander_target.reset();
                 }
             }
@@ -194,13 +203,13 @@ void Animal::adjust_stats_by_state() {
         case HungerState::SATISFIED:
             is_wandering = true;
             wandering_cooldown = 100; // Example value, should be configurable
-            movement_speed = base_movement_speed * 0.8;
-            energy_consumption = base_energy_consumption * 0.8;
+            movement_speed = base_movement_speed * 0.2;
+            energy_consumption = base_energy_consumption * 0.5;
             break;
         case HungerState::STARVING:
             is_wandering = false;
-            movement_speed = base_movement_speed * 2.0;
-            energy_consumption = base_energy_consumption * 2.0;
+            movement_speed = base_movement_speed * 0.4;
+            energy_consumption = base_energy_consumption * 0.1;
             break;
         case HungerState::NORMAL:
         default:
@@ -209,8 +218,8 @@ void Animal::adjust_stats_by_state() {
             } else {
                 is_wandering = false;
             }
-            movement_speed = base_movement_speed;
-            energy_consumption = base_energy_consumption;
+            movement_speed = base_movement_speed * 1.0;
+            energy_consumption = base_energy_consumption * 1.0;
             break;
     }
 }
@@ -258,8 +267,11 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
     double distance = std::sqrt(dx * dx + dy * dy);
 
     if (distance > 0) {
-        // 步长限制：避免越过目标导致来回抖动
-        const double step = std::min(movement_speed, distance);
+        // 到达减速（Arrive）：临近目标时按比例减速，平滑收敛
+        const double slow_radius = std::max(current_step_speed * 8.0, movement_speed * 4.0);
+        const double ratio = std::min(1.0, distance / std::max(1e-9, slow_radius));
+        const double desired = current_step_speed * ratio;
+        const double step = std::min(desired, distance);
         dx = (dx / distance) * step;
         dy = (dy / distance) * step;
         // 更新位置，确保不超出边界
@@ -282,6 +294,11 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
     int world_width = ecosystem_state.config.world_width;
     int world_height = ecosystem_state.config.world_height;
 
+    // 按毫秒缩放本次移动步长（智能移动路径）
+    const double move_time_scale_ms = 33.333333;
+    const double dt_scale = ecosystem_state.get_delta_time_ms() / std::max(1e-9, move_time_scale_ms);
+    current_step_speed = movement_speed * dt_scale;
+
     if (current_target.has_value()) {
         // 为目标规划路径（占位，未来可替换为 A*）
         plan_path_to_target(ecosystem_state);
@@ -290,7 +307,7 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
     } else {
         // 无目标时采用随机游走
     auto& rng = const_cast<EcosystemState&>(ecosystem_state).get_thread_local_rng();
-    move_randomly(world_width, world_height, movement_speed, rng);
+    move_randomly(world_width, world_height, current_step_speed, rng);
     }
 }
 
@@ -354,7 +371,8 @@ void Animal::move_to_target_point(int world_width, int world_height) {
 
     // 达到当前路径点后推进到下一个点
     double remain = position.distance_to(goal);
-    if (remain <= movement_speed) {
+    const double arrival_threshold = std::max(1.0, current_step_speed * 0.5);
+    if (remain <= arrival_threshold) {
         if (!planned_path.empty() && planned_path_index < planned_path.size()) {
             planned_path_index += 1;
             if (planned_path_index >= planned_path.size()) {

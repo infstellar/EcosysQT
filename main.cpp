@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
          * 注意：参数名称是 initial_cows 和 initial_tigers（复数）
          * 这与 EcosystemConfig 的构造函数参数一致
          */
-        EcosystemConfig config(800, 600, 100, 10, 2);
+        EcosystemConfig config(800, 600, 1000, 50, 5);
         
         // ========== 步骤 3: 创建模拟控制器 ==========
         /**

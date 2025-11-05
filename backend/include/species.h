@@ -95,7 +95,7 @@ public:
            std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
            int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
            double eating_range = 0.0, double max_energy = 100.0, double satisfied_threshold_ratio = 0.8,
-           double starving_threshold_ratio = 0.2, int wandering_duration = 50, double wander_radius = 200.0, double energy_efficiency = 1.0);
+           double starving_threshold_ratio = 0.2, int wandering_duration = 50, double wander_radius = 40.0, double energy_efficiency = 1.0);
 
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;
@@ -140,6 +140,7 @@ protected:
     bool is_wandering;             // 是否处于逛街状态
     int wandering_cooldown;        // 逛街冷却/持续时间
     double wander_radius;          // 游荡目标选择半径
+    double current_step_speed;     // 本帧步长（按 delta_time 缩放）
 
     // 更新饱食状态
     void update_hunger_state();

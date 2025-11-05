@@ -57,7 +57,7 @@ struct EcosystemConfig {
     int initial_grass;
     int initial_cows;
     int initial_tigers;
-    EcosystemConfig(int w = 800, int h = 600, int g = 100, int c = 10, int t = 1)
+    EcosystemConfig(int w = 800, int h = 600, int g = 1000, int c = 50, int t = 5)
         : world_width(w), world_height(h), initial_grass(g), initial_cows(c), initial_tigers(t) {}
 };
 

@@ -14,4 +14,4 @@ animal:
     satisfied_threshold_ratio: 0.8
     starving_threshold_ratio: 0.2
     wandering_duration: 50
-    wander_radius: 400.0
+    wander_radius: 40.0

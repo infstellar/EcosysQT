@@ -29,7 +29,7 @@ struct AnimalParams : SpeciesBaseParams {
     double satisfied_threshold_ratio = 0.8;   // 吃饱阈值比例
     double starving_threshold_ratio = 0.2;    // 饥饿阈值比例
     int wandering_duration = 50;              // 逛街持续时间
-    double wander_radius = 200.0;              // 游荡目标选择半径
+    double wander_radius = 40.0;              // 游荡目标选择半径
 };
 
 // 老虎特有参数（继承动物参数）
