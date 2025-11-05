@@ -25,23 +25,19 @@ static YAML::Node load_yaml_file(const std::string& p) {
     }
 }
 
-template <typename T>
-static T read_scalar_or_default(const YAML::Node& node, const std::string& key, const T& def) {
-    if (node && node[key]) {
-        try { return node[key].as<T>(); } catch (...) {}
-    }
-    return def;
-}
+// 辅助函数：按顺序查找 YAML 文件
+static YAML::Node load_species_yaml(const std::string& name, const std::string& root_dir) {
+    std::string path = root_dir + "/config/species/" + name + ".yaml";
+    try { return YAML::LoadFile(path); } catch (...) {}
 
-static std::vector<std::string> read_string_list_or_default(const YAML::Node& node, const std::string& key, const std::vector<std::string>& def) {
-    if (node && node[key]) {
-        try {
-            std::vector<std::string> v;
-            for (const auto& it : node[key]) v.push_back(it.as<std::string>());
-            return v;
-        } catch (...) {}
-    }
-    return def;
+    path = root_dir + "/config/species_base/" + name + ".yaml";
+    try { return YAML::LoadFile(path); } catch (...) {}
+
+    path = root_dir + "/config/" + name + ".yaml";
+    try { return YAML::LoadFile(path); } catch (...) {}
+
+    SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Cannot find YAML file for: {}", name);
+    return YAML::Node();
 }
 
 // 通用：按成员名自动赋值（支持继承成员），避免映射表
@@ -74,48 +70,27 @@ static void apply_yaml_fields_by_name(const YAML::Node& node, T& params) {
     });
 }
 
-// 分层 apply：基础通用字段
-static void apply_species_base(const YAML::Node& base, SpeciesBaseParams& params) {
-    apply_yaml_fields_by_name(base, params);
-}
-
-// 分层 apply：动物通用行为字段
-static void apply_animal_common(const YAML::Node& behavior, AnimalParams& params) {
-    apply_yaml_fields_by_name(behavior, params);
-}
-
-// 编译期通用：按继承层次应用配置（species→animal→具体物种）
+// 新的递归加载器
 template <class T>
-static void apply_inheritance_layers(const std::string& root_dir, const char* species_key, T& params) {
-    // 1) 父类默认：species.yaml / species.species
-    {
-        std::string sp = root_dir + "/config/species.yaml";
-        YAML::Node sroot = load_yaml_file(sp);
-        YAML::Node s = sroot["species"];
-        apply_yaml_fields_by_name(s["species"], params);
+static void load_params_recursive(const std::string& name, T& params, const std::string& root_dir) {
+    YAML::Node node = load_species_yaml(name, root_dir);
+    if (!node) return;
+
+    if (node["parent"]) {
+        load_params_recursive(node["parent"].as<std::string>(), params, root_dir);
     }
-    // 2) 动物默认（仅当 T 继承 AnimalParams）：animal.yaml / animal.animal
+
+    apply_yaml_fields_by_name(node["species"], params);
+
     if constexpr (std::is_base_of_v<AnimalParams, T>) {
-        std::string ap = root_dir + "/config/animal.yaml";
-        YAML::Node aroot = load_yaml_file(ap);
-        YAML::Node a = aroot["animal"];
-        apply_yaml_fields_by_name(a["animal"], params);
+        apply_yaml_fields_by_name(node["animal"], params);
     }
-    // 3) 物种专属：config/species/<species_key>.yaml （species / animal / <species_key>）
-    {
-        std::string p = root_dir + "/config/species/" + std::string(species_key) + ".yaml";
-        YAML::Node root = load_yaml_file(p);
-        YAML::Node spnode = root[species_key];
-        apply_yaml_fields_by_name(spnode["species"], params);
-        // 植物分层：当 T 继承自 PlantParams 时，应用 plant 段（保持与 animal 分层一致）
-        if constexpr (std::is_base_of_v<PlantParams, T>) {
-            apply_yaml_fields_by_name(spnode["plant"], params);
-        }
-        if constexpr (std::is_base_of_v<AnimalParams, T>) {
-            apply_yaml_fields_by_name(spnode["animal"], params);
-        }
-        apply_yaml_fields_by_name(spnode[species_key], params);
+    if constexpr (std::is_base_of_v<PlantParams, T>) {
+        apply_yaml_fields_by_name(node["plant"], params);
+        apply_yaml_fields_by_name(node["grass"], params);
     }
+
+    apply_yaml_fields_by_name(node[name], params);
 }
 
 // 可选的物种级后处理（约束修正等）
@@ -126,7 +101,7 @@ static void clamp(double& x, double lo, double hi) {
     if (x < lo) x = lo; else if (x > hi) x = hi;
 }
 
-template <> inline void postprocess_params<TigerParams>(TigerParams& params) {
+template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     clamp(params.hunting_success_rate, 0.0, 1.0);
     if (params.movement_speed < 0.0) params.movement_speed = 0.0;
     if (params.energy_consumption < 0) params.energy_consumption = 0;
@@ -135,23 +110,23 @@ template <> inline void postprocess_params<TigerParams>(TigerParams& params) {
 YamlSpeciesConfigProvider::YamlSpeciesConfigProvider(std::string config_root_dir)
     : root_dir(std::move(config_root_dir)) {}
 
-TigerParams YamlSpeciesConfigProvider::get_tiger_params() const {
-    TigerParams params{}; // 使用结构体自身默认作为最终兜底
-    apply_inheritance_layers<TigerParams>(root_dir, "tiger", params);
+AnimalParams YamlSpeciesConfigProvider::get_tiger_params() const {
+    AnimalParams params{}; // 使用结构体自身默认作为最终兜底
+    load_params_recursive<AnimalParams>("tiger", params, root_dir);
     postprocess_params(params);
     return params;
 }
 
-CowParams YamlSpeciesConfigProvider::get_cow_params() const {
-    CowParams params{};
-    apply_inheritance_layers<CowParams>(root_dir, "cow", params);
+AnimalParams YamlSpeciesConfigProvider::get_cow_params() const {
+    AnimalParams params{};
+    load_params_recursive<AnimalParams>("cow", params, root_dir);
     postprocess_params(params);
     return params;
 }
 
-GrassParams YamlSpeciesConfigProvider::get_grass_params() const {
-    GrassParams params{};
-    apply_inheritance_layers<GrassParams>(root_dir, "grass", params);
+PlantParams YamlSpeciesConfigProvider::get_grass_params() const {
+    PlantParams params{};
+    load_params_recursive<PlantParams>("grass", params, root_dir);
     postprocess_params(params);
     return params;
 }

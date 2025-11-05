@@ -18,7 +18,6 @@
 #include "species_factory.h"
 #include "species_registry.h"
 #include "species_statistics.h"
-#include "species_utils.h"
 #include "spatial_grid.h"
 #include "utils.h"
 #include "interaction_requests.h"
@@ -71,7 +70,7 @@ public:
     SpeciesRegistry species_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
-    std::vector<std::map<SpeciesType, int>> population_history;
+    std::vector<std::map<std::string, int>> population_history;
 
     EcosystemState(const EcosystemConfig& config);
 

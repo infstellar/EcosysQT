@@ -135,7 +135,7 @@ void EcosystemState::update_time(double delta_ms) {
 */
 void EcosystemState::update_statistics() {
     SpeciesStatistics stats = get_species_counts();
-    std::map<SpeciesType, int> snapshot = stats.statistics;
+        std::map<std::string, int> snapshot = stats.statistics;
     population_history.push_back(snapshot);
     if (population_history.size() > 100)
         population_history.erase(population_history.begin(), population_history.end() - 100);
@@ -428,8 +428,7 @@ void EcosystemState::apply_registry_changes() {
         }
 
         if (dead_count > 0) {
-            SpeciesType type = species_type_from_name(name);
-            deaths.increment(type, dead_count);
+            deaths.increment(name, dead_count);
             spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
         }
 
@@ -438,8 +437,7 @@ void EcosystemState::apply_registry_changes() {
         auto newborn_it = newborns_by_species.find(name);
         if (newborn_it != newborns_by_species.end() && !newborn_it->second.empty()) {
             species_registry.extend_individuals(name, newborn_it->second);
-            SpeciesType type = species_type_from_name(name);
-            births.increment(type, newborn_it->second.size());
+            births.increment(name, static_cast<int>(newborn_it->second.size()));
             spdlog::get("ecosim")->info("{} {} new {} individuals born",
                 (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
                 newborn_it->second.size(), name);
@@ -510,9 +508,8 @@ void EcosystemState::restore_request_queue(std::vector<InteractionRequest>* prev
 SpeciesStatistics EcosystemState::get_species_counts() const {
     SpeciesStatistics stats;
     for (const auto& name : species_registry.get_all_species_names()) {
-        SpeciesType type = species_type_from_name(name);
         int count = species_registry.get_species_count(name);
-        stats.set_count(type, count);
+        stats.set_count(name, count);
     }
     return stats;
 }

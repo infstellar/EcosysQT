@@ -4,6 +4,7 @@
 */
 
 #include "species.h"
+#include "species_params.h"
 #include "ecosystem.h"
 #include "tracy/Tracy.hpp"
 #include <random>
@@ -12,50 +13,31 @@
 
 // --- Animal ---
 // 动物基类 - 继承自Species并添加智能移动
-Animal::Animal(Position pos,
-               double energy,
-               int max_age,
-               double reproduction_energy_cost,
-               double movement_speed,
-               int energy_consumption,
-               double hunting_range,
-               double hunting_success_rate,
-               double detection_range,
-               std::vector<std::string> food_types,
-               int hunting_cooldown_duration,
-               int min_reproduction_age,
-               int base_reproduction_cooldown,
-               double eating_range,
-               double max_energy,
-               double satisfied_threshold_ratio,
-               double starving_threshold_ratio,
-               int wandering_duration,
-               double wander_radius,
-               double energy_efficiency)
-    : Species(pos, energy, max_age, reproduction_energy_cost),
-      base_movement_speed(movement_speed),
-      movement_speed(movement_speed),
-      base_energy_consumption(energy_consumption),
-      energy_consumption(energy_consumption),
-      hunting_range(hunting_range),
-      hunting_success_rate(hunting_success_rate),
-      detection_range(detection_range),
-      food_types(std::move(food_types)),
-      hunting_cooldown(0),
-      hunting_cooldown_duration(hunting_cooldown_duration),
-      min_reproduction_age(min_reproduction_age),
-      base_reproduction_cooldown(base_reproduction_cooldown),
-      eating_range(eating_range),
-      current_target(std::nullopt),
-      planned_path(),
-      planned_path_index(0),
-      hunger_state(HungerState::NORMAL),
-      satisfied_threshold(max_energy * satisfied_threshold_ratio),
-      starving_threshold(max_energy * starving_threshold_ratio),
-      is_wandering(false),
-      wandering_cooldown(wandering_duration),
-      wander_radius(wander_radius),
-      energy_efficiency(energy_efficiency){
+Animal::Animal(Position pos, const AnimalParams& params)
+        : Species(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+            base_movement_speed(params.movement_speed),
+            movement_speed(params.movement_speed),
+            base_energy_consumption(params.energy_consumption),
+            energy_consumption(params.energy_consumption),
+            hunting_range(params.hunting_range),
+            hunting_success_rate(params.hunting_success_rate),
+            detection_range(params.detection_range),
+            food_types(params.food_types),
+            hunting_cooldown(0),
+            hunting_cooldown_duration(params.hunting_cooldown_duration),
+            min_reproduction_age(params.min_reproduction_age),
+            base_reproduction_cooldown(params.reproduction_cooldown),
+            eating_range(params.eating_range),
+            energy_efficiency(params.energy_efficiency),
+            current_target(std::nullopt),
+            planned_path(),
+            planned_path_index(0),
+            hunger_state(HungerState::NORMAL),
+            satisfied_threshold(params.energy * params.satisfied_threshold_ratio),
+            starving_threshold(params.energy * params.starving_threshold_ratio),
+            is_wandering(false),
+            wandering_cooldown(params.wandering_duration),
+            wander_radius(params.wander_radius) {
     // 初始化本帧步长为当前移动速度（未缩放）
     current_step_speed = movement_speed;
 }
@@ -73,6 +55,54 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
     update_hunger_state();
     adjust_stats_by_state();
+
+    if (hunger_state != HungerState::SATISFIED && !food_types.empty()) {
+        const std::string& primary_food = food_types.front();
+        if (primary_food == "grass" && eating_range > 0.0) {
+            auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, eating_range);
+            for (const auto& entity : nearby_entities) {
+                if (!entity || !entity->alive) {
+                    continue;
+                }
+                if (entity->species_name != "grass") {
+                    continue;
+                }
+                if (position.distance_to(entity->position) > eating_range) {
+                    continue;
+                }
+
+                AttemptToEatRequest eat_request{shared_from_this(), entity};
+                ecosystem_state.submit_interaction_request(std::move(eat_request));
+                break; // 单次觅食
+            }
+        }
+
+        if (primary_food == "cow" && hunting_range > 0.0 && hunting_cooldown <= 0) {
+            const double desire = get_hunting_desire();
+            if (desire > 0.0) {
+                std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
+                if (hunt_dist(rng) < hunting_success_rate * desire) {
+                    auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, hunting_range);
+                    for (const auto& entity : nearby_entities) {
+                        if (!entity || !entity->alive) {
+                            continue;
+                        }
+                        if (entity->species_name != "cow") {
+                            continue;
+                        }
+                        if (position.distance_to(entity->position) > hunting_range) {
+                            continue;
+                        }
+
+                        AttemptToEatRequest hunt_request{shared_from_this(), entity};
+                        ecosystem_state.submit_interaction_request(std::move(hunt_request));
+                        start_hunting_cooldown();
+                        break; // 单次狩猎
+                    }
+                }
+            }
+        }
+    }
 
     if (hunting_cooldown > 0) {
         // 冷却只限制捕猎动作，不应阻止行走或游荡

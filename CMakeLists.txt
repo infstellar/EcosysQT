@@ -85,13 +85,9 @@ add_executable(MyQtApp
     backend/models/spatial_grid.cpp
     backend/models/species_registry.cpp
     backend/models/species_statistics.cpp
-    backend/models/species_utils.cpp
   backend/models/species_base.cpp
   backend/models/producer.cpp
   backend/models/animal.cpp
-  backend/models/species/grass.cpp
-  backend/models/species/cow.cpp
-  backend/models/species/tiger.cpp
   backend/models/species_factory.cpp
   backend/models/species_config_provider_yaml.cpp
     backend/engine/logging.cpp

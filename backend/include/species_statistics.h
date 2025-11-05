@@ -1,22 +1,14 @@
 #pragma once
 
 #include <map>
-#include "species.h"
+#include <string>
 
 class SpeciesStatistics {
 public:
-    std::map<SpeciesType, int> statistics;
+    std::map<std::string, int> statistics;
 
-    SpeciesStatistics();
-    void increment(SpeciesType type, int count = 1);
-    void set_count(SpeciesType type, int count);
-    int get_count(SpeciesType type) const;
+    void increment(const std::string& species_name, int count = 1);
+    void set_count(const std::string& species_name, int count);
+    int get_count(const std::string& species_name) const;
     void reset();
-
-    int grass() const;
-    void set_grass(int value);
-    int cow() const;
-    void set_cow(int value);
-    int tiger() const;
-    void set_tiger(int value);
 };

@@ -1,21 +1,21 @@
 schema_version: 1
-tiger:
-  species:
-    energy: 4000
-    max_age: 8000
-    reproduction_energy_cost: 4000
-  animal:
-    movement_speed: 4.0
-    energy_consumption: 20
-    hunting_range: 6.0
-    hunting_success_rate: 0.2
-    detection_range: 1000.0
-    food_types: ["cow"]
-    hunting_cooldown_duration: 4
-    min_reproduction_age: 30
-    reproduction_cooldown: 800
-    satisfied_threshold_ratio: 0.7
-    starving_threshold_ratio: 0.25
-    wandering_duration: 80
-    energy_efficiency: 0.3
-  tiger:
+parent: base_animal
+species:
+  energy: 4000
+  max_age: 8000
+  reproduction_energy_cost: 4000
+animal:
+  movement_speed: 4.0
+  energy_consumption: 20
+  hunting_range: 6.0
+  hunting_success_rate: 0.2
+  detection_range: 1000.0
+  food_types:
+    - cow
+  hunting_cooldown_duration: 4
+  min_reproduction_age: 30
+  reproduction_cooldown: 800
+  satisfied_threshold_ratio: 0.7
+  starving_threshold_ratio: 0.25
+  wandering_duration: 80
+  energy_efficiency: 0.3

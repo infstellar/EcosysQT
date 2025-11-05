@@ -52,19 +52,23 @@ void register_all_species() {
 
     // 注册草（基于配置参数）
     g_species_factory.register_species("grass", [provider](Position pos) {
-        GrassParams params = provider->get_grass_params();
-        return std::make_unique<Grass>(pos, params);
+        PlantParams params = provider->get_grass_params();
+        return std::make_unique<Producer>(pos, params);
     });
 
     // 注册牛（基于配置参数）
     g_species_factory.register_species("cow", [provider](Position pos) {
-        CowParams params = provider->get_cow_params();
-        return std::make_unique<Cow>(pos, params);
+        AnimalParams params = provider->get_cow_params();
+        auto instance = std::make_unique<Animal>(pos, params);
+        instance->species_name = "cow";
+        return instance;
     });
 
     // 注册老虎（基于配置参数）
     g_species_factory.register_species("tiger", [provider](Position pos) {
-        TigerParams params = provider->get_tiger_params();
-        return std::make_unique<Tiger>(pos, params);
+        AnimalParams params = provider->get_tiger_params();
+        auto instance = std::make_unique<Animal>(pos, params);
+        instance->species_name = "tiger";
+        return instance;
     });
 }

@@ -11,6 +11,7 @@
 
 // 前向声明
 class EcosystemState;
+struct AnimalParams;
 struct PlantParams;
 
 // 物种类型枚举 (用于统计、注册等)
@@ -89,13 +90,7 @@ public:
     double eating_range;
     double energy_efficiency; //能量利用率
 
-    Animal(Position pos, double energy = 100, int max_age = 100, double reproduction_energy_cost = 50,
-           double movement_speed = 1.0, int energy_consumption = 1, double hunting_range = 5.0,
-           double hunting_success_rate = 0.5, double detection_range = 500.0,
-           std::vector<std::string> food_types = {}, int hunting_cooldown_duration = 0,
-           int min_reproduction_age = 0, int base_reproduction_cooldown = 0,
-           double eating_range = 0.0, double max_energy = 100.0, double satisfied_threshold_ratio = 0.8,
-           double starving_threshold_ratio = 0.2, int wandering_duration = 50, double wander_radius = 40.0, double energy_efficiency = 1.0);
+    Animal(Position pos, const struct AnimalParams& params);
 
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;
@@ -178,49 +173,4 @@ public:
     std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
 };
 
-// 草类，继承自Producer，实现生产者逻辑
-class Grass : public Producer {
-public:
-    Grass(Position pos, const struct GrassParams& params);
-    // 获取根据竞争调整的生长率
-    double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);
-    // 更新草的状态
-    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
-    void apply(const class EcosystemState& ecosystem_state) override;
-    // 检查草是否可以繁殖
-    bool can_reproduce() const override;
-    // 繁殖以创建新草
-    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
-};
-
-// 牛类，继承自Animal，实现初级消费者逻辑
-class Cow : public Animal {
-public:
-    Cow(Position pos, const struct CowParams& params);
-
-    // 更新牛的状态
-    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
-    void apply(const class EcosystemState& ecosystem_state) override;
-    // 从列表中吃草
-    void _eat_grass(const std::vector<Grass*>& grass_list);
-    // 检查牛是否可以繁殖
-    bool can_reproduce() const override;
-protected:
-    double reproduction_spawn_radius() const override { return 10.0; }
-};
-
-// 老虎类，继承自Animal，实现次级消费者逻辑
-class Tiger : public Animal {
-public:
-    Tiger(Position pos, const struct TigerParams& params);
-
-    // 更新老虎的状态
-    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
-    void apply(const class EcosystemState& ecosystem_state) override;
-    // 从列表中狩猎牛
-    void _hunt_cows(const std::vector<Cow*>& cow_list);
-    // 检查老虎是否可以繁殖
-    bool can_reproduce() const override;
-protected:
-    double reproduction_spawn_radius() const override { return 200.0; }
-};
+// 草、牛、虎等具体物种类已移除，逻辑统一在 Animal 与 Producer 基类中实现。

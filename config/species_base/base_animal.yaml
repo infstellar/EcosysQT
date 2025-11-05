@@ -1,0 +1,18 @@
+schema_version: 1
+parent: species
+animal:
+  movement_speed: 1.0
+  energy_consumption: 1
+  hunting_range: 5.0
+  hunting_success_rate: 0.5
+  detection_range: 500.0
+  food_types: []
+  hunting_cooldown_duration: 0
+  min_reproduction_age: 0
+  reproduction_cooldown: 0
+  eating_range: 0.0
+  satisfied_threshold_ratio: 0.8
+  starving_threshold_ratio: 0.2
+  wandering_duration: 50
+  wander_radius: 40.0
+  energy_efficiency: 1.0
