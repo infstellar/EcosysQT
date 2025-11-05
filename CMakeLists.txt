@@ -82,6 +82,10 @@ add_executable(MyQtApp
   backend/engine/simulation.cpp
   backend/engine/thread_pool.cpp
   backend/models/ecosystem.cpp
+    backend/models/spatial_grid.cpp
+    backend/models/species_registry.cpp
+    backend/models/species_statistics.cpp
+    backend/models/species_utils.cpp
   backend/models/species_base.cpp
   backend/models/animal.cpp
   backend/models/species/grass.cpp

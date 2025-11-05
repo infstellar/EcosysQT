@@ -19,144 +19,16 @@
 thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}()};
 thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
 
-// --- SpeciesType <-> string 映射函数 ---
-/**
- * @brief 将物种名称字符串转换为 SpeciesType 枚举。
- * @param name 物种的名称 (例如, "grass")。
- * @return 对应的 SpeciesType 枚举值。
- * @throws std::invalid_argument 如果物种名称未知。
- */
-SpeciesType species_type_from_name(const std::string& name) {
-    if (name == "grass") return SpeciesType::GRASS;
-    if (name == "cow") return SpeciesType::COW;
-    if (name == "tiger") return SpeciesType::TIGER;
-    throw std::invalid_argument("Unknown species name: " + name);
-}
-
-/**
- * @brief 将 SpeciesType 枚举转换为物种名称字符串。
- * @param type SpeciesType 枚举值。
- * @return 对应的物种名称字符串，如果类型无效则返回空字符串。
- */
-std::string name_from_species_type(SpeciesType type) {
-    switch(type) {
-        case SpeciesType::GRASS: return "grass";
-        case SpeciesType::COW: return "cow";
-        case SpeciesType::TIGER: return "tiger";
-        default: return "";
-    }
-}
-
-// --- SpeciesStatistics ---
-// 物种统计管理 (种群跟踪)
-SpeciesStatistics::SpeciesStatistics() {
-    for (auto type : {SpeciesType::GRASS, SpeciesType::COW, SpeciesType::TIGER}) {
-        statistics[type] = 0;
-    }
-}
-void SpeciesStatistics::increment(SpeciesType type, int count) {
-    statistics[type] += count;
-}
-void SpeciesStatistics::set_count(SpeciesType type, int count) {
-    statistics[type] = count;
-}
-int SpeciesStatistics::get_count(SpeciesType type) const {
-    auto it = statistics.find(type);
-    return it != statistics.end() ? it->second : 0;
-}
-void SpeciesStatistics::reset() {
-    for (auto& kv : statistics) kv.second = 0;
-}
-int SpeciesStatistics::grass() const { return get_count(SpeciesType::GRASS); }
-void SpeciesStatistics::set_grass(int value) { set_count(SpeciesType::GRASS, value); }
-int SpeciesStatistics::cow() const { return get_count(SpeciesType::COW); }
-void SpeciesStatistics::set_cow(int value) { set_count(SpeciesType::COW, value); }
-int SpeciesStatistics::tiger() const { return get_count(SpeciesType::TIGER); }
-void SpeciesStatistics::set_tiger(int value) { set_count(SpeciesType::TIGER, value); }
-
-// --- SpeciesRegistry ---
-// 所有物种类型和个体的注册表
-SpeciesRegistry::SpeciesRegistry(const EcosystemConfig& config) {
-    {
-        auto proto_unique = g_species_factory.create("grass", Position{0,0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("grass", proto, config.initial_grass);
-    }
-    {
-        auto proto_unique = g_species_factory.create("cow", Position{0,0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("cow", proto, config.initial_cows);
-    }
-    {
-        auto proto_unique = g_species_factory.create("tiger", Position{0,0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("tiger", proto, config.initial_tigers);
-    }
-}
-void SpeciesRegistry::register_species(const std::string& name, std::shared_ptr<Species> prototype, int initial_count) {
-    registry[name] = SpeciesInfo{name, {}, initial_count};
-}
-std::vector<std::shared_ptr<Species>>& SpeciesRegistry::get_species_list(const std::string& name) {
-    return registry[name].list;
-}
-const std::vector<std::shared_ptr<Species>>& SpeciesRegistry::get_species_list(const std::string& name) const {
-    return registry.at(name).list;
-}
-int SpeciesRegistry::get_initial_count(const std::string& name) const {
-    auto it = registry.find(name);
-    return it != registry.end() ? it->second.initial_count : 0;
-}
-std::vector<std::string> SpeciesRegistry::get_all_species_names() const {
-    std::vector<std::string> names;
-    for (const auto& kv : registry) names.push_back(kv.first);
-    return names;
-}
-void SpeciesRegistry::add_individual(const std::string& name, std::shared_ptr<Species> individual) {
-    registry[name].list.push_back(individual);
-}
-void SpeciesRegistry::extend_individuals(const std::string& name, const std::vector<std::shared_ptr<Species>>& individuals) {
-    auto& list = registry[name].list;
-    list.insert(list.end(), individuals.begin(), individuals.end());
-}
-void SpeciesRegistry::clear_species(const std::string& name) {
-    registry[name].list.clear();
-}
-void SpeciesRegistry::clear_all() {
-    for (auto& kv : registry) kv.second.list.clear();
-}
-int SpeciesRegistry::get_species_count(const std::string& name) const {
-    auto it = registry.find(name);
-    return it != registry.end() ? it->second.list.size() : 0;
-}
-int SpeciesRegistry::get_total_count() const {
-    int sum = 0;
-    for (const auto& kv : registry) sum += kv.second.list.size();
-    return sum;
-}
-void SpeciesRegistry::filter_alive(const std::string& name) {
-    auto& list = registry[name].list;
-    list.erase(std::remove_if(list.begin(), list.end(),
-        [](const std::shared_ptr<Species>& s){ return !s->alive; }), list.end());
-}
-void SpeciesRegistry::filter_all_alive() {
-    for (auto& kv : registry) filter_alive(kv.first);
-}
-
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
-    : config(config), time_step(0), species_registry(config), births(), deaths(), population_history() {
-    // --- 均匀网格初始化 ---
-    // 选择一个合适的单元格尺寸，后续可根据物种参数调整
-    cell_size = 100.0;
-    grid_width = static_cast<int>(std::ceil(static_cast<double>(config.world_width) / cell_size));
-    grid_height = static_cast<int>(std::ceil(static_cast<double>(config.world_height) / cell_size));
-
-    // 调整网格大小以匹配维度（每个单元格为一个 Species 指针列表）
-    spatial_grid.resize(static_cast<size_t>(grid_width),
-        std::vector<std::vector<std::shared_ptr<Species>>>(static_cast<size_t>(grid_height))
-    );
-
+    : config(config),
+      time_step(0),
+      species_registry(config),
+      births(),
+      deaths(),
+      population_history(),
+      spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)) {
     initialize_populations();
 }
 
@@ -277,51 +149,17 @@ void EcosystemState::update_statistics() {
  *    这确保了在决策阶段，所有空间查询（如邻居查找）都使用最新的数据。
  */
 void EcosystemState::prepare_for_update() {
-    // 遍历并清空空间网格中的每个单元格
-    for (auto& column : spatial_grid) {
-        for (auto& cell : column) {
-            cell.clear();
-        }
-    }
-
     staged_requests.clear();      // 清空暂存的交互请求
     main_thread_requests.clear(); // 清空主线程处理的请求
     energy_changes.clear();       // 清空能量变化记录
     marked_for_death.clear();     // 清空待移除的生物体列表
     reproduction_parents.clear(); // 清空待新生的父代列表
 
-    // 检查网格尺寸是否有效，无效则直接返回
-    if (grid_width <= 0 || grid_height <= 0) {
+    if (!spatial_grid) {
         return;
     }
 
-    // Rebuild spatial grid so decision phase has up-to-date neighborhood queries.
-    const auto species_names = species_registry.get_all_species_names(); // 获取所有物种的名称
-    // 遍历每个物种
-    for (const auto& name : species_names) {
-        auto& list = species_registry.get_species_list(name); // 获取该物种的生物体列表
-        // 遍历该物种中的每个生物体
-        for (auto& individual : list) {
-            // 如果生物体无效或已死亡，则跳过
-            if (!individual || !individual->alive) {
-                continue;
-            }
-
-            // 使用向下取整以确保负坐标也映射到正确单元。
-            const double normalized_x = individual->position.x / cell_size;
-            const double normalized_y = individual->position.y / cell_size;
-            int cell_x = static_cast<int>(std::floor(normalized_x));
-            int cell_y = static_cast<int>(std::floor(normalized_y));
-
-            // 确保x坐标在网格边界内
-            cell_x = std::clamp(cell_x, 0, grid_width - 1);
-            // 确保y坐标在网格边界内
-            cell_y = std::clamp(cell_y, 0, grid_height - 1);
-
-            // 将生物体添加到对应的网格单元中
-            spatial_grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)].push_back(individual);
-        }
-    }
+    spatial_grid->build(species_registry);
 }
 
 /**
@@ -729,6 +567,8 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     energy_changes.clear();
     marked_for_death.clear();
     reproduction_parents.clear();
+    const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
+    spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);
     initialize_populations();
 }
 
@@ -768,13 +608,12 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     std::vector<std::shared_ptr<Species>> result;
     
     // 首先检查物种是否存在于注册表中。
-    auto it = species_registry.registry.find(species_name);
-    if (it == species_registry.registry.end()) {
+    if (!species_registry.has_species(species_name)) {
         return result; // 如果物种不存在，返回空列表。
     }
-    
+
     // 遍历该物种的所有个体。
-    const auto& species_list = it->second.list;
+    const auto& species_list = species_registry.get_species_list(species_name);
     for (const auto& individual : species_list) {
         // 检查个体是否存活，并且其位置是否在指定的圆形范围内。
         if (individual->alive && 
@@ -791,35 +630,9 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_nearby_species_broad(
     double radius) const {
 
     ZoneScoped;
-    std::vector<std::shared_ptr<Species>> nearby;
-    if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
-        return nearby;
+    if (!spatial_grid) {
+        return {};
     }
 
-    const double inverse_cell = 1.0 / cell_size;
-    const double min_x = (center.x - radius) * inverse_cell;
-    const double max_x = (center.x + radius) * inverse_cell;
-    const double min_y = (center.y - radius) * inverse_cell;
-    const double max_y = (center.y + radius) * inverse_cell;
-
-    int x_min = static_cast<int>(std::floor(min_x));
-    int x_max = static_cast<int>(std::floor(max_x));
-    int y_min = static_cast<int>(std::floor(min_y));
-    int y_max = static_cast<int>(std::floor(max_y));
-
-    for (int x = x_min; x <= x_max; ++x) {
-        if (x < 0 || x >= grid_width) {
-            continue;
-        }
-        for (int y = y_min; y <= y_max; ++y) {
-            if (y < 0 || y >= grid_height) {
-                continue;
-            }
-            const auto& cell = spatial_grid[static_cast<std::size_t>(x)][static_cast<std::size_t>(y)];
-            // TODO: Reuse a shared buffer to avoid repeated allocations.
-            nearby.insert(nearby.end(), cell.begin(), cell.end());
-        }
-    }
-
-    return nearby;
+    return spatial_grid->get_nearby_species_broad(center, radius);
 }

@@ -16,6 +16,10 @@
 #include <unordered_set>
 #include "species.h"
 #include "species_factory.h"
+#include "species_registry.h"
+#include "species_statistics.h"
+#include "species_utils.h"
+#include "spatial_grid.h"
 #include "utils.h"
 #include "interaction_requests.h"
 
@@ -24,10 +28,6 @@ class ThreadPool;
 
 
 // 物种类型枚举已在 species.h 声明
-
-// 物种类型与字符串之间的映射函数
-SpeciesType species_type_from_name(const std::string& name);
-std::string name_from_species_type(SpeciesType type);
 
 // 位置数据，用于序列化/统计 (前端使用)
 struct PositionData {
@@ -48,55 +48,6 @@ struct BaseIndividualData {
 // 种群数据，用于前端/统计
 struct SpeciesPopulationData {
     std::map<std::string, std::vector<BaseIndividualData>> species_data;
-};
-
-// 各物种统计信息 (用于种群跟踪)
-class SpeciesStatistics {
-public:
-    std::map<SpeciesType, int> statistics;
-
-    SpeciesStatistics();
-    void increment(SpeciesType type, int count = 1);
-    void set_count(SpeciesType type, int count);
-    int get_count(SpeciesType type) const;
-    void reset();
-
-    // 类似属性的访问器，用于兼容性
-    int grass() const;
-    void set_grass(int value);
-    int cow() const;
-    void set_cow(int value);
-    int tiger() const;
-    void set_tiger(int value);
-};
-
-
-
-// 所有物种类型和个体的注册表
-class SpeciesRegistry {
-public:
-    struct SpeciesInfo {
-        std::string name;
-        std::vector<std::shared_ptr<Species>> list;
-        int initial_count;
-    };
-
-    std::map<std::string, SpeciesInfo> registry;
-
-    SpeciesRegistry(const struct EcosystemConfig& config);
-    void register_species(const std::string& name, std::shared_ptr<Species> prototype, int initial_count);
-    std::vector<std::shared_ptr<Species>>& get_species_list(const std::string& name);
-    const std::vector<std::shared_ptr<Species>>& get_species_list(const std::string& name) const;
-    int get_initial_count(const std::string& name) const;
-    std::vector<std::string> get_all_species_names() const;
-    void add_individual(const std::string& name, std::shared_ptr<Species> individual);
-    void extend_individuals(const std::string& name, const std::vector<std::shared_ptr<Species>>& individuals);
-    void clear_species(const std::string& name);
-    void clear_all();
-    int get_species_count(const std::string& name) const;
-    int get_total_count() const;
-    void filter_alive(const std::string& name);
-    void filter_all_alive();
 };
 
 // 生态系统配置 (模拟参数)
@@ -176,10 +127,10 @@ public:
         double radius) const;
 
     // 并发只读接口：访问空间网格与参数
-    const std::vector<std::vector<std::vector<std::shared_ptr<Species>>>>& get_spatial_grid() const { return spatial_grid; }
-    double get_cell_size() const { return cell_size; }
-    int get_grid_width() const { return grid_width; }
-    int get_grid_height() const { return grid_height; }
+    const std::vector<std::vector<std::vector<std::shared_ptr<Species>>>>& get_spatial_grid() const { return spatial_grid->cells(); }
+    double get_cell_size() const { return spatial_grid->get_cell_size(); }
+    int get_grid_width() const { return spatial_grid->get_width(); }
+    int get_grid_height() const { return spatial_grid->get_height(); }
     
 private:
     // --- 并发阶段共享状态 ---
@@ -209,12 +160,7 @@ private:
     // 恢复到前一个请求队列。
     void restore_request_queue(std::vector<InteractionRequest>* previous_queue);
 
-    // --- 均匀网格 (Spatial Hash) ---
-    // 网格本身：一个2D数组，每个单元格(Cell)包含一个物种指针列表
-    std::vector<std::vector<std::vector<std::shared_ptr<Species>>>> spatial_grid;
-    // 网格参数
-    double cell_size{100.0};
-    int grid_width{0};
-    int grid_height{0};
+    // --- 空间网格封装 ---
+    std::unique_ptr<SpatialGrid> spatial_grid;
 };
 #endif // ECOSYSTEM_H
