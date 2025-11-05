@@ -153,8 +153,8 @@ protected:
     bool skip_movement{false};
 };
 
-// 植物基类，继承自Species，抽象出生产者通用逻辑
-class Plant : public Species {
+// 生产者（植物）基类，继承自Species，抽象出生产者通用逻辑
+class Producer : public Species {
 public:
     double base_growth_rate;
     double reproduction_chance;
@@ -167,7 +167,7 @@ public:
     double growth_time_scale_ms;
     double pending_growth{0.0};
 
-    Plant(Position pos, const struct PlantParams& params);
+    Producer(Position pos, const struct PlantParams& params);
     // 可覆盖：根据竞争调整的生长率
     virtual double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);
     // 通用更新流程
@@ -178,8 +178,8 @@ public:
     std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
 };
 
-// 草类，继承自Species，实现生产者逻辑
-class Grass : public Plant {
+// 草类，继承自Producer，实现生产者逻辑
+class Grass : public Producer {
 public:
     Grass(Position pos, const struct GrassParams& params);
     // 获取根据竞争调整的生长率

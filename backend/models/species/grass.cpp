@@ -15,7 +15,7 @@
 // 草类 - 生产者
 
 Grass::Grass(Position pos, const GrassParams& params)
-    : Plant(pos, params) {
+    : Producer(pos, params) {
     species_name = "grass";
 }
 double Grass::get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state) {
@@ -53,33 +53,8 @@ double Grass::get_competition_adjusted_growth_rate(const EcosystemState& ecosyst
 }
 
 void Grass::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
-    ZoneScoped;
-    Species::decide(ecosystem_state, rng);
-    if (!alive) {
-        return;
-    }
-
-    // 引入 delta_time：按照毫秒缩放生长，以提高不同帧率与速度下的稳定性
-    const double dt_scale = ecosystem_state.get_delta_time_ms() / std::max(1e-9, growth_time_scale_ms);
-    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_scale;
-
-    const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
-    if (ready_for_birth && !pending_spawn_position.has_value()) {
-        std::uniform_real_distribution<> chance_dist(0.0, 1.0);
-        if (chance_dist(rng) <= reproduction_chance) {
-            std::uniform_real_distribution<> dist_x(-200.0, 200.0);
-            std::uniform_real_distribution<> dist_y(-200.0, 200.0);
-            const double new_x = std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_width), position.x + dist_x(rng)));
-            const double new_y = std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_height), position.y + dist_y(rng)));
-            if (new_x > 0.0 && new_x < ecosystem_state.config.world_width &&
-                new_y > 0.0 && new_y < ecosystem_state.config.world_height) {
-                pending_spawn_position = Position{new_x, new_y};
-                energy -= reproduction_energy_cost;
-                reproduction_cooldown = base_reproduction_cooldown;
-                ecosystem_state.submit_interaction_request(AttemptToReproduceRequest{shared_from_this()});
-            }
-        }
-    }
+    // 复用 Producer 的通用生长与繁殖逻辑（已按 tick 缩放）
+    Producer::decide(ecosystem_state, rng);
 }
 
 void Grass::apply(const EcosystemState& ecosystem_state) {

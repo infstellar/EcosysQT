@@ -1,5 +1,5 @@
 /*
-植物基类实现
+生产者（植物）基类实现
 抽象生产者通用逻辑，供草/树/灌木等具体植物继承
 */
 
@@ -11,9 +11,9 @@
 #include <cmath>
 #include <random>
 
-// --- Plant ---
+// --- Producer ---
 
-Plant::Plant(Position pos, const PlantParams& params)
+Producer::Producer(Position pos, const PlantParams& params)
     : Species(pos, params.energy, params.max_age, params.reproduction_energy_cost),
       base_growth_rate(params.base_growth_rate),
       reproduction_chance(params.reproduction_chance),
@@ -25,7 +25,7 @@ Plant::Plant(Position pos, const PlantParams& params)
       growth_time_scale_ms(params.growth_time_scale_ms) {
 }
 
-double Plant::get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state) {
+double Producer::get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state) {
     // 计算根据本地竞争调整的增长率（同类植物间竞争）
     auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, competition_radius);
     int nearby_same_plant_count = 0;
@@ -47,13 +47,14 @@ double Plant::get_competition_adjusted_growth_rate(const EcosystemState& ecosyst
     return std::max(min_growth_rate, adjusted_growth_rate);
 }
 
-void Plant::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
+void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
     Species::decide(ecosystem_state, rng);
     if (!alive) return;
-
-    const double dt_scale = ecosystem_state.get_delta_time_ms() / std::max(1e-9, growth_time_scale_ms);
-    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_scale;
+    // 单位制对齐：1秒=30 ticks；1秒=1.44仿真分钟=0.024仿真小时
+    // 这里按 tick 数进行缩放，确保与 30 ticks/秒、1250 ticks/小时 一致
+    const double dt_ticks = ecosystem_state.get_delta_time_ms() * 30.0 / 1000.0;
+    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_ticks;
 
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
     if (ready_for_birth && !pending_spawn_position.has_value()) {
@@ -74,7 +75,7 @@ void Plant::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     }
 }
 
-void Plant::apply(const EcosystemState& ecosystem_state) {
+void Producer::apply(const EcosystemState& ecosystem_state) {
     ZoneScoped;
     Species::apply(ecosystem_state);
     if (!alive) { pending_growth = 0.0; return; }
@@ -82,11 +83,11 @@ void Plant::apply(const EcosystemState& ecosystem_state) {
     pending_growth = 0.0;
 }
 
-bool Plant::can_reproduce() const {
+bool Producer::can_reproduce() const {
     return Species::can_reproduce();
 }
 
-std::unique_ptr<Species> Plant::reproduce(const EcosystemState& ecosystem_state) {
+std::unique_ptr<Species> Producer::reproduce(const EcosystemState& ecosystem_state) {
     (void)ecosystem_state;
     return nullptr;
 }
