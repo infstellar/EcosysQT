@@ -132,7 +132,9 @@ void SimulationEngine::update_ecosystem() {
     // within the C++ EcosystemState methods.
     
     // 1. Update time
-    ecosystem->update_time();
+    // 使用目标帧率与模拟速度计算每帧 delta（毫秒），保证与节拍一致
+    const double dt_ms = (1000.0 / static_cast<double>(target_fps)) / static_cast<double>(simulation_speed);
+    ecosystem->update_time(dt_ms);
 
     // 2. 分阶段并发更新
     // 使用线程池来并发处理物种的决策和应用阶段，以提高性能。

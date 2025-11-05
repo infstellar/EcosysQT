@@ -5,8 +5,12 @@ grass:
     max_age: 2000
     reproduction_energy_cost: 40
   grass:
-    base_growth_rate: 0.9
-    reproduction_chance: 0.4
+    base_growth_rate: 0.2
+    reproduction_chance: 0.33
     competition_radius: 30.0
-    max_competition_effect: 0.99
-    reproduction_cooldown: 10
+    max_competition_effect: 2.0
+    reproduction_cooldown: 15
+    # 新增的时间缩放与扩张参数（已在代码中支持）
+    growth_time_scale_ms: 33.3
+    expansion_boost: 1.5
+    min_growth_factor: 0.0005

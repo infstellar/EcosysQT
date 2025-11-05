@@ -31,6 +31,7 @@ struct EcosystemStateData {
     int world_height;
     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;
     int time_step;
+    double time_delta_ms; // 本帧的时间增量（毫秒）
     int current_day;
     int current_quadrum;
     int current_year;

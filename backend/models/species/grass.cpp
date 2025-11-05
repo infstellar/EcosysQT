@@ -20,7 +20,10 @@ Grass::Grass(Position pos, const GrassParams& params)
       reproduction_chance(params.reproduction_chance),
       competition_radius(params.competition_radius),
       max_competition_effect(params.max_competition_effect),
-      base_reproduction_cooldown(params.reproduction_cooldown) {
+      base_reproduction_cooldown(params.reproduction_cooldown),
+      expansion_boost(params.expansion_boost),
+      min_growth_factor(params.min_growth_factor),
+      growth_time_scale_ms(params.growth_time_scale_ms) {
     species_name = "grass";
 }
 double Grass::get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state) {
@@ -47,12 +50,12 @@ double Grass::get_competition_adjusted_growth_rate(const EcosystemState& ecosyst
         : 0.0;
     // 根据密度计算竞争因子。密度越高，竞争越激烈，增长因子越低。
     double competition_factor = 1.0 - (std::pow(density, 0.3) * max_competition_effect);
-    // 特殊情况：如果周围没有草，则加倍生长速率以鼓励扩张。
-    if (density <= 0.01) competition_factor = 2.0;
+    // 特殊情况：如果周围没有草，则加倍（可配置）生长速率以鼓励扩张。
+    if (density <= 0.01) competition_factor = expansion_boost;
     // 将基础增长率乘以竞争因子，得到调整后的增长率。
     double adjusted_growth_rate = base_growth_rate * competition_factor;
     // 设置一个最低增长率，确保即使在激烈竞争下也能缓慢生长。
-    double min_growth_rate = base_growth_rate * 0.001;
+    double min_growth_rate = base_growth_rate * min_growth_factor;
     // 返回调整后的增长率，但不会低于设定的最低增长率。
     return std::max(min_growth_rate, adjusted_growth_rate);
 }
@@ -64,7 +67,9 @@ void Grass::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         return;
     }
 
-    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state);
+    // 引入 delta_time：按照毫秒缩放生长，以提高不同帧率与速度下的稳定性
+    const double dt_scale = ecosystem_state.get_delta_time_ms() / std::max(1e-9, growth_time_scale_ms);
+    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_scale;
 
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
     if (ready_for_birth && !pending_spawn_position.has_value()) {

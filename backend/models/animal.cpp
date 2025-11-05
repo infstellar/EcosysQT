@@ -30,6 +30,7 @@ Animal::Animal(Position pos,
                double satisfied_threshold_ratio,
                double starving_threshold_ratio,
                int wandering_duration,
+               double wander_radius,
                double energy_efficiency)
     : Species(pos, energy, max_age, reproduction_energy_cost),
       base_movement_speed(movement_speed),
@@ -53,6 +54,7 @@ Animal::Animal(Position pos,
       starving_threshold(max_energy * starving_threshold_ratio),
       is_wandering(false),
       wandering_cooldown(wandering_duration),
+      wander_radius(wander_radius),
       energy_efficiency(energy_efficiency){}
 
 void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
@@ -64,15 +66,14 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
     // 每轮决策前重置待执行动作，避免残留状态污染。
     pending_move_mode = PendingMoveMode::None;
-    wander_target.reset();
     skip_movement = false;
 
     update_hunger_state();
     adjust_stats_by_state();
 
     if (hunting_cooldown > 0) {
+        // 冷却只限制捕猎动作，不应阻止行走或游荡
         hunting_cooldown -= 1;
-        skip_movement = true;
     }
 
     if (!skip_movement) {
@@ -80,20 +81,46 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         if (current_target.has_value()) {
             plan_path_to_target(ecosystem_state);
             pending_move_mode = PendingMoveMode::Path;
+            // 追踪目标时清空游荡意图
+            wander_target.reset();
         } else {
-            // 游走行为：预先生成目标点，由应用阶段执行实际移动。
+            // 游走行为：选定半径内的随机目标，未到达前保持该目标
             const int world_width = ecosystem_state.config.world_width;
             const int world_height = ecosystem_state.config.world_height;
-            std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
-            const double angle = angle_dist(rng);
-            const double dx = std::cos(angle) * movement_speed;
-            const double dy = std::sin(angle) * movement_speed;
-            Position candidate{
-                std::max(0.0, std::min(static_cast<double>(world_width), position.x + dx)),
-                std::max(0.0, std::min(static_cast<double>(world_height), position.y + dy))
-            };
-            wander_target = candidate;
-            pending_move_mode = PendingMoveMode::Wander;
+            if (wander_target.has_value()) {
+                pending_move_mode = PendingMoveMode::Wander;
+            } else {
+                std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
+                std::uniform_real_distribution<> unit01(0.0, 1.0);
+                // 最多尝试若干次以找到可行走点
+                for (int tries = 0; tries < 6 && !wander_target.has_value(); ++tries) {
+                    const double angle = angle_dist(rng);
+                    // 面积均匀采样半径，并避免极小半径造成近点抖动
+                    const double r = std::max(movement_speed, std::sqrt(unit01(rng)) * wander_radius);
+                    Position candidate{
+                        position.x + std::cos(angle) * r,
+                        position.y + std::sin(angle) * r
+                    };
+                    // 边界约束（可行走区域）
+                    candidate.x = std::max(0.0, std::min(static_cast<double>(world_width), candidate.x));
+                    candidate.y = std::max(0.0, std::min(static_cast<double>(world_height), candidate.y));
+                    // 简易避障：避免目标落在当前个体非常近处（无意义）
+                    if (position.distance_to(candidate) < 1e-6) continue;
+                    // 可在此处扩展更多地形/障碍检查（例如网格标记、不可通行区域等）
+                    wander_target = candidate;
+                }
+                if (!wander_target.has_value()) {
+                    // 兜底：若未选中合法目标，执行一次小幅随机移动
+                    std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
+                    const double a2 = angle2(rng);
+                    Position fallback{
+                        std::max(0.0, std::min(static_cast<double>(world_width), position.x + std::cos(a2) * movement_speed)),
+                        std::max(0.0, std::min(static_cast<double>(world_height), position.y + std::sin(a2) * movement_speed))
+                    };
+                    wander_target = fallback;
+                }
+                pending_move_mode = PendingMoveMode::Wander;
+            }
         }
     }
 
@@ -131,8 +158,12 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
             break;
         case PendingMoveMode::Wander:
             if (wander_target.has_value()) {
-                move_towards_target(wander_target.value(), world_width, world_height);
-                wander_target.reset();
+                const Position target = wander_target.value();
+                move_towards_target(target, world_width, world_height);
+                // 只有完全到达目标才清除并允许选择下一个游荡点
+                if (position.distance_to(target) <= movement_speed) {
+                    wander_target.reset();
+                }
             }
             break;
         case PendingMoveMode::None:
@@ -227,8 +258,10 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
     double distance = std::sqrt(dx * dx + dy * dy);
 
     if (distance > 0) {
-        dx = (dx / distance) * movement_speed;
-        dy = (dy / distance) * movement_speed;
+        // 步长限制：避免越过目标导致来回抖动
+        const double step = std::min(movement_speed, distance);
+        dx = (dx / distance) * step;
+        dy = (dy / distance) * step;
         // 更新位置，确保不超出边界
         position.x = std::max(0.0, std::min((double)world_width, position.x + dx));
         position.y = std::max(0.0, std::min((double)world_height, position.y + dy));
@@ -263,6 +296,13 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
 
 void Animal::select_target_point(const EcosystemState& ecosystem_state) {
     // 选择当前目标点：在探测范围内寻找最近的食物
+    // 吃饱状态下不主动找食物，改为散步
+    if (hunger_state == HungerState::SATISFIED) {
+        current_target.reset();
+        planned_path.clear();
+        planned_path_index = 0;
+        return;
+    }
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
 

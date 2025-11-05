@@ -31,7 +31,8 @@ Tiger::Tiger(Position pos, const TigerParams& params)
              params.energy, // Use initial energy as max_energy
              params.satisfied_threshold_ratio,
              params.starving_threshold_ratio,
-             params.wandering_duration, 
+             params.wandering_duration,
+             params.wander_radius,
              params.energy_efficiency) 
 {
     species_name = "tiger";
