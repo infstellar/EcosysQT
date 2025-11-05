@@ -87,6 +87,7 @@ add_executable(MyQtApp
     backend/models/species_statistics.cpp
     backend/models/species_utils.cpp
   backend/models/species_base.cpp
+  backend/models/plant.cpp
   backend/models/animal.cpp
   backend/models/species/grass.cpp
   backend/models/species/cow.cpp

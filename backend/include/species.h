@@ -11,6 +11,7 @@
 
 // 前向声明
 class EcosystemState;
+struct PlantParams;
 
 // 物种类型枚举 (用于统计、注册等)
 enum class SpeciesType {
@@ -151,19 +152,34 @@ protected:
     bool skip_movement{false};
 };
 
-// 草类，继承自Species，实现生产者逻辑
-class Grass : public Species {
+// 植物基类，继承自Species，抽象出生产者通用逻辑
+class Plant : public Species {
 public:
     double base_growth_rate;
     double reproduction_chance;
     double competition_radius;
     double max_competition_effect;
     int base_reproduction_cooldown;
-    // 新增：参数化竞争与时间缩放
+    // 参数化竞争与时间缩放（通用）
     double expansion_boost;
     double min_growth_factor;
     double growth_time_scale_ms;
     double pending_growth{0.0};
+
+    Plant(Position pos, const struct PlantParams& params);
+    // 可覆盖：根据竞争调整的生长率
+    virtual double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);
+    // 通用更新流程
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
+    void apply(const class EcosystemState& ecosystem_state) override;
+    // 通用繁殖判断与实现（可被子类覆盖）
+    bool can_reproduce() const override;
+    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+};
+
+// 草类，继承自Species，实现生产者逻辑
+class Grass : public Plant {
+public:
     Grass(Position pos, const struct GrassParams& params);
     // 获取根据竞争调整的生长率
     double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);

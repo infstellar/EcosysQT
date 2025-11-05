@@ -107,6 +107,10 @@ static void apply_inheritance_layers(const std::string& root_dir, const char* sp
         YAML::Node root = load_yaml_file(p);
         YAML::Node spnode = root[species_key];
         apply_yaml_fields_by_name(spnode["species"], params);
+        // 植物分层：当 T 继承自 PlantParams 时，应用 plant 段（保持与 animal 分层一致）
+        if constexpr (std::is_base_of_v<PlantParams, T>) {
+            apply_yaml_fields_by_name(spnode["plant"], params);
+        }
         if constexpr (std::is_base_of_v<AnimalParams, T>) {
             apply_yaml_fields_by_name(spnode["animal"], params);
         }
