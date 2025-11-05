@@ -103,6 +103,7 @@ bool SimulationEngine::is_paused() const {
 
 void SimulationEngine::simulation_loop() {
     while (!stop_event) {
+        const auto frame_start = std::chrono::steady_clock::now();
         if (!paused) {
             update_ecosystem();
             // 发布新的模拟帧数据供 GUI 线程读取。
@@ -110,10 +111,16 @@ void SimulationEngine::simulation_loop() {
             std::atomic_store(&m_visible_data, new_data_snapshot);
         }
 
-        // Control frame rate
-        double sleep_duration_ms = (1000.0 / target_fps) / simulation_speed;
-        //TODO 改成基于运行时间+延迟时间的精准控制。
-        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(sleep_duration_ms)));
+        const auto frame_end = std::chrono::steady_clock::now();
+        const auto target_frame_duration = std::chrono::duration<double, std::milli>((1000.0 / target_fps) / simulation_speed);
+        const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
+
+        // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
+        const auto sleep_duration = target_frame_duration - frame_elapsed;
+        if (sleep_duration.count() > 0.0) {
+            const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
+            std::this_thread::sleep_for(sleep_ns);
+        }
 
         FrameMark;
     }

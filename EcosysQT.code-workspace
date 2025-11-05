@@ -86,7 +86,19 @@
 			"source_location": "cpp",
 			"shared_mutex": "cpp",
 			"geometry": "cpp",
-			"alignedvector3": "cpp"
+			"alignedvector3": "cpp",
+			"format": "cpp",
+			"regex": "cpp",
+			"bit": "cpp",
+			"compare": "cpp",
+			"concepts": "cpp",
+			"expected": "cpp",
+			"numbers": "cpp",
+			"ranges": "cpp",
+			"semaphore": "cpp",
+			"span": "cpp",
+			"stop_token": "cpp",
+			"text_encoding": "cpp"
 		}
 	}
 }
