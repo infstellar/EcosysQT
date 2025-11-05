@@ -6,26 +6,17 @@
 #include "thread_pool.h" // 线程池并发工具
 #include <thread>
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <vector>
 #include <string>
 #include <map>
 
 
-
-// --- Callback Function Types ---
-using UpdateCallback = std::function<void(const EcosystemStateData&)>;
-using ExtinctionCallback = std::function<void(const std::vector<std::string>&)>;
-
 // --- SimulationEngine Class ---
 class SimulationEngine {
 public:
     SimulationEngine(const EcosystemConfig& config);
     ~SimulationEngine();
-
-    void set_update_callback(UpdateCallback callback);
-    void set_extinction_callback(ExtinctionCallback callback);
 
     void start();
     void pause();
@@ -55,8 +46,11 @@ private:
     std::atomic<double> simulation_speed;
     int target_fps;
 
-    UpdateCallback update_callback;
-    ExtinctionCallback extinction_callback;
+    /**
+     * @brief 双缓冲核心：使用 std::atomic_load/store 操作共享指针快照。
+     * 模拟线程发布最新帧，GUI 线程以无锁方式读取稳定的可见数据。
+     */
+    std::shared_ptr<EcosystemStateData> m_visible_data;
 
     std::unique_ptr<std::thread> simulation_thread;
     std::atomic<bool> stop_event;
@@ -77,8 +71,6 @@ public:
     void set_speed(double speed);
     EcosystemStateData get_data() const;
     void update_config(const EcosystemConfig& config);
-
-    void set_callbacks(UpdateCallback update_cb, ExtinctionCallback extinction_cb);
 
     bool is_running() const;
     bool is_paused() const;

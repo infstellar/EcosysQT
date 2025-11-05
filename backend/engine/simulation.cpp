@@ -13,18 +13,13 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             paused(false),
             simulation_speed(1.0),
             target_fps(30),
-            stop_event(false) {}
+            stop_event(false) {
+    // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
+    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
+}
 
 SimulationEngine::~SimulationEngine() {
     stop();
-}
-
-void SimulationEngine::set_update_callback(UpdateCallback callback) {
-    update_callback = callback;
-}
-
-void SimulationEngine::set_extinction_callback(ExtinctionCallback callback) {
-    extinction_callback = callback;
 }
 
 void SimulationEngine::start() {
@@ -63,6 +58,8 @@ void SimulationEngine::reset(const EcosystemConfig& new_config) {
     stop();
     config = new_config;
     ecosystem->reset(new_config);
+    // 发布重置后的快照，让前端立即看到初始状态。
+    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
     if (was_running) {
         start();
     }
@@ -73,6 +70,8 @@ void SimulationEngine::step() {
         return; // Cannot step while simulation is running automatically
     }
     update_ecosystem();
+    // 单步模式下也需要发布最新数据。
+    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
 }
 
 void SimulationEngine::set_speed(double speed) {
@@ -80,9 +79,12 @@ void SimulationEngine::set_speed(double speed) {
 }
 
 EcosystemStateData SimulationEngine::get_data() const {
-    // In C++, we return the structured data directly, not a map.
-    // The caller can then access its members.
-    return ecosystem->get_ecosystem_state();
+    // 原子地获取可见快照指针，确保跨线程读取安全。
+    std::shared_ptr<EcosystemStateData> data_ptr = std::atomic_load(&m_visible_data);
+    if (!data_ptr) {
+        return EcosystemStateData{};
+    }
+    return *data_ptr;
 }
 
 void SimulationEngine::update_config(const EcosystemConfig& new_config) {
@@ -103,15 +105,9 @@ void SimulationEngine::simulation_loop() {
     while (!stop_event) {
         if (!paused) {
             update_ecosystem();
-
-            if (update_callback) {
-                update_callback(get_data());
-            }
-
-            auto extinct_species = ecosystem->check_extinction();
-            if (!extinct_species.empty() && extinction_callback) {
-                extinction_callback(extinct_species);
-            }
+            // 发布新的模拟帧数据供 GUI 线程读取。
+            auto new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+            std::atomic_store(&m_visible_data, new_data_snapshot);
         }
 
         // Control frame rate
@@ -246,11 +242,6 @@ EcosystemStateData SimulationController::get_data() const {
 
 void SimulationController::update_config(const EcosystemConfig& config) {
     engine->update_config(config);
-}
-
-void SimulationController::set_callbacks(UpdateCallback update_cb, ExtinctionCallback extinction_cb) {
-    engine->set_update_callback(update_cb);
-    engine->set_extinction_callback(extinction_cb);
 }
 
 bool SimulationController::is_running() const {
