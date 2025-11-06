@@ -3,5 +3,5 @@ parent: base_plant
 species:
   energy: 40
   max_age: 2000
-  reproduction_energy_cost: 40
+  reproduction_energy_cost: 20
 plant: {}

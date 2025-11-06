@@ -1,7 +1,10 @@
 #include "Widget.h"
 #include "simulation.h"
+#include "race_base.h"
+#include "thing_base.h"
 #include <QPainter>
 #include <QDebug>
+#include <algorithm>
 
 /**
  * 构造函数实现
@@ -65,41 +68,8 @@ void Widget::updateFrame()
     }
     
     // ========== 从后端获取数据快照 ==========
-    /**
-     * get_data() 返回 EcosystemStateData
-     * 
-     * 后端数据结构（定义在 backend/include/utils.h）：
-     * 
-     * struct EcosystemStateData {
-     *     int world_width;                                              // 世界宽度（800）
-     *     int world_height;                                             // 世界高度（600）
-     *     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;  // 物种 map
-     *     int time_step;                                                // 当前时间步
-     *     Eigen::MatrixXd grass_positions_array;                        // 草的位置矩阵（优化用）
-     *     std::vector<std::shared_ptr<Species>> alive_grass_objects;    // 存活的草对象
-     * };
-     * 
-     * species_lists 的结构（关键！）：
-     * std::map<std::string, std::vector<std::shared_ptr<Species>>>
-     * {
-     *     "grass": [Species智能指针1, Species智能指针2, ...],  // ← 注意：小写！
-     *     "cow":   [Species智能指针1, Species智能指针2, ...],
-     *     "tiger": [Species智能指针1, Species智能指针2, ...]
-     * }
-     * 
-     * Species 基类的成员（定义在 species.h）：
-     * - Position position        {double x, double y}
-     * - double energy            当前能量值
-     * - double max_energy        最大能量值
-     * - int age                  年龄（时间步数）
-     * - bool alive               是否存活
-     * - std::string species_name 物种名称
-     * 
-     * 注意：
-     * - 这是数据快照，但包含智能指针（共享所有权）
-     * - 前端可以安全读取 Species 对象的属性
-     * - 后端在独立线程中修改原始数据
-     */
+    // get_data() 返回 EcosystemStateData，提供独立的 race_lists 和 thing_lists
+    // key: 物种名称（小写），value: 存活实体的共享指针列表
     m_currentData = m_controller->get_data();
     
     updateStatistics();
@@ -112,9 +82,9 @@ void Widget::updateFrame()
  * 从 m_currentData 中提取各物种的数量
  * 
  * 数据来源：
- * m_currentData.species_lists (std::map<std::string, std::vector<std::shared_ptr<Species>>>)
- *   └─ map 的 key   (std::string 物种名称 "grass"/"cow"/"tiger") ← 注意：后端使用小写！
- *   └─ map 的 value (std::vector<std::shared_ptr<Species>> 个体列表)
+ * m_currentData.race_lists / thing_lists
+ *   └─ key: std::string 物种名称（小写）
+ *   └─ value: std::vector<std::shared_ptr<RaceBase/ThingBase>> 个体列表
  *       └─ individual->alive (bool 是否存活)
  */
 void Widget::updateStatistics()
@@ -131,43 +101,33 @@ void Widget::updateStatistics()
     m_currentYear = m_currentData.current_year;
     m_currentDay = m_currentData.current_day;
     m_currentQuadrumName = m_currentData.current_quadrum_name;
-    // ========== 遍历 map：物种名称 -> 个体列表 ==========
-    /**
-     * C++17 结构化绑定语法：
-     * for (const auto& [key, value] : map) {...}
-     * 
-     * 等价于：
-     * for (const auto& pair : map) {
-     *     const std::string& species_name = pair.first;
-     *     const std::vector<std::shared_ptr<Species>>& individuals = pair.second;
-     * }
-     * 
-     * species_name 的可能值（后端实际使用的键名）：
-     * - "grass"  草（注意：小写！）
-     * - "cow"    牛（注意：小写！）
-     * - "tiger"  老虎（注意：小写！）
-     */
-    for (const auto& [species_name, individuals] : m_currentData.species_lists) {
-        // species_name: const std::string& ("grass", "cow", "tiger")
-        // individuals:  const std::vector<std::shared_ptr<Species>>&
-        
+    // 汇总 races 数量
+    for (const auto& [name, individuals] : m_currentData.race_lists) {
         int alive_count = 0;
         for (const auto& individual : individuals) {
-            // individual: const std::shared_ptr<Species>&
-            
-            // 检查智能指针是否有效，并且生物是否存活
             if (individual && individual->alive) {
-                alive_count++;
+                ++alive_count;
             }
         }
-        
-        // ✅ 修复：根据小写的物种名称更新对应的计数器
-        if (species_name == "grass") {
-            m_grassCount = alive_count;
-        } else if (species_name == "cow") {
+
+        if (name == "cow") {
             m_cowCount = alive_count;
-        } else if (species_name == "tiger") {
+        } else if (name == "tiger") {
             m_tigerCount = alive_count;
+        }
+    }
+
+    // 汇总 things 数量
+    for (const auto& [name, individuals] : m_currentData.thing_lists) {
+        int alive_count = 0;
+        for (const auto& individual : individuals) {
+            if (individual && individual->alive) {
+                ++alive_count;
+            }
+        }
+
+        if (name == "grass") {
+            m_grassCount = alive_count;
         }
     }
 }
@@ -177,7 +137,7 @@ void Widget::updateStatistics()
  * 
  * 绘制流程：
  * 1. 绘制背景
- * 2. 遍历 species_lists map，绘制所有生物
+ * 2. 分别遍历 race_lists 与 thing_lists 绘制所有生物
  * 3. 绘制信息面板
  */
 void Widget::paintEvent(QPaintEvent *event)
@@ -193,66 +153,37 @@ void Widget::paintEvent(QPaintEvent *event)
     }
     
     // ========== 步骤2: 绘制所有生物 ==========
-    /**
-     * 数据来源：m_currentData.species_lists
-     * 数据结构：std::map<std::string, std::vector<std::shared_ptr<Species>>>
-     * 
-     * map 的结构：
-     * {
-     *     "grass": [Species对象指针1, Species对象指针2, ...],
-     *     "cow":   [Species对象指针1, Species对象指针2, ...],
-     *     "tiger": [Species对象指针1, Species对象指针2, ...]
-     * }
-     * 
-     * Species 基类的成员：
-     * - Position position        {double x, double y}
-     * - double energy            当前能量值
-     * - double max_energy        最大能量值
-     * - int age                  年龄
-     * - bool alive               是否存活
-     * - std::string species_name 物种名称
-     * 
-     * 渲染策略：
-     * - 只渲染 alive == true 的个体
-     * - 将世界坐标转换为屏幕坐标
-     * - 根据物种类型选择颜色和绘制方式
-     */
-    for (const auto& [species_name, individuals] : m_currentData.species_lists) {
-        // species_name: const std::string&
-        // individuals:  const std::vector<std::shared_ptr<Species>>&
-        
-        SpeciesType type = getSpeciesTypeFromName(species_name);
-        QColor color = getColorForType(type);
-        
+    // 循环 1: 绘制 Races (动物)
+    for (const auto& [name, individuals] : m_currentData.race_lists) {
+        QColor color = getColorForName(name);
         for (const auto& individual : individuals) {
-            // individual: const std::shared_ptr<Species>&
-            
             if (!individual || !individual->alive) {
                 continue;
             }
-            
-            // individual->position 是 Position 类型 {double x, double y}
+
             QPointF screenPos = toScreenCoords(individual->position);
-            
-            if (type == SpeciesType::GRASS) {
-                // ========== 草：绘制小点 ==========
-                painter.setBrush(color);
-                painter.setPen(Qt::NoPen);
-                painter.drawEllipse(screenPos, 3, 3);
-            } else {
-                // ========== 动物（牛/老虎）：绘制圆圈 ==========
-                /**
-                 * 大小根据能量比例调整：
-                 * - energyRatio = energy / max_energy
-                 * - radius = 6 + energyRatio * 4 (范围 [6, 10])
-                 */
-                double energyRatio = individual->energy / individual->max_energy;
-                double radius = 6 + energyRatio * 4;
-                
-                painter.setBrush(color);
-                painter.setPen(QPen(Qt::white, 2));
-                painter.drawEllipse(screenPos, radius, radius);
+            const double max_energy = std::max(1.0, individual->max_energy);
+            const double energyRatio = std::clamp(individual->energy / max_energy, 0.0, 1.5);
+            const double radius = 6.0 + energyRatio * 4.0;
+
+            painter.setBrush(color);
+            painter.setPen(QPen(Qt::white, 2));
+            painter.drawEllipse(screenPos, radius, radius);
+        }
+    }
+
+    // 循环 2: 绘制 Things (植物)
+    for (const auto& [name, individuals] : m_currentData.thing_lists) {
+        QColor color = getColorForName(name);
+        for (const auto& individual : individuals) {
+            if (!individual || !individual->alive) {
+                continue;
             }
+
+            QPointF screenPos = toScreenCoords(individual->position);
+            painter.setBrush(color);
+            painter.setPen(Qt::NoPen);
+            painter.drawEllipse(screenPos, 3, 3);
         }
     }
     
@@ -296,46 +227,32 @@ void Widget::paintEvent(QPaintEvent *event)
     textY += lineHeight;
     
     painter.drawText(20, textY, "草: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForType(SpeciesType::GRASS));
+    painter.fillRect(70, textY - 14, 18, 18, getColorForName("grass"));
     painter.drawText(95, textY, QString::number(m_grassCount));
     textY += lineHeight;
     
     painter.drawText(20, textY, "牛: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForType(SpeciesType::COW));
+    painter.fillRect(70, textY - 14, 18, 18, getColorForName("cow"));
     painter.drawText(95, textY, QString::number(m_cowCount));
     textY += lineHeight;
     
     painter.drawText(20, textY, "老虎: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForType(SpeciesType::TIGER));
+    painter.fillRect(70, textY - 14, 18, 18, getColorForName("tiger"));
     painter.drawText(95, textY, QString::number(m_tigerCount));
 }
 
-QColor Widget::getColorForType(SpeciesType type) const
+QColor Widget::getColorForName(const std::string& name) const
 {
-    switch (type) {
-        case SpeciesType::GRASS:
-            return QColor(144, 238, 144);
-        case SpeciesType::COW:
-            return QColor(135, 206, 250);
-        case SpeciesType::TIGER:
-            return QColor(220, 20, 60);
-        default:
-            return Qt::gray;
+    if (name == "grass") {
+        return QColor(144, 238, 144);
     }
-}
-
-QString Widget::getNameForType(SpeciesType type) const
-{
-    switch (type) {
-        case SpeciesType::GRASS:
-            return "草";
-        case SpeciesType::COW:
-            return "牛";
-        case SpeciesType::TIGER:
-            return "老虎";
-        default:
-            return "未知";
+    if (name == "cow") {
+        return QColor(135, 206, 250);
     }
+    if (name == "tiger") {
+        return QColor(220, 20, 60);
+    }
+    return Qt::gray;
 }
 
 /**
@@ -365,30 +282,4 @@ QPointF Widget::toScreenCoords(const Position& pos) const
     double screenY = (pos.y / worldHeight) * height();
     
     return QPointF(screenX, screenY);
-}
-
-/**
- * 从物种名称转换为 SpeciesType 枚举
- * 
- * @param species_name 物种名称字符串（后端使用小写："grass", "cow", "tiger"）
- * @return SpeciesType 枚举值
- * 
- * 映射关系（注意：后端使用小写键名）：
- * - "grass" → SpeciesType::GRASS
- * - "cow"   → SpeciesType::COW
- * - "tiger" → SpeciesType::TIGER
- * - 其他    → SpeciesType::GRASS (默认)
- */
-SpeciesType Widget::getSpeciesTypeFromName(const std::string& species_name) const
-{
-    // ✅ 修复：匹配后端使用的小写键名
-    if (species_name == "grass") {
-        return SpeciesType::GRASS;
-    } else if (species_name == "cow") {
-        return SpeciesType::COW;
-    } else if (species_name == "tiger") {
-        return SpeciesType::TIGER;
-    }
-    
-    return SpeciesType::GRASS;  // 默认值
 }

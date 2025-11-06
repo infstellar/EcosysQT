@@ -355,16 +355,32 @@ std::optional<Position> Animal::find_nearest_food(const EcosystemState& ecosyste
     // 寻找最近的食物源
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
+    const EcosystemStateData snapshot = ecosystem_state.get_ecosystem_state();
 
     for (const auto& food_type : food_types) {
-        auto it = ecosystem_state.get_ecosystem_state().species_lists.find(food_type); // 查找食物类型
-        if (it == ecosystem_state.get_ecosystem_state().species_lists.end()) continue; // 未找到食物类型
-        
-        const auto& food_list = it->second; // 获取食物列表
-        for (const auto& food : food_list) { // 遍历食物列表
-            if (food->alive) {
+        const auto race_it = snapshot.race_lists.find(food_type);
+        if (race_it != snapshot.race_lists.end()) {
+            for (const auto& food : race_it->second) {
+                if (food && food->alive) {
+                    double distance = position.distance_to(food->position);
+                    if (distance <= detection_range && distance < min_distance) {
+                        min_distance = distance;
+                        nearest_food = food->position;
+                    }
+                }
+            }
+            continue;
+        }
+
+        const auto thing_it = snapshot.thing_lists.find(food_type);
+        if (thing_it == snapshot.thing_lists.end()) {
+            continue;
+        }
+
+        for (const auto& food : thing_it->second) {
+            if (food && food->alive) {
                 double distance = position.distance_to(food->position);
-                if (distance <= detection_range && distance < min_distance) { // 检测范围内且更近
+                if (distance <= detection_range && distance < min_distance) {
                     min_distance = distance;
                     nearest_food = food->position;
                 }

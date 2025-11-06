@@ -5,9 +5,9 @@
 #include <QPaintEvent>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QPixmap>
 #include <memory>
 #include "ecosystem.h"  // 用于 EcosystemStateData
-#include "species.h"    // 用于 SpeciesType
 #include "utils.h"      // 用于 Position
 
 class SimulationController;  // 前向声明
@@ -64,26 +64,30 @@ private:
      * struct EcosystemStateData {
      *     int world_width;                                              // 世界宽度
      *     int world_height;                                             // 世界高度
-     *     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;  // ← map类型！
+    *     std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;
+    *     std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;
      *     int time_step;                                                // 当前时间步
      *     Eigen::MatrixXd grass_positions_array;                        // 草的位置矩阵
-     *     std::vector<std::shared_ptr<Species>> alive_grass_objects;    // 存活的草对象
+    *     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;  // 存活的草对象
      * };
      * 
-     * species_lists 的结构：
-     * {
-     *     "Grass": [shared_ptr<Species>, shared_ptr<Species>, ...],
-     *     "Cow":   [shared_ptr<Species>, shared_ptr<Species>, ...],
-     *     "Tiger": [shared_ptr<Species>, shared_ptr<Species>, ...]
-     * }
+    * race_lists 的结构：
+    * {
+    *     "cow":   [shared_ptr<RaceBase>, shared_ptr<RaceBase>, ...],
+    *     "tiger": [shared_ptr<RaceBase>, shared_ptr<RaceBase>, ...]
+    * }
+    * thing_lists 的结构：
+    * {
+    *     "grass": [shared_ptr<ThingBase>, shared_ptr<ThingBase>, ...]
+    * }
      * 
-     * 每个 Species 对象包含（定义在 species.h）：
+    * RaceBase / ThingBase 对象包含：
      * - Position position        {double x, double y}
      * - double energy            当前能量值
      * - double max_energy        最大能量值
      * - int age                  年龄（时间步数）
      * - bool alive               是否存活
-     * - std::string species_name 物种名称
+    * - std::string species_name 物种名称
      */
     EcosystemStateData m_currentData;
     
@@ -105,8 +109,7 @@ private:
     // ========== 辅助函数 ==========
     
     void updateStatistics();
-    QColor getColorForType(SpeciesType type) const;
-    QString getNameForType(SpeciesType type) const;
+    QColor getColorForName(const std::string& name) const;
     
     /**
      * 将世界坐标转换为屏幕坐标
@@ -118,12 +121,6 @@ private:
     QPointF toScreenCoords(const Position& pos) const;
     
     
-    /**
-     * 从物种名称转换为 SpeciesType 枚举
-     * @param species_name 物种名称字符串（如 "Grass", "Cow", "Tiger"）
-     * @return SpeciesType 枚举值
-     */
-    SpeciesType getSpeciesTypeFromName(const std::string& species_name) const;
 };
 
 #endif // WIDGET_H

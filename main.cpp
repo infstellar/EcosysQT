@@ -60,9 +60,10 @@
  *   │   └─ 返回 EcosystemStateData
  *   │       ├─ world_width, world_height (int)
  *   │       ├─ time_step (int)
- *   │       └─ species_lists (map<string, vector<shared_ptr<Species>>>)
- *   │           └─ "Grass" / "Cow" / "Tiger" -> [Species指针列表]
- *   │               └─ position, energy, age, alive 等
+ *   │       ├─ race_lists  (map<string, vector<shared_ptr<RaceBase>>>)
+ *   │       ├─ thing_lists (map<string, vector<shared_ptr<ThingBase>>>)
+ *   │       └─ alive_grass_objects (vector<shared_ptr<ThingBase>>)
+ *               └─ position, energy, age, alive 等
  *   ├─ updateStatistics()               (统计各物种数量)
  *   └─ update()                         (触发 paintEvent 重绘)
  * 
@@ -73,24 +74,16 @@
  * struct EcosystemStateData {
  *     int world_width;                                              // 世界宽度
  *     int world_height;                                             // 世界高度
- *     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;  // 物种map
+ *     std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;    // 动物映射
+ *     std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;  // 植物映射
  *     int time_step;                                                // 当前时间步
  *     Eigen::MatrixXd grass_positions_array;                        // 草的位置矩阵
- *     std::vector<std::shared_ptr<Species>> alive_grass_objects;    // 存活的草对象
+ *     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;  // 存活的草对象
  * };
  * 
  * struct Position {
  *     double x;  // 世界坐标 X
  *     double y;  // 世界坐标 Y
- * };
- * 
- * class Species {
- *     Position position;        // 位置
- *     double energy;            // 能量
- *     double max_energy;        // 最大能量
- *     int age;                  // 年龄
- *     bool alive;               // 是否存活
- *     std::string species_name; // 物种名称
  * };
  * 
  * ============================================================
@@ -185,10 +178,10 @@ int main(int argc, char *argv[])
          * SimulationController
          *   └─ SimulationEngine (std::unique_ptr)
          *       └─ EcosystemState (std::unique_ptr)
-         *           └─ RacesRegistry
-         *               ├─ Grass 列表 (std::vector<std::shared_ptr<Species>>)
-         *               ├─ Cow 列表
-         *               └─ Tiger 列表
+         *           ├─ RacesRegistry
+         *           │   ├─ Cow 列表 (std::vector<std::shared_ptr<RaceBase>>)
+         *           │   └─ Tiger 列表
+         *           └─ m_all_things (std::vector<std::shared_ptr<ThingBase>>)
          * 
          * 所有权管理：
          * - main() 拥有 SimulationController (std::unique_ptr)
@@ -273,14 +266,14 @@ int main(int argc, char *argv[])
          * EcosystemStateData {
          *     int world_width;                                              // 世界宽度
          *     int world_height;                                             // 世界高度
-         *     std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;  // 物种map
+         *     std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;    // 动物 map
+         *     std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;  // 植物 map
          *     int time_step;                                                // 当前时间步
          *     Eigen::MatrixXd grass_positions_array;                        // 草的位置矩阵
-         *     std::vector<std::shared_ptr<Species>> alive_grass_objects;    // 存活的草对象
+         *     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;  // 存活的草对象
          * };
          * 
-         * 关键修正：species_lists 是 map 类型，不是 vector
-         * 这是后端实际使用的数据结构（定义在 utils.h）
+         * race_lists / thing_lists 均为 map 类型（见 utils.h）
          */
         EcosystemStateData initialData = controller->get_data();
         qDebug() << "生态系统初始化完成";
@@ -289,15 +282,11 @@ int main(int argc, char *argv[])
         
         // 统计初始种群（遍历 map）
         /**
-         * species_lists 的实际结构：
-         * std::map<std::string, std::vector<std::shared_ptr<Species>>>
+         * race_lists / thing_lists 的实际结构：
+         * std::map<std::string, std::vector<std::shared_ptr<RaceBase/ThingBase>>>
          * 
          * map 的内容（注意：后端使用小写键名）：
-         * {
-         *     "grass": [Species智能指针1, Species智能指针2, ...],
-         *     "cow":   [Species智能指针1, Species智能指针2, ...],
-         *     "tiger": [Species智能指针1, Species智能指针2, ...]
-         * }
+         * race_lists 示例：{"cow": [...], "tiger": [...]}；thing_lists 示例：{"grass": [...]}。
          * 
          * C++17 结构化绑定语法：
          * for (const auto& [key, value] : map) {...}
@@ -305,31 +294,38 @@ int main(int argc, char *argv[])
          * 等价于传统写法：
          * for (const auto& pair : map) {
          *     const std::string& species_name = pair.first;   // map 的 key（小写）
-         *     const std::vector<std::shared_ptr<Species>>& individuals = pair.second;  // map 的 value
+         *     const std::vector<std::shared_ptr<RaceBase/ThingBase>>& individuals = pair.second;  // map 的 value
          * }
          * 
-         * species_name 的可能值：
-         * - "grass"  草（小写）
-         * - "cow"    牛（小写）
-         * - "tiger"  老虎（小写）
+         * species_name 的可能值取决于对应 map：
+         * - race_lists: "cow"、"tiger"（小写）
+         * - thing_lists: "grass" 等植物名称（小写）
          * 
          * individuals 是该物种的所有个体（智能指针列表）
          */
-        for (const auto& [species_name, individuals] : initialData.species_lists) {
-            // species_name: const std::string& (物种名称，小写)
-            // individuals:  const std::vector<std::shared_ptr<Species>>& (个体列表)
-            
+        qDebug() << "Races:";
+        for (const auto& [species_name, individuals] : initialData.race_lists) {
             int alive_count = 0;
             for (const auto& ind : individuals) {
-                // ind: const std::shared_ptr<Species>&
-                
-                // 安全检查：智能指针有效 && 生物存活
                 if (ind && ind->alive) {
                     alive_count++;
                 }
             }
-            
-            qDebug() << QString::fromStdString(species_name) 
+
+            qDebug() << "  " << QString::fromStdString(species_name)
+                     << ":" << alive_count;
+        }
+
+        qDebug() << "Things:";
+        for (const auto& [species_name, individuals] : initialData.thing_lists) {
+            int alive_count = 0;
+            for (const auto& ind : individuals) {
+                if (ind && ind->alive) {
+                    alive_count++;
+                }
+            }
+
+            qDebug() << "  " << QString::fromStdString(species_name)
                      << ":" << alive_count;
         }
         

@@ -156,10 +156,12 @@ private:
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
 
-    // 存储能量变化的映射
+    // RaceBase 状态
     std::unordered_map<RaceBase*, double> race_energy_changes;
-    // 标记待移除的个体集合
     std::unordered_set<RaceBase*> race_marked_for_death;
+
+    // ThingBase 状态
+    std::unordered_map<ThingBase*, double> thing_energy_changes;
     std::unordered_set<ThingBase*> thing_marked_for_death;
     // 标记待出生的新物种的父代指针。
     std::vector<std::shared_ptr<RaceBase>> reproduction_parents;

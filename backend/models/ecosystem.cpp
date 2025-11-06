@@ -190,39 +190,39 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.current_year = get_current_year();
     state.current_quadrum_name = get_current_quadrum_name();
 
-    // 填充species_lists map
+    // 填充 race_lists
     for (const auto& species_name : races_registry.get_all_species_names()) {
         const auto& race_list = races_registry.get_species_list(species_name);
-        std::vector<std::shared_ptr<Species>> as_species;
-        as_species.reserve(race_list.size());
+        std::vector<std::shared_ptr<RaceBase>> snapshot;
+        snapshot.reserve(race_list.size());
         for (const auto& race : race_list) {
-            as_species.push_back(race);
+            if (race) {
+                snapshot.push_back(race);
+            }
         }
-        state.species_lists[species_name] = std::move(as_species);
+        state.race_lists[species_name] = std::move(snapshot);
     }
 
     for (const auto& thing : m_all_things) {
         if (!thing) {
             continue;
         }
-        state.species_lists[thing->species_name].push_back(thing);
+        state.thing_lists[thing->species_name].push_back(thing);
     }
 
     // 预计算草的位置和存活对象 (Eigen矩阵)
-    std::vector<std::shared_ptr<Species>> alive_grass_objects;
     std::vector<Eigen::Vector2d> alive_grass_positions;
-    
-    auto grass_it = state.species_lists.find("grass");
-    if (grass_it != state.species_lists.end()) {
+
+    auto grass_it = state.thing_lists.find("grass");
+    if (grass_it != state.thing_lists.end()) {
         for (const auto& grass : grass_it->second) {
-            if (grass->alive) {
-                alive_grass_objects.push_back(grass);
+            if (grass && grass->alive) {
+                state.alive_grass_objects.push_back(grass);
                 alive_grass_positions.emplace_back(grass->position.x, grass->position.y);
             }
         }
     }
-    
-    state.alive_grass_objects = alive_grass_objects;
+
     if (!alive_grass_positions.empty()) {
         state.grass_positions_array = Eigen::MatrixXd(alive_grass_positions.size(), 2);
         for (size_t i = 0; i < alive_grass_positions.size(); ++i) {
@@ -331,6 +331,7 @@ void EcosystemState::prepare_for_update() {
     main_thread_requests.clear(); // 清空主线程处理的请求
     race_energy_changes.clear();  // 清空能量变化记录
     race_marked_for_death.clear();     // 清空待移除的生物体列表
+    thing_energy_changes.clear();
     thing_marked_for_death.clear();
     reproduction_parents.clear(); // 清空待新生的父代列表
     thing_reproduction_parents.clear();
@@ -494,14 +495,12 @@ void EcosystemState::resolve_interactions() {
                 race_energy_changes[initiator.get()] += target->energy;
                 target->die_from_predation(initiator->species_name);
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
-                auto& parent = req.parent;
-                if (parent && parent->alive) {
-                    reproduction_parents.push_back(parent);
+                if (req.parent && req.parent->alive) {
+                    reproduction_parents.push_back(std::move(req.parent));
                 }
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceThingRequest>) {
-                auto& parent = req.parent;
-                if (parent && parent->alive) {
-                    thing_reproduction_parents.push_back(parent);
+                if (req.parent && req.parent->alive) {
+                    thing_reproduction_parents.push_back(std::move(req.parent));
                 }
             } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
                 auto& female = req.female;
@@ -627,8 +626,8 @@ void EcosystemState::apply_registry_changes() {
                 continue;
             }
 
-            auto energy_it = race_energy_changes.find(individual.get());
-            if (energy_it != race_energy_changes.end()) {
+            if (auto energy_it = race_energy_changes.find(individual.get());
+                energy_it != race_energy_changes.end()) {
                 individual->energy += energy_it->second;
             }
         }
@@ -736,6 +735,7 @@ void EcosystemState::apply_registry_changes() {
     race_marked_for_death.clear();
     thing_marked_for_death.clear();
     race_energy_changes.clear();
+    thing_energy_changes.clear();
     staged_requests.clear();
     reproduction_parents.clear();
 }
@@ -854,6 +854,7 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     main_thread_requests.clear();
     race_energy_changes.clear();
     race_marked_for_death.clear();
+    thing_energy_changes.clear();
     thing_marked_for_death.clear();
     reproduction_parents.clear();
     const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
@@ -923,4 +924,55 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
     }
 
     return nearby;
+}
+
+std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
+    const std::string& species_name,
+    const Position& center,
+    double radius) const {
+    std::vector<std::shared_ptr<RaceBase>> result;
+    if (!races_registry.has_species(species_name)) {
+        return result;
+    }
+
+    const auto& list = races_registry.get_species_list(species_name);
+    const double radius_sq = radius * radius;
+    result.reserve(list.size());
+    for (const auto& individual : list) {
+        if (!individual || !individual->alive) {
+            continue;
+        }
+        const double dx = individual->position.x - center.x;
+        const double dy = individual->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            result.push_back(individual);
+        }
+    }
+
+    return result;
+}
+
+std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
+    const std::string& species_name,
+    const Position& center,
+    double radius) const {
+    std::vector<std::shared_ptr<ThingBase>> result;
+    const double radius_sq = radius * radius;
+    result.reserve(m_all_things.size());
+
+    for (const auto& thing : m_all_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        if (thing->species_name != species_name) {
+            continue;
+        }
+        const double dx = thing->position.x - center.x;
+        const double dy = thing->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            result.push_back(thing);
+        }
+    }
+
+    return result;
 }

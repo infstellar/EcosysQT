@@ -14,7 +14,7 @@ Race factory implementation responsible for movable races (animals).
 
 #include "animal.h"
 #include "species_params.h"
-#include "species_config_provider_yaml.h"
+#include "species_config_provider.h"
 
 RaceFactory g_race_factory;
 

@@ -14,7 +14,7 @@ Thing factory implementation responsible for plant-like entities (ThingBase deri
 
 #include "producer.h"
 #include "species_params.h"
-#include "species_config_provider_yaml.h"
+#include "species_config_provider.h"
 
 ThingFactory g_thing_factory;
 

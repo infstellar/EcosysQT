@@ -11,7 +11,8 @@
 #include <Eigen/Dense>
 
 // 前向声明
-class Species;
+class RaceBase;
+class ThingBase;
 
 // 交互请求类型已迁移至 interaction.h
 
@@ -29,7 +30,8 @@ struct Position {
 struct EcosystemStateData {
     int world_width;
     int world_height;
-    std::map<std::string, std::vector<std::shared_ptr<Species>>> species_lists;
+    std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;
+    std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;
     int time_step;
     double delta_ticks; // 本次更新推进的tick数量（可为小数）
     int current_day;
@@ -37,7 +39,7 @@ struct EcosystemStateData {
     int current_year;
     std::string current_quadrum_name;
     Eigen::MatrixXd grass_positions_array; // 对应Python中的numpy数组
-    std::vector<std::shared_ptr<Species>> alive_grass_objects;
+    std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;
 };
 
 #endif // UTILS_H
