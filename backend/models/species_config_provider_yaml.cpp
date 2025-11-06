@@ -7,7 +7,10 @@ YAML 物种配置提供者实现
 #include <yaml-cpp/yaml.h>
 #include <string>
 #include <spdlog/spdlog.h>
-#include <filesystem>
+// 移除 <filesystem>，引入 Qt 模块
+#include <QDirIterator>
+#include <QFileInfo>
+#include <QString>
 // 反射: 成员名与继承枚举
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
@@ -26,8 +29,7 @@ static YAML::Node load_yaml_file(const std::string& p) {
     }
 }
 
-// 辅助函数：按顺序查找 YAML 文件
-// 严格的新目录结构：仅 animals / plants，失败直接抛错
+// 辅助函数：按顺序查找 YAML 文件 (使用 Qt 重写)
 // 广泛搜索：在根目录下的 config 目录中递归查找 name.yaml
 /* TODO: 
 后续优化
@@ -36,28 +38,37 @@ static YAML::Node load_yaml_file(const std::string& p) {
 - 为同名文件冲突（不同目录同时有 <name>.yaml ）加入明确优先级策略日志，便于调试歧义。
 */
 static std::string search_yaml_path(const std::string& name, const std::string& root_dir, const char* preferred_subfolder) {
-    const std::string search_root = root_dir + "/config";
+    const QString search_root = QString::fromStdString(root_dir + "/config");
     std::string first_match;
     std::string preferred_match;
-    try {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(search_root)) {
-            if (!entry.is_regular_file()) continue;
-            const auto& p = entry.path();
-            if (p.extension() == ".yaml" && p.stem().string() == name) {
-                const std::string full = p.string();
-                if (first_match.empty()) first_match = full;
-                if (preferred_subfolder) {
-                    const std::string slash = std::string("/") + preferred_subfolder + "/";
-                    const std::string backslash = std::string("\\") + preferred_subfolder + "\\";
-                    if (full.find(slash) != std::string::npos || full.find(backslash) != std::string::npos) {
-                        preferred_match = full;
-                    }
-                }
+
+    QDirIterator it(search_root, QStringList() << (QString::fromStdString(name) + ".yaml"), QDir::Files, QDirIterator::Subdirectories);
+    
+    while (it.hasNext()) {
+        QString file_path = it.next();
+        std::string full_path_str = file_path.toStdString();
+
+        if (first_match.empty()) {
+            first_match = full_path_str;
+        }
+
+        if (preferred_subfolder) {
+            // 使用 QDir 来检查路径是否包含特定子文件夹，更健壮
+            QDir dir(file_path);
+            dir.cdUp(); // 移动到文件所在的目录
+            if (dir.dirName() == QString::fromStdString(preferred_subfolder)) {
+                 preferred_match = full_path_str;
+                 break; // 找到最优匹配，可以提前退出
+            }
+            // 兼容旧的字符串查找方式作为后备
+            const std::string slash = std::string("/") + preferred_subfolder + "/";
+            const std::string backslash = std::string("\\") + preferred_subfolder + "\\";
+            if (full_path_str.find(slash) != std::string::npos || full_path_str.find(backslash) != std::string::npos) {
+                preferred_match = full_path_str;
             }
         }
-    } catch (const std::exception& e) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Config] Recursive search failed in '{}': {}", search_root, e.what());
     }
+
     return !preferred_match.empty() ? preferred_match : first_match;
 }
 

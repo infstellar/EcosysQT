@@ -48,12 +48,15 @@ void EcosystemState::initialize_populations() {
             logger->info("[Init] '{}' initial count: {}", name, initial_count);
         }
         for (int i = 0; i < initial_count; ++i) {
-            int x = rand() % config.world_width;
-            int y = rand() % config.world_height;
-            // 使用工厂模式创建物种实例
+            // 使用 get_thread_local_rng() 保证高质量随机数
+            std::uniform_real_distribution<> distX(0, config.world_width);
+            std::uniform_real_distribution<> distY(0, config.world_height);
+            int x = distX(get_thread_local_rng());
+            int y = distY(get_thread_local_rng());
             try {
-                std::shared_ptr<Species> individual = g_species_factory.create(name, Position{(double)x, (double)y});
-                species_registry.add_individual(name, individual);
+                // 调用工厂时，传入 get_thread_local_rng()
+                auto new_individual = g_species_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
+                species_registry.add_individual(name, std::move(new_individual));
             } catch (const std::exception& e) {
                 if (logger) {
                     logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
@@ -330,6 +333,21 @@ void EcosystemState::resolve_interactions() {
                     return;
                 }
                 reproduction_parents.push_back(parent);
+            // --- 新增：处理“尝试交配”请求 ---
+            } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
+                auto& female = req.female;
+                auto& male = req.male;
+
+                if (female && male && female->alive && male->alive &&
+                    female->can_reproduce() && male->mating_timer <= 0)
+                {
+                    female->begin_mating_with(male);
+                    male->begin_mating_with(female);
+                    female->become_pregnant();
+                    male->start_reproduction_cooldown();
+                    female->energy -= female->reproduction_energy_cost;
+                    male->energy -= male->reproduction_energy_cost;
+                }
             }
         }, request);
     }
@@ -409,7 +427,8 @@ void EcosystemState::apply_registry_changes() {
             continue;
         }
 
-        auto offspring_unique = g_species_factory.create(parent->species_name, spawn_position.value());
+        // 调用工厂时，传入 get_thread_local_rng()
+        auto offspring_unique = g_species_factory.create(parent->species_name, spawn_position.value(), get_thread_local_rng());
         if (!offspring_unique) {
             continue;
         }

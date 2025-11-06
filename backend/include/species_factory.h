@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include <random> // 确保包含
 #include "species.h"
 #include "utils.h"
 #include "species_config_provider.h"
@@ -17,7 +18,7 @@
 class SpeciesFactory {
 public:
     // 物种创建函数类型定义
-    using Creator = std::function<std::unique_ptr<Species>(Position)>;
+    using Creator = std::function<std::unique_ptr<Species>(Position pos, std::mt19937& rng)>;
 
 private:
     // 从物种名称到创建函数的映射
@@ -30,7 +31,7 @@ public:
     void register_species(const std::string& name, Creator creator_func);
     
     // 根据名称创建物种实例
-    std::unique_ptr<Species> create(const std::string& name, Position pos);
+    std::unique_ptr<Species> create(const std::string& name, Position pos, std::mt19937& rng);
     
     // 注入配置提供者
     void set_config_provider(std::shared_ptr<ISpeciesConfigProvider> provider) { config_provider = std::move(provider); }
