@@ -30,6 +30,14 @@ struct AnimalParams : SpeciesBaseParams {
     double starving_threshold_ratio = 0.2;    // 饥饿阈值比例
     int wandering_duration = 50;              // 逛街持续时间
     double wander_radius = 40.0;              // 游荡目标选择半径
+
+    // --- 新增：交配与怀孕参数 ---
+    int mating_duration = 30;      // 交配持续时间 (ticks)
+    int pregnancy_duration = 100;  // 怀孕持续时间 (ticks)
+    double mating_range = 5.0;       // 发起交配的距离
+    double pregnancy_speed_penalty = 0.5; // 怀孕期间速度惩罚系数 (例如0.5代表速度减半)
+    // 每 tick 有多少概率会主动寻找配偶
+    double mating_desire_probability = 0.5; // 默认 50%
 };
 
 // 植物通用参数（继承基础物种）
@@ -49,6 +57,7 @@ struct PlantParams : SpeciesBaseParams {
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius))
+    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius,mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
+    mating_desire_probability))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor, growth_time_scale_ms))

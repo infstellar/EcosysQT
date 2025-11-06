@@ -74,9 +74,22 @@ enum class HungerState {
     STARVING     // 饥饿状态，高欲望，主动寻找食物
 };
 
+// --- 新增：性别枚举 ---
+enum class Sex {
+    MALE,
+    FEMALE
+};
+
 // 动物类，继承自Species，添加移动和狩猎逻辑
 class Animal : public Species {
 public:
+    // --- 新增：交配属性 ---
+    Sex sex;
+    bool is_pregnant;
+    int pregnancy_timer;
+    int mating_timer;
+    std::weak_ptr<Animal> mating_partner;
+
     double movement_speed;
     int energy_consumption;
     double hunting_range;
@@ -90,7 +103,8 @@ public:
     double eating_range;
     double energy_efficiency; //能量利用率
 
-    Animal(Position pos, const struct AnimalParams& params);
+    // 修改构造函数声明
+    Animal(Position pos, const struct AnimalParams& params, std::mt19937& rng);
 
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;
@@ -103,7 +117,7 @@ public:
     // 目标选择：设置当前目标点（若无可用目标则置空）
     virtual void select_target_point(const class EcosystemState& ecosystem_state);
     // 路径规划（占位以便未来接入 A* 等算法）
-    virtual void plan_path_to_target(const class EcosystemState& ecosystem_state);
+    virtual void plan_path_to_target(const class EcosystemState& ecosystem_state, const std::optional<Position>& target);
     // 执行向当前目标点移动（沿规划路径或直接朝向）
     void move_to_target_point(int world_width, int world_height);
     // 开始狩猎冷却
@@ -115,6 +129,13 @@ public:
     // 统一的繁殖实现：基于当前物种键创建子代
     std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
 
+    // --- 新增：用于外部调用的公共方法，以改变内部状态 ---
+    void begin_mating_with(std::shared_ptr<Animal> partner);
+    void become_pregnant();
+
+    // --- 新增：寻找配偶的方法 ---
+    virtual std::optional<std::shared_ptr<Animal>> find_available_mate(const EcosystemState& ecosystem_state);
+
     // 获取当前捕食意愿（0-1），应为虚函数以支持不同动物的特殊逻辑
     virtual double get_hunting_desire() const;
 
@@ -125,6 +146,9 @@ protected:
     std::optional<Position> current_target;
     std::vector<Position> planned_path;
     size_t planned_path_index;
+
+    // --- 新增：专门用于追踪配偶的目标 ---
+    std::optional<Position> mating_target;
 
     // 新增状态管理成员
     HungerState hunger_state;
@@ -138,6 +162,12 @@ protected:
     double step_distance_per_tick; // 每 tick 步长（固定步进，独立于帧）
     double current_step_distance;  // 当前更新步可移动距离（step_distance_per_tick * delta_ticks）
 
+    // --- 新增：交配相关的配置属性 ---
+    int mating_duration;
+    int pregnancy_duration;
+    double mating_range;
+    double pregnancy_speed_penalty;
+    double mating_desire_probability;
     // 更新饱食状态
     void update_hunger_state();
     // 根据状态调整能耗和速度

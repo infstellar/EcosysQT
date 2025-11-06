@@ -3,7 +3,7 @@ parent: base_animal
 species:
   energy: 4000
   max_age: 8000
-  reproduction_energy_cost: 4000
+  reproduction_energy_cost: 1000
 animal:
   movement_speed: 4.0
   energy_consumption: 20
@@ -19,3 +19,6 @@ animal:
   starving_threshold_ratio: 0.25
   wandering_duration: 80
   energy_efficiency: 0.3
+  pregnancy_duration: 110  
+  mating_range: 15.0       
+  pregnancy_speed_penalty: 0.5 

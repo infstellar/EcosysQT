@@ -29,8 +29,7 @@ static YAML::Node load_yaml_file(const std::string& p) {
     }
 }
 
-// 辅助函数：按顺序查找 YAML 文件
-// 严格的新目录结构：仅 animals / plants，失败直接抛错
+// 辅助函数：按顺序查找 YAML 文件 (使用 Qt 重写)
 // 广泛搜索：在根目录下的 config 目录中递归查找 name.yaml
 /* TODO: 
 后续优化

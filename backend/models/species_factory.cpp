@@ -5,11 +5,13 @@
 
 #include "species_factory.h"
 #include "species_params.h"
+#include "species.h" // 包含 Animal 和 Producer 的定义
 #include <stdexcept>
 #include <spdlog/spdlog.h>
 #include <QDir>
 #include <QFileInfo>
 #include <QStringList>
+#include <QString>
 
 // 全局工厂实例定义
 SpeciesFactory g_species_factory;
@@ -20,12 +22,13 @@ void SpeciesFactory::register_species(const std::string& name, Creator creator_f
 }
 
 // 根据名称创建物种实例
-std::unique_ptr<Species> SpeciesFactory::create(const std::string& name, Position pos) {
+std::unique_ptr<Species> SpeciesFactory::create(const std::string& name, Position pos, std::mt19937& rng) {
     auto it = creators.find(name);
     if (it == creators.end()) {
         throw std::invalid_argument("Unknown species name: " + name);
     }
-    return it->second(pos);
+    // 将 rng 传递给注册的 lambda 函数
+    return it->second(pos, rng);
 }
 
 // 获取所有已注册物种的名称
@@ -47,7 +50,7 @@ void SpeciesFactory::clear() {
     creators.clear();
 }
 
-// 扫描目录并注册物种的辅助函数
+// 扫描目录并注册物种的辅助函数 (使用 Qt 重写)
 static void scan_and_register(const std::string& directory_path, const std::string& type) {
     auto provider = g_species_factory.get_config_provider();
     // 确保 provider 是 YamlSpeciesConfigProvider
@@ -71,15 +74,17 @@ static void scan_and_register(const std::string& directory_path, const std::stri
         const std::string defName = fi.baseName().toStdString();
 
         if (type == "Animal") {
-            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+            // 修改 lambda，使其接收 rng 并传递给 Animal 构造函数
+            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos, std::mt19937& rng) {
                 AnimalParams params = yaml_provider->get_animal_params(defName);
-                auto instance = std::make_unique<Animal>(pos, params);
+                auto instance = std::make_unique<Animal>(pos, params, rng); // 传递 rng
                 instance->species_name = defName;
                 return instance;
             });
             SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered animal '{}'", defName);
         } else if (type == "Plant") {
-            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+            // 植物的构造函数不需要 rng，所以 lambda 可以忽略它
+            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos, std::mt19937& /*rng*/) {
                 PlantParams params = yaml_provider->get_plant_params(defName);
                 auto instance = std::make_unique<Producer>(pos, params);
                 instance->species_name = defName;
