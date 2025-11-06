@@ -9,9 +9,10 @@
 class ISpeciesConfigProvider {
 public:
     virtual ~ISpeciesConfigProvider() = default;
-    virtual AnimalParams get_tiger_params() const = 0;
-    virtual AnimalParams get_cow_params() const = 0;
-    virtual PlantParams get_grass_params() const = 0;
+    virtual AnimalParams get_animal_params(const std::string& name) const = 0;
+    virtual PlantParams get_plant_params(const std::string& name) const = 0;
+    // 返回配置根目录，用于自动扫描注册
+    virtual std::string get_config_root_dir() const = 0;
 };
 
 // 基于 YAML 的配置提供者（定义在 cpp）
@@ -19,9 +20,9 @@ class YamlSpeciesConfigProvider : public ISpeciesConfigProvider {
 public:
     explicit YamlSpeciesConfigProvider(std::string config_root_dir);
 
-    AnimalParams get_tiger_params() const override;
-    AnimalParams get_cow_params() const override;
-    PlantParams get_grass_params() const override;
+    AnimalParams get_animal_params(const std::string& name) const override;
+    PlantParams get_plant_params(const std::string& name) const override;
+    std::string get_config_root_dir() const override;
 
 private:
     std::string root_dir;

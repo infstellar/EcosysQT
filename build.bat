@@ -5,14 +5,14 @@ REM Check if VCPKG_ROOT is set
 if not defined VCPKG_ROOT (
     echo Error: VCPKG_ROOT environment variable is not set
     echo Please run setup_vcpkg.bat or setup_vcpkg.ps1 first
-    pause
+    @REM pause
     exit /b 1
 )
 
 REM Check if vcpkg.exe exists
 if not exist "%VCPKG_ROOT%\vcpkg.exe" (
     echo Error: vcpkg.exe not found in %VCPKG_ROOT%
-    pause
+    @REM pause
     exit /b 1
 )
 
@@ -22,20 +22,20 @@ REM Create build directory
 if not exist build mkdir build
 
 REM Configure project
-@REM echo Configuring project...
-@REM cmake --preset default
-@REM IF ERRORLEVEL 1 (
-@REM     echo Configure failed!
-@REM     pause
-@REM     exit /b 1
-@REM )
+echo Configuring project...
+cmake --preset default
+IF ERRORLEVEL 1 (
+    echo Configure failed!
+    @REM pause
+    exit /b 1
+)
 
 REM Build project
 echo Building project...
 cmake --build --preset default
 IF ERRORLEVEL 1 (
     echo Build failed!
-    pause
+    @REM pause
     exit /b 1
 )
 
@@ -43,4 +43,4 @@ echo.
 echo Build succeeded!
 echo Executable is at: build\Debug\MyQtApp.exe OR build-msvc\Debug\MyQtApp.exe OR build-nmake\MyQtApp.exe
 echo.
-pause
+@REM pause

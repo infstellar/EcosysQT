@@ -144,26 +144,31 @@ int main(int argc, char *argv[])
     }
     qDebug() << "YAML 配置根目录:" << configRoot;
     g_species_factory.set_config_provider(std::make_shared<YamlSpeciesConfigProvider>(configRoot.toStdString()));
-    register_all_species();
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] YAML provider set with root: '{}'", configRoot.toStdString());
+    // 物种扫描与注册加入异常捕获与诊断日志
+    try {
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Begin species registration");
+        register_all_species();
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Species registration completed");
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Main] Species registration failed: {}", e.what());
+        Logging::shutdown();
+        return -1;
+    }
     
     try {
         // ========== 步骤 2: 创建生态系统配置 ==========
         /**
          * EcosystemConfig 参数说明：
-         * @param world_width     世界宽度（800 单位）
-         * @param world_height    世界高度（600 单位）
-         * @param initial_grass   初始草数量（100）
-         * @param initial_cows    初始牛数量（10）
-         * @param initial_tigers  初始老虎数量（2）
-         * 
-         * 这些参数决定了模拟的初始状态：
-         * - 世界大小：800x600 的二维平面
-         * - 初始种群：100 株草、10 头牛、2 只老虎
-         * 
-         * 注意：参数名称是 initial_cows 和 initial_tigers（复数）
-         * 这与 EcosystemConfig 的构造函数参数一致
+         * - world_width/world_height：世界尺寸
+         * - initial_populations：通用初始种群配置，键为物种名，值为数量
          */
-        EcosystemConfig config(800, 600, 1000, 50, 5);
+        EcosystemConfig config(800, 600);
+        config.initial_populations = {
+            {"grass", 1000},
+            {"cow", 50},
+            {"tiger", 5},
+        };
         
         // ========== 步骤 3: 创建模拟控制器 ==========
         /**

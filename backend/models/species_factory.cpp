@@ -6,6 +6,8 @@
 #include "species_factory.h"
 #include "species_params.h"
 #include <stdexcept>
+#include <filesystem>
+#include <spdlog/spdlog.h>
 
 // 全局工厂实例定义
 SpeciesFactory g_species_factory;
@@ -43,32 +45,62 @@ void SpeciesFactory::clear() {
     creators.clear();
 }
 
-// 注册所有物种的函数实现
+// 扫描目录并注册物种的辅助函数
+static void scan_and_register(const std::string& directory_path, const std::string& type) {
+    auto provider = g_species_factory.get_config_provider();
+    // 确保 provider 是 YamlSpeciesConfigProvider
+    auto yaml_provider = std::dynamic_pointer_cast<YamlSpeciesConfigProvider>(provider);
+    if (!yaml_provider) {
+        throw std::runtime_error("Config provider is not YamlSpeciesConfigProvider");
+    }
+
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Scanning '{}' for {} definitions", directory_path, type);
+    if (!std::filesystem::exists(directory_path)) {
+        // 目录不存在则直接返回，允许缺省目录
+        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Register] Directory '{}' does not exist, skipping {} scan", directory_path, type);
+        return;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(directory_path)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() == ".yaml") {
+            std::string defName = entry.path().stem().string();
+
+            if (type == "Animal") {
+                g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+                    AnimalParams params = yaml_provider->get_animal_params(defName);
+                    auto instance = std::make_unique<Animal>(pos, params);
+                    instance->species_name = defName;
+                    return instance;
+                });
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered animal '{}'", defName);
+            } else if (type == "Plant") {
+                g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+                    PlantParams params = yaml_provider->get_plant_params(defName);
+                    auto instance = std::make_unique<Producer>(pos, params);
+                    instance->species_name = defName;
+                    return instance;
+                });
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered plant '{}'", defName);
+            }
+        }
+    }
+}
+
+// 注册所有物种的函数实现（自动扫描 animals / plants 目录）
 void register_all_species() {
     auto provider = g_species_factory.get_config_provider();
     if (!provider) {
         throw std::runtime_error("Config provider must be set before registering species");
     }
 
-    // 注册草（基于配置参数）
-    g_species_factory.register_species("grass", [provider](Position pos) {
-        PlantParams params = provider->get_grass_params();
-        return std::make_unique<Producer>(pos, params);
-    });
+    const std::string root = provider->get_config_root_dir();
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Config root: '{}'", root);
+    // 自动扫描并注册所有动物
+    scan_and_register(root + "/config/species/animals", "Animal");
+    // 自动扫描并注册所有植物
+    scan_and_register(root + "/config/species/plants", "Plant");
 
-    // 注册牛（基于配置参数）
-    g_species_factory.register_species("cow", [provider](Position pos) {
-        AnimalParams params = provider->get_cow_params();
-        auto instance = std::make_unique<Animal>(pos, params);
-        instance->species_name = "cow";
-        return instance;
-    });
-
-    // 注册老虎（基于配置参数）
-    g_species_factory.register_species("tiger", [provider](Position pos) {
-        AnimalParams params = provider->get_tiger_params();
-        auto instance = std::make_unique<Animal>(pos, params);
-        instance->species_name = "tiger";
-        return instance;
-    });
+    auto names = g_species_factory.get_all_species_names();
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Total registered species: {}", names.size());
 }

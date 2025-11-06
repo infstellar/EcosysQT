@@ -53,11 +53,9 @@ struct SpeciesPopulationData {
 struct EcosystemConfig {
     int world_width;
     int world_height;
-    int initial_grass;
-    int initial_cows;
-    int initial_tigers;
-    EcosystemConfig(int w = 800, int h = 600, int g = 1000, int c = 50, int t = 5)
-        : world_width(w), world_height(h), initial_grass(g), initial_cows(c), initial_tigers(t) {}
+    std::map<std::string, int> initial_populations;
+    EcosystemConfig(int w = 800, int h = 600)
+        : world_width(w), world_height(h), initial_populations() {}
 };
 
 // 生态系统状态管理器 (模拟核心)

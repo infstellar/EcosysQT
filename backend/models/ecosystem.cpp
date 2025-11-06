@@ -37,14 +37,29 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 使用统一逻辑初始化所有物种的种群
 */
 void EcosystemState::initialize_populations() {
-    for (const auto& name : species_registry.get_all_species_names()) {
+    auto logger = spdlog::get("ecosim");
+    auto names = species_registry.get_all_species_names();
+    if (logger) {
+        logger->info("[Init] Initializing populations for {} species", names.size());
+    }
+    for (const auto& name : names) {
         int initial_count = species_registry.get_initial_count(name);
+        if (logger) {
+            logger->info("[Init] '{}' initial count: {}", name, initial_count);
+        }
         for (int i = 0; i < initial_count; ++i) {
             int x = rand() % config.world_width;
             int y = rand() % config.world_height;
             // 使用工厂模式创建物种实例
-            std::shared_ptr<Species> individual = g_species_factory.create(name, Position{(double)x, (double)y});
-            species_registry.add_individual(name, individual);
+            try {
+                std::shared_ptr<Species> individual = g_species_factory.create(name, Position{(double)x, (double)y});
+                species_registry.add_individual(name, individual);
+            } catch (const std::exception& e) {
+                if (logger) {
+                    logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
+                }
+                throw; // 上层捕获并报告
+            }
         }
     }
 }

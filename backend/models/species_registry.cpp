@@ -8,20 +8,17 @@
 #include "species.h"
 
 SpeciesRegistry::SpeciesRegistry(const EcosystemConfig& config) {
-    {
-        auto proto_unique = g_species_factory.create("grass", Position{0, 0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("grass", proto, config.initial_grass);
-    }
-    {
-        auto proto_unique = g_species_factory.create("cow", Position{0, 0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("cow", proto, config.initial_cows);
-    }
-    {
-        auto proto_unique = g_species_factory.create("tiger", Position{0, 0});
-        std::shared_ptr<Species> proto = std::move(proto_unique);
-        register_species("tiger", proto, config.initial_tigers);
+    // 从工厂获取所有（已自动扫描注册的）物种名
+    for (const auto& name : g_species_factory.get_all_species_names()) {
+        int initial_count = 0;
+        // 从新的 config 结构中查找初始数量
+        auto it = config.initial_populations.find(name);
+        if (it != config.initial_populations.end()) {
+            initial_count = it->second;
+        }
+
+        // 注册物种条目，原型 `prototype` 未使用，传入 nullptr
+        register_species(name, nullptr, initial_count);
     }
 }
 
