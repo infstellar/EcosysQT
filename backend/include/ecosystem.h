@@ -18,11 +18,13 @@
 #include "races_registry.h"
 #include "species_statistics.h"
 #include "spatial_grid.h"
+#include "tile.h"
 #include "utils.h"
 #include "interaction_requests.h"
 
 // 前向声明避免循环依赖
 class ThreadPool;
+class ThingBase;
 class RaceBase;
 
 
@@ -92,6 +94,7 @@ public:
     // 决策任务分派：将所有物种的决策任务（如移动、觅食）提交到线程池。
     void dispatch_decision_tasks(ThreadPool& pool);
     // 交互解决：在所有决策任务完成后，同步处理它们之间的交互（如捕食）。
+    
     void resolve_interactions();
     // 应用任务分派：将所有物种的状态更新任务（如能量变化、位置更新）提交到线程池。
     void dispatch_apply_tasks(ThreadPool& pool);
@@ -109,6 +112,12 @@ public:
     SpeciesPopulationData get_species_data() const;
     void reset(const EcosystemConfig& config);
     std::vector<std::string> check_extinction() const;
+    void update_things();
+
+    std::size_t get_grid_index(int x, int y) const;
+    Tile& get_tile(int x, int y);
+    const Tile& get_tile(int x, int y) const;
+    bool is_valid_grid_coord(int x, int y) const;
 
     // 访问当前更新推进的tick数量
     double get_delta_ticks() const { return delta_ticks; }
@@ -152,6 +161,10 @@ private:
     std::unordered_set<Species*> marked_for_death;
     // 标记待出生的新物种的父代指针。
     std::vector<std::shared_ptr<RaceBase>> reproduction_parents;
+    std::vector<std::shared_ptr<ThingBase>> thing_reproduction_parents;
+
+    std::vector<Tile> m_world_grid;
+    std::vector<std::shared_ptr<ThingBase>> m_all_things;
 
     // 线程局部的随机数生成器。
     static thread_local std::mt19937 thread_local_rng;
@@ -162,6 +175,9 @@ private:
     std::vector<InteractionRequest>* activate_request_queue(std::vector<InteractionRequest>* queue);
     // 恢复到前一个请求队列。
     void restore_request_queue(std::vector<InteractionRequest>* previous_queue);
+
+    void attach_thing_to_world(const std::shared_ptr<ThingBase>& thing);
+    void detach_thing_from_tile(ThingBase& thing);
 
     // --- 空间网格封装 ---
     std::unique_ptr<SpatialGrid> spatial_grid;

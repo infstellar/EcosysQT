@@ -31,9 +31,6 @@ public:
     // 构造函数
     Producer(Position pos, const PlantParams& params);
 
-    // 可覆盖：根据竞争调整的生长率
-    virtual double get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state);
-
     // 通用更新流程
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;

@@ -196,6 +196,11 @@ void SimulationEngine::update_ecosystem() {
         }
     }
 
+    {
+        ZoneScopedN("Update Things");
+        ecosystem->update_things();
+    }
+
     // 3. 应用注册表变更
     // 在所有物种更新完成后，统一处理出生和死亡等注册表变更。
     // 这可以避免在迭代过程中修改集合，从而简化并发控制。

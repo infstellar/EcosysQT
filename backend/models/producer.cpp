@@ -9,8 +9,12 @@
 #include "ecosystem.h"
 #include "tracy/Tracy.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <random>
+#include <utility>
+#include <vector>
 
 // --- Producer ---
 
@@ -26,47 +30,86 @@ Producer::Producer(Position pos, const PlantParams& params)
       growth_time_scale_ms(params.growth_time_scale_ms) {
 }
 
-double Producer::get_competition_adjusted_growth_rate(const EcosystemState& ecosystem_state) {
-    // 计算根据本地竞争调整的增长率（同类植物间竞争）
-    auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, competition_radius);
-    int nearby_same_plant_count = 0;
-    for (const auto& entity : nearby_entities) {
-        if (!entity || entity.get() == this || !entity->alive) continue;
-        if (entity->species_name != species_name) continue;
-        if (position.distance_to(entity->position) <= competition_radius) {
-            nearby_same_plant_count++;
-        }
-    }
-
-    // 计算竞争半径内的最大可能植物数量。假设单位占地面积与草一致。
-    double max_possible = M_PI * (competition_radius * competition_radius) / 400.0;
-    double density = max_possible > 0.0 ? std::min(1.0, nearby_same_plant_count / max_possible) : 0.0;
-    double competition_factor = 1.0 - (std::pow(density, 0.3) * max_competition_effect);
-    if (density <= 0.01) competition_factor = expansion_boost;
-    double adjusted_growth_rate = base_growth_rate * competition_factor;
-    double min_growth_rate = base_growth_rate * min_growth_factor;
-    return std::max(min_growth_rate, adjusted_growth_rate);
-}
-
 void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
     ThingBase::decide(ecosystem_state, rng);
     if (!alive) return;
     // 单位制对齐：1秒=30 ticks；按推进的tick数量进行缩放，兼容不同帧率/速度
     const double dt_ticks = ecosystem_state.get_delta_ticks();
-    pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_ticks;
+    static constexpr std::array<std::pair<int, int>, 4> kCardinalOffsets{{
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    }};
+    static constexpr std::array<std::pair<int, int>, 4> kDiagonalOffsets{{
+        {1, -1}, {1, 1}, {-1, 1}, {-1, -1}
+    }};
+
+    const bool use_diagonals = competition_radius >= 1.5;
+    std::vector<std::pair<int, int>> neighbor_offsets;
+    neighbor_offsets.reserve(use_diagonals ? 8 : 4);
+    neighbor_offsets.insert(neighbor_offsets.end(), kCardinalOffsets.begin(), kCardinalOffsets.end());
+    if (use_diagonals) {
+        neighbor_offsets.insert(neighbor_offsets.end(), kDiagonalOffsets.begin(), kDiagonalOffsets.end());
+    }
+
+    int nearby_same_species = 0;
+    for (const auto& [dx, dy] : neighbor_offsets) {
+        const int nx = m_grid_x + dx;
+        const int ny = m_grid_y + dy;
+        if (!ecosystem_state.is_valid_grid_coord(nx, ny)) {
+            continue;
+        }
+        const Tile& tile = ecosystem_state.get_tile(nx, ny);
+        for (ThingBase* occupant : tile.things) {
+            if (!occupant || !occupant->alive || occupant == this) {
+                continue;
+            }
+            if (occupant->species_name == species_name) {
+                ++nearby_same_species;
+            }
+        }
+    }
+
+    const double neighbor_slots = static_cast<double>(neighbor_offsets.size());
+    double density = neighbor_slots > 0.0 ? std::min(1.0, nearby_same_species / neighbor_slots) : 0.0;
+    double competition_factor = 1.0;
+    if (density <= std::numeric_limits<double>::epsilon()) {
+        competition_factor = expansion_boost;
+    } else {
+        competition_factor = 1.0 - (std::pow(density, 0.3) * max_competition_effect);
+    }
+    double adjusted_growth_rate = base_growth_rate * competition_factor;
+    double min_growth_rate = base_growth_rate * min_growth_factor;
+    pending_growth = std::max(min_growth_rate, adjusted_growth_rate) * dt_ticks;
 
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
     if (ready_for_birth && !pending_spawn_position.has_value()) {
         std::uniform_real_distribution<> chance_dist(0.0, 1.0);
         if (chance_dist(rng) <= reproduction_chance) {
-            std::uniform_real_distribution<> dist_x(-200.0, 200.0);
-            std::uniform_real_distribution<> dist_y(-200.0, 200.0);
-            const double new_x = std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_width), position.x + dist_x(rng)));
-            const double new_y = std::max(0.0, std::min(static_cast<double>(ecosystem_state.config.world_height), position.y + dist_y(rng)));
-            if (new_x > 0.0 && new_x < ecosystem_state.config.world_width &&
-                new_y > 0.0 && new_y < ecosystem_state.config.world_height) {
-                pending_spawn_position = Position{new_x, new_y};
+            std::vector<std::pair<int, int>> candidate_tiles;
+            candidate_tiles.reserve(neighbor_offsets.size());
+            for (const auto& [dx, dy] : neighbor_offsets) {
+                const int nx = m_grid_x + dx;
+                const int ny = m_grid_y + dy;
+                if (!ecosystem_state.is_valid_grid_coord(nx, ny)) {
+                    continue;
+                }
+                const Tile& tile = ecosystem_state.get_tile(nx, ny);
+                if (tile.biome != BiomeType::LAND) {
+                    continue;
+                }
+                const bool occupied = std::any_of(tile.things.begin(), tile.things.end(), [](ThingBase* existing) {
+                    return existing && existing->alive;
+                });
+                if (!occupied) {
+                    candidate_tiles.emplace_back(nx, ny);
+                }
+            }
+
+            if (!candidate_tiles.empty()) {
+                std::shuffle(candidate_tiles.begin(), candidate_tiles.end(), rng);
+                const auto [spawn_x, spawn_y] = candidate_tiles.front();
+                Position spawn_pos{static_cast<double>(spawn_x) + 0.5, static_cast<double>(spawn_y) + 0.5};
+                pending_spawn_position = spawn_pos;
                 energy -= reproduction_energy_cost;
                 reproduction_cooldown = base_reproduction_cooldown;
                 ecosystem_state.submit_interaction_request(AttemptToReproduceRequest{shared_from_this()});

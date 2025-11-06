@@ -6,17 +6,23 @@
 #include "ecosystem.h"
 #include "animal.h"
 #include "race_factory.h"
+#include "thing_factory.h"
+#include "thing_base.h"
 #include "thread_pool.h"
 #include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
+#include <algorithm>
 #include <cmath>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 
 thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}()};
 thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
@@ -24,14 +30,18 @@ thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue =
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
-        : config(config),
-            time_step(0),
-            delta_ticks(1.0),
-            races_registry(config),
-      births(),
-      deaths(),
-      population_history(),
-      spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)) {
+            : config(config),
+                time_step(0),
+                delta_ticks(1.0),
+                races_registry(config),
+                births(),
+                deaths(),
+                population_history(),
+                spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
+                m_world_grid(static_cast<std::size_t>(std::max(0, config.world_width)) *
+                                         static_cast<std::size_t>(std::max(0, config.world_height))),
+                m_all_things(),
+                thing_reproduction_parents() {
     initialize_populations();
 }
 
@@ -40,11 +50,21 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
-    auto names = races_registry.get_all_species_names();
-    if (logger) {
-        logger->info("[Init] Initializing populations for {} species", names.size());
+    const auto expected_size = static_cast<std::size_t>(std::max(0, config.world_width)) *
+                               static_cast<std::size_t>(std::max(0, config.world_height));
+    if (m_world_grid.size() != expected_size) {
+        m_world_grid.assign(expected_size, Tile{});
     }
-    for (const auto& name : names) {
+    for (auto& tile : m_world_grid) {
+        tile.things.clear();
+    }
+    m_all_things.clear();
+
+    auto race_names = races_registry.get_all_species_names();
+    if (logger) {
+        logger->info("[Init] Initializing populations for {} races", race_names.size());
+    }
+    for (const auto& name : race_names) {
         int initial_count = races_registry.get_initial_count(name);
         if (logger) {
             logger->info("[Init] '{}' initial count: {}", name, initial_count);
@@ -64,6 +84,67 @@ void EcosystemState::initialize_populations() {
                     logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
                 }
                 throw; // 上层捕获并报告
+            }
+        }
+    }
+
+    auto thing_names = g_thing_factory.get_all_species_names();
+    if (logger) {
+        logger->info("[Init] Initializing things for {} species", thing_names.size());
+    }
+    if (config.world_width <= 0 || config.world_height <= 0) {
+        if (logger) {
+            logger->warn("[Init] World dimensions are non-positive; skipping thing initialization");
+        }
+        return;
+    }
+
+    std::mt19937& rng = get_thread_local_rng();
+    std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+    std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+
+    for (const auto& name : thing_names) {
+        int initial_count = 0;
+        auto it = config.initial_populations.find(name);
+        if (it != config.initial_populations.end()) {
+            initial_count = it->second;
+        }
+        if (logger) {
+            logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
+        }
+
+        int attempts = 0;
+        for (int i = 0; i < initial_count; ++i) {
+            constexpr int kMaxPlacementAttempts = 16;
+            bool placed = false;
+            while (!placed && attempts < kMaxPlacementAttempts * initial_count) {
+                ++attempts;
+                int tile_x = dist_tile_x(rng);
+                int tile_y = dist_tile_y(rng);
+                Tile& tile = get_tile(tile_x, tile_y);
+                if (tile.biome != BiomeType::LAND || !tile.things.empty()) {
+                    continue;
+                }
+
+                Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
+                auto thing_unique = g_thing_factory.create(name, world_pos, rng);
+                if (!thing_unique) {
+                    if (logger) {
+                        logger->warn("[Init] Thing factory returned null for '{}'", name);
+                    }
+                    break;
+                }
+
+                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                thing->position = world_pos;
+                thing->m_grid_x = tile_x;
+                thing->m_grid_y = tile_y;
+                attach_thing_to_world(thing);
+                placed = true;
+            }
+
+            if (!placed && logger) {
+                logger->warn("[Init] Unable to place initial '{}' after {} attempts", name, attempts);
             }
         }
     }
@@ -120,6 +201,13 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
         state.species_lists[species_name] = std::move(as_species);
     }
 
+    for (const auto& thing : m_all_things) {
+        if (!thing) {
+            continue;
+        }
+        state.species_lists[thing->species_name].push_back(thing);
+    }
+
     // 预计算草的位置和存活对象 (Eigen矩阵)
     std::vector<std::shared_ptr<Species>> alive_grass_objects;
     std::vector<Eigen::Vector2d> alive_grass_positions;
@@ -167,6 +255,67 @@ void EcosystemState::update_statistics() {
         population_history.erase(population_history.begin(), population_history.end() - 100);
 }
 
+std::size_t EcosystemState::get_grid_index(int x, int y) const {
+    if (!is_valid_grid_coord(x, y)) {
+        throw std::out_of_range("Grid coordinate out of range");
+    }
+    return static_cast<std::size_t>(y) * static_cast<std::size_t>(config.world_width) + static_cast<std::size_t>(x);
+}
+
+bool EcosystemState::is_valid_grid_coord(int x, int y) const {
+    return x >= 0 && x < config.world_width && y >= 0 && y < config.world_height;
+}
+
+Tile& EcosystemState::get_tile(int x, int y) {
+    if (!is_valid_grid_coord(x, y)) {
+        throw std::out_of_range("Grid coordinate out of range");
+    }
+    return m_world_grid[get_grid_index(x, y)];
+}
+
+const Tile& EcosystemState::get_tile(int x, int y) const {
+    if (!is_valid_grid_coord(x, y)) {
+        throw std::out_of_range("Grid coordinate out of range");
+    }
+    return m_world_grid[get_grid_index(x, y)];
+}
+
+void EcosystemState::attach_thing_to_world(const std::shared_ptr<ThingBase>& thing) {
+    if (!thing) {
+        return;
+    }
+    if (!is_valid_grid_coord(thing->m_grid_x, thing->m_grid_y)) {
+        throw std::out_of_range("Thing grid coordinate out of range");
+    }
+    Tile& tile = get_tile(thing->m_grid_x, thing->m_grid_y);
+    tile.things.push_back(thing.get());
+    m_all_things.push_back(thing);
+}
+
+void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
+    if (!is_valid_grid_coord(thing.m_grid_x, thing.m_grid_y)) {
+        return;
+    }
+    Tile& tile = get_tile(thing.m_grid_x, thing.m_grid_y);
+    auto it = std::remove(tile.things.begin(), tile.things.end(), &thing);
+    if (it != tile.things.end()) {
+        tile.things.erase(it, tile.things.end());
+    }
+    thing.m_grid_x = -1;
+    thing.m_grid_y = -1;
+}
+
+void EcosystemState::update_things() {
+    auto& rng = get_thread_local_rng();
+    for (auto& thing : m_all_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        thing->decide(*this, rng);
+        thing->apply(*this);
+    }
+}
+
 /**
  * @brief 为并发更新周期准备生态系统状态。
  *
@@ -183,12 +332,18 @@ void EcosystemState::prepare_for_update() {
     energy_changes.clear();       // 清空能量变化记录
     marked_for_death.clear();     // 清空待移除的生物体列表
     reproduction_parents.clear(); // 清空待新生的父代列表
+    thing_reproduction_parents.clear();
 
     if (!spatial_grid) {
         return;
     }
 
     spatial_grid->build(races_registry);
+    for (const auto& thing : m_all_things) {
+        if (thing && thing->alive) {
+            spatial_grid->add(thing);
+        }
+    }
 }
 
 /**
@@ -340,11 +495,18 @@ void EcosystemState::resolve_interactions() {
                 if (!parent) {
                     return;
                 }
-                auto race_parent = std::dynamic_pointer_cast<RaceBase>(parent);
-                if (!race_parent || !race_parent->alive) {
+                if (auto race_parent = std::dynamic_pointer_cast<RaceBase>(parent)) {
+                    if (race_parent->alive) {
+                        reproduction_parents.push_back(std::move(race_parent));
+                    }
                     return;
                 }
-                reproduction_parents.push_back(std::move(race_parent));
+                if (auto thing_parent = std::dynamic_pointer_cast<ThingBase>(parent)) {
+                    if (thing_parent->alive) {
+                        thing_reproduction_parents.push_back(std::move(thing_parent));
+                    }
+                    return;
+                }
             // --- 新增：处理“尝试交配”请求 ---
             } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
                 auto& female = req.female;
@@ -427,6 +589,9 @@ void EcosystemState::apply_registry_changes() {
     // 用于临时存储本轮出生的新个体。
     std::unordered_map<std::string, std::vector<std::shared_ptr<RaceBase>>> newborns_by_species;
     newborns_by_species.reserve(reproduction_parents.size());
+    std::unordered_map<std::string, int> thing_birth_counts;
+    std::unordered_map<std::string, int> thing_death_counts;
+    auto logger = spdlog::get("ecosim");
 
     // --- 出生处理 ---
     for (auto& parent : reproduction_parents) {
@@ -489,6 +654,87 @@ void EcosystemState::apply_registry_changes() {
                 newborn_it->second.size(), name);
         }
     }
+
+    auto remove_it = std::remove_if(m_all_things.begin(), m_all_things.end(),
+        [this, &thing_death_counts](const std::shared_ptr<ThingBase>& thing) {
+            if (!thing) {
+                return true;
+            }
+            if (thing->alive) {
+                return false;
+            }
+            ++thing_death_counts[thing->species_name];
+            detach_thing_from_tile(*thing);
+            return true;
+        });
+    m_all_things.erase(remove_it, m_all_things.end());
+
+    if (config.world_width > 0 && config.world_height > 0) {
+        const int max_x = config.world_width - 1;
+        const int max_y = config.world_height - 1;
+        for (auto& parent : thing_reproduction_parents) {
+            if (!parent || !parent->alive) {
+                continue;
+            }
+            const auto spawn_position = parent->consume_pending_spawn_position();
+            if (!spawn_position.has_value()) {
+                continue;
+            }
+
+            int tile_x = static_cast<int>(std::floor(spawn_position->x));
+            int tile_y = static_cast<int>(std::floor(spawn_position->y));
+            tile_x = std::clamp(tile_x, 0, max_x);
+            tile_y = std::clamp(tile_y, 0, max_y);
+
+            if (!is_valid_grid_coord(tile_x, tile_y)) {
+                continue;
+            }
+
+            Tile& tile = get_tile(tile_x, tile_y);
+            const bool tile_available = std::none_of(tile.things.begin(), tile.things.end(),
+                [](ThingBase* existing) {
+                    return existing != nullptr && existing->alive;
+                });
+            if (!tile_available) {
+                continue;
+            }
+
+            Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
+            auto offspring_unique = g_thing_factory.create(parent->species_name, world_pos, get_thread_local_rng());
+            if (!offspring_unique) {
+                continue;
+            }
+
+            std::shared_ptr<ThingBase> offspring(std::move(offspring_unique));
+            offspring->position = world_pos;
+            offspring->m_grid_x = tile_x;
+            offspring->m_grid_y = tile_y;
+            attach_thing_to_world(offspring);
+            ++thing_birth_counts[parent->species_name];
+        }
+    }
+
+    for (const auto& [species, count] : thing_birth_counts) {
+        if (count <= 0) {
+            continue;
+        }
+        births.increment(species, count);
+        if (logger) {
+            logger->info("🌱 {} new {} things born", count, species);
+        }
+    }
+
+    for (const auto& [species, count] : thing_death_counts) {
+        if (count <= 0) {
+            continue;
+        }
+        deaths.increment(species, count);
+        if (logger) {
+            logger->info("🥀 {} {} things removed", count, species);
+        }
+    }
+
+    thing_reproduction_parents.clear();
 
     // --- 清理状态 ---
     // 清理本轮的状态标记，为下一轮更新做准备。
@@ -652,22 +898,29 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     double radius) const {
     
     std::vector<std::shared_ptr<Species>> result;
-    
-    // 首先检查物种是否存在于注册表中。
-    if (!races_registry.has_species(species_name)) {
-        return result; // 如果物种不存在，返回空列表。
-    }
 
-    // 遍历该物种的所有个体。
-    const auto& species_list = races_registry.get_species_list(species_name);
-    for (const auto& individual : species_list) {
-        // 检查个体是否存活，并且其位置是否在指定的圆形范围内。
-        if (individual->alive && 
-            individual->position.distance_to(center) <= radius) {
-            result.push_back(individual);
+    if (races_registry.has_species(species_name)) {
+        const auto& species_list = races_registry.get_species_list(species_name);
+        for (const auto& individual : species_list) {
+            if (individual->alive &&
+                individual->position.distance_to(center) <= radius) {
+                result.push_back(individual);
+            }
         }
     }
-    
+
+    for (const auto& thing : m_all_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        if (thing->species_name != species_name) {
+            continue;
+        }
+        if (thing->position.distance_to(center) <= radius) {
+            result.push_back(thing);
+        }
+    }
+
     return result;
 }
 
