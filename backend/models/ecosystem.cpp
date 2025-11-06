@@ -24,7 +24,7 @@ thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue =
 EcosystemState::EcosystemState(const EcosystemConfig& config)
     : config(config),
       time_step(0),
-      delta_time_ms(33.333333),
+      delta_ticks(1.0),
       species_registry(config),
       births(),
       deaths(),
@@ -98,7 +98,7 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.world_width = config.world_width;
     state.world_height = config.world_height;
     state.time_step = time_step;
-    state.time_delta_ms = delta_time_ms;
+    state.delta_ticks = delta_ticks;
     state.current_day = get_current_day();
     state.current_quadrum = get_current_quadrum();
     state.current_year = get_current_year();
@@ -139,10 +139,10 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
 /*
 使用统一逻辑更新时间状态
 */
-void EcosystemState::update_time(double delta_ms) {
-    // --- 时间推进与计算 ---
-    delta_time_ms = delta_ms;
-    time_step++; // 保持离散步计数以兼容既有逻辑
+void EcosystemState::update_time_ticks(double delta_ticks_param) {
+    // --- 时间推进与计算（tick制） ---
+    delta_ticks = delta_ticks_param;
+    time_step++; // 维持离散步计数（整数），与tick小数独立
 }
 
 /*

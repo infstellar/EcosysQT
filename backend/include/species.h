@@ -135,7 +135,8 @@ protected:
     bool is_wandering;             // 是否处于逛街状态
     int wandering_cooldown;        // 逛街冷却/持续时间
     double wander_radius;          // 游荡目标选择半径
-    double current_step_speed;     // 本帧步长（按 delta_time 缩放）
+    double step_distance_per_tick; // 每 tick 步长（固定步进，独立于帧）
+    double current_step_distance;  // 当前更新步可移动距离（step_distance_per_tick * delta_ticks）
 
     // 更新饱食状态
     void update_hunger_state();

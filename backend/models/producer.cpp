@@ -51,9 +51,8 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
     Species::decide(ecosystem_state, rng);
     if (!alive) return;
-    // 单位制对齐：1秒=30 ticks；1秒=1.44仿真分钟=0.024仿真小时
-    // 这里按 tick 数进行缩放，确保与 30 ticks/秒、1250 ticks/小时 一致
-    const double dt_ticks = ecosystem_state.get_delta_time_ms() * 30.0 / 1000.0;
+    // 单位制对齐：1秒=30 ticks；按推进的tick数量进行缩放，兼容不同帧率/速度
+    const double dt_ticks = ecosystem_state.get_delta_ticks();
     pending_growth = get_competition_adjusted_growth_rate(ecosystem_state) * dt_ticks;
 
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;

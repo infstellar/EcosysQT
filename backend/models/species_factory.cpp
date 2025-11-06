@@ -6,8 +6,10 @@
 #include "species_factory.h"
 #include "species_params.h"
 #include <stdexcept>
-#include <filesystem>
 #include <spdlog/spdlog.h>
+#include <QDir>
+#include <QFileInfo>
+#include <QStringList>
 
 // 全局工厂实例定义
 SpeciesFactory g_species_factory;
@@ -55,34 +57,35 @@ static void scan_and_register(const std::string& directory_path, const std::stri
     }
 
     SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Scanning '{}' for {} definitions", directory_path, type);
-    if (!std::filesystem::exists(directory_path)) {
+    QDir dir(QString::fromStdString(directory_path));
+    if (!dir.exists()) {
         // 目录不存在则直接返回，允许缺省目录
         SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Register] Directory '{}' does not exist, skipping {} scan", directory_path, type);
         return;
     }
 
-    for (const auto& entry : std::filesystem::directory_iterator(directory_path)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() == ".yaml") {
-            std::string defName = entry.path().stem().string();
+    dir.setFilter(QDir::Files);
+    dir.setNameFilters(QStringList() << "*.yaml");
+    const QFileInfoList files = dir.entryInfoList();
+    for (const QFileInfo& fi : files) {
+        const std::string defName = fi.baseName().toStdString();
 
-            if (type == "Animal") {
-                g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
-                    AnimalParams params = yaml_provider->get_animal_params(defName);
-                    auto instance = std::make_unique<Animal>(pos, params);
-                    instance->species_name = defName;
-                    return instance;
-                });
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered animal '{}'", defName);
-            } else if (type == "Plant") {
-                g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
-                    PlantParams params = yaml_provider->get_plant_params(defName);
-                    auto instance = std::make_unique<Producer>(pos, params);
-                    instance->species_name = defName;
-                    return instance;
-                });
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered plant '{}'", defName);
-            }
+        if (type == "Animal") {
+            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+                AnimalParams params = yaml_provider->get_animal_params(defName);
+                auto instance = std::make_unique<Animal>(pos, params);
+                instance->species_name = defName;
+                return instance;
+            });
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered animal '{}'", defName);
+        } else if (type == "Plant") {
+            g_species_factory.register_species(defName, [yaml_provider, defName](Position pos) {
+                PlantParams params = yaml_provider->get_plant_params(defName);
+                auto instance = std::make_unique<Producer>(pos, params);
+                instance->species_name = defName;
+                return instance;
+            });
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered plant '{}'", defName);
         }
     }
 }

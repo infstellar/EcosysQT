@@ -63,8 +63,8 @@ class EcosystemState {
 public:
     EcosystemConfig config;
     int time_step;
-    // 本帧时长（毫秒），用于将行为按真实时间缩放
-    double delta_time_ms;
+    // 本次更新推进的tick数量（可为小数，用于平滑）
+    double delta_ticks;
     SpeciesRegistry species_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
@@ -80,7 +80,8 @@ public:
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
-    void update_time(double delta_ms);
+    // 基于tick的时间推进（每次更新推进的tick数量）
+    void update_time_ticks(double delta_ticks_param);
     void update_statistics();
 
     // --- 新的并发更新阶段 ---
@@ -109,8 +110,8 @@ public:
     void reset(const EcosystemConfig& config);
     std::vector<std::string> check_extinction() const;
 
-    // 访问当前帧的 delta_time（毫秒）
-    double get_delta_time_ms() const { return delta_time_ms; }
+    // 访问当前更新推进的tick数量
+    double get_delta_ticks() const { return delta_ticks; }
     
     // 通用查询接口：获取指定范围内的物种个体
     std::vector<std::shared_ptr<Species>> get_species_in_range(

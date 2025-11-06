@@ -7,7 +7,10 @@ YAML 物种配置提供者实现
 #include <yaml-cpp/yaml.h>
 #include <string>
 #include <spdlog/spdlog.h>
-#include <filesystem>
+#include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
+#include <QString>
 // 反射: 成员名与继承枚举
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
@@ -36,49 +39,62 @@ static YAML::Node load_yaml_file(const std::string& p) {
 - 为同名文件冲突（不同目录同时有 <name>.yaml ）加入明确优先级策略日志，便于调试歧义。
 */
 static std::string search_yaml_path(const std::string& name, const std::string& root_dir, const char* preferred_subfolder) {
-    const std::string search_root = root_dir + "/config";
+    const QString search_root = QString::fromStdString(root_dir) + "/config";
     std::string first_match;
     std::string preferred_match;
-    try {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(search_root)) {
-            if (!entry.is_regular_file()) continue;
-            const auto& p = entry.path();
-            if (p.extension() == ".yaml" && p.stem().string() == name) {
-                const std::string full = p.string();
-                if (first_match.empty()) first_match = full;
-                if (preferred_subfolder) {
-                    const std::string slash = std::string("/") + preferred_subfolder + "/";
-                    const std::string backslash = std::string("\\") + preferred_subfolder + "\\";
-                    if (full.find(slash) != std::string::npos || full.find(backslash) != std::string::npos) {
-                        preferred_match = full;
-                    }
+
+    QDirIterator it(search_root, QStringList() << "*.yaml", QDir::Files, QDirIterator::Subdirectories);
+    const QString qname = QString::fromStdString(name);
+    while (it.hasNext()) {
+        const QString filePath = it.next();
+        const QFileInfo fi(filePath);
+        if (fi.baseName() == qname) {
+            const std::string full = filePath.toStdString();
+            if (first_match.empty()) first_match = full;
+            if (preferred_subfolder) {
+                const QString pref = QString::fromLatin1(preferred_subfolder);
+                if (filePath.contains("/" + pref + "/") || filePath.contains("\\" + pref + "\\")) {
+                    preferred_match = full;
                 }
             }
         }
-    } catch (const std::exception& e) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Config] Recursive search failed in '{}': {}", search_root, e.what());
     }
     return !preferred_match.empty() ? preferred_match : first_match;
 }
 
+// 计算主优先路径：
+// - 普通物种名：config/species/<category>/<name>.yaml
+// - 基础模板：name 以 "base_" 开头 -> config/species_base/<name>.yaml
+// - 通用基类：name == "species" -> config/species.yaml
+static std::string resolve_primary_path(const std::string& name, const std::string& root_dir, const char* category) {
+    if (name == "species") {
+        return root_dir + std::string("/config/species.yaml");
+    }
+    if (name.rfind("base_", 0) == 0) {
+        return root_dir + std::string("/config/species_base/") + name + ".yaml";
+    }
+    return root_dir + std::string("/config/species/") + category + "/" + name + ".yaml";
+}
+
 static YAML::Node load_yaml_in_category(const std::string& name, const std::string& root_dir, const char* category) {
-    const std::string primary = root_dir + std::string("/config/species/") + category + "/" + name + ".yaml";
+    const std::string primary = resolve_primary_path(name, root_dir, category);
     SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Loading '{}' YAML for '{}' from '{}'", category, name, primary);
     try {
         return YAML::LoadFile(primary);
     } catch (const std::exception& e) {
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Config] Primary '{}' YAML not found for '{}': {}. Begin broad search.", category, name, e.what());
+        // 主路径缺失属于正常回退场景，降低为 DEBUG，避免污染 info 日志
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Primary '{}' YAML not available for '{}': {}. Searching...", category, name, e.what());
         const std::string found = search_yaml_path(name, root_dir, category);
         if (!found.empty()) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Found '{}' via broad search at '{}'", name, found);
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Found '{}' via search at '{}'", name, found);
             try {
                 return YAML::LoadFile(found);
             } catch (const std::exception& e2) {
-                SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Failed to load broad-searched '{}' YAML for '{}': {}", category, name, e2.what());
+                SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Failed to load searched '{}' YAML for '{}': {}", category, name, e2.what());
                 throw std::runtime_error("Failed to load YAML '" + name + "' at '" + primary + "' and searched '" + found + "': " + e2.what());
             }
         }
-        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] '{}' YAML for '{}' not found after broad search", category, name);
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] '{}' YAML for '{}' not found after search", category, name);
         throw std::runtime_error("Failed to locate YAML '" + name + "' from '" + primary + "' or anywhere under '" + (root_dir + "/config") + "'");
     }
 }
