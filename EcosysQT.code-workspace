@@ -98,7 +98,8 @@
 			"semaphore": "cpp",
 			"span": "cpp",
 			"stop_token": "cpp",
-			"text_encoding": "cpp"
+			"text_encoding": "cpp",
+			"qdiriterator": "cpp"
 		}
 	}
 }

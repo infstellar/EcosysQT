@@ -95,3 +95,4 @@ external/tracy/*
 
 *.log
 text_aggregated/aggregated_texts.md
+prompts/
