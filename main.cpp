@@ -14,7 +14,8 @@
 #include "ecosystem.h"
 #include "logging.h"
 #include "simulation.h"
-#include "species_factory.h"
+#include "race_factory.h"
+#include "thing_factory.h"
 #include "species_config_provider.h"
 
 /**
@@ -29,7 +30,7 @@
  * 【后端】SimulationController
  *   └─ SimulationEngine (std::unique_ptr)
  *       ├─ EcosystemState (std::unique_ptr)
- *       │   ├─ SpeciesRegistry (所有生物的注册表)
+ *       │   ├─ RacesRegistry (移动生物的注册表)
  *       │   │   ├─ Grass 列表
  *       │   │   ├─ Cow 列表
  *       │   │   └─ Tiger 列表
@@ -143,15 +144,21 @@ int main(int argc, char *argv[])
         }
     }
     qDebug() << "YAML 配置根目录:" << configRoot;
-    g_species_factory.set_config_provider(std::make_shared<YamlSpeciesConfigProvider>(configRoot.toStdString()));
+    auto yaml_provider = std::make_shared<YamlSpeciesConfigProvider>(configRoot.toStdString());
+    g_race_factory.set_config_provider(yaml_provider);
+    g_thing_factory.set_config_provider(yaml_provider);
     SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] YAML provider set with root: '{}'", configRoot.toStdString());
     // 物种扫描与注册加入异常捕获与诊断日志
     try {
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Begin species registration");
-        register_all_species();
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Species registration completed");
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Begin race registration");
+        register_all_races();
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Race registration completed");
+
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Begin thing registration");
+        register_all_things();
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Main] Thing registration completed");
     } catch (const std::exception& e) {
-        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Main] Species registration failed: {}", e.what());
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Main] Factory registration failed: {}", e.what());
         Logging::shutdown();
         return -1;
     }
@@ -178,7 +185,7 @@ int main(int argc, char *argv[])
          * SimulationController
          *   └─ SimulationEngine (std::unique_ptr)
          *       └─ EcosystemState (std::unique_ptr)
-         *           └─ SpeciesRegistry
+         *           └─ RacesRegistry
          *               ├─ Grass 列表 (std::vector<std::shared_ptr<Species>>)
          *               ├─ Cow 列表
          *               └─ Tiger 列表

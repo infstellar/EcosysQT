@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "species_registry.h"
+#include "races_registry.h"
 
 SpatialGrid::SpatialGrid(int world_width, int world_height, double cell)
     : cell_size(cell),
@@ -46,7 +46,7 @@ void SpatialGrid::add(const std::shared_ptr<Species>& species) {
     grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)].push_back(species);
 }
 
-void SpatialGrid::build(const SpeciesRegistry& registry) {
+void SpatialGrid::build(const RacesRegistry& registry) {
     clear();
 
     if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {

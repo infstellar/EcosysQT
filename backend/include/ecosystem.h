@@ -15,8 +15,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "species.h"
-#include "species_factory.h"
-#include "species_registry.h"
+#include "races_registry.h"
 #include "species_statistics.h"
 #include "spatial_grid.h"
 #include "utils.h"
@@ -24,6 +23,7 @@
 
 // 前向声明避免循环依赖
 class ThreadPool;
+class RaceBase;
 
 
 // 物种类型枚举已在 species.h 声明
@@ -65,7 +65,7 @@ public:
     int time_step;
     // 本次更新推进的tick数量（可为小数，用于平滑）
     double delta_ticks;
-    SpeciesRegistry species_registry;
+    RacesRegistry races_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
     std::vector<std::map<std::string, int>> population_history;
@@ -151,7 +151,7 @@ private:
     // 标记待移除的物种集合。
     std::unordered_set<Species*> marked_for_death;
     // 标记待出生的新物种的父代指针。
-    std::vector<std::shared_ptr<Species>> reproduction_parents;
+    std::vector<std::shared_ptr<RaceBase>> reproduction_parents;
 
     // 线程局部的随机数生成器。
     static thread_local std::mt19937 thread_local_rng;

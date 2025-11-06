@@ -83,14 +83,15 @@ add_executable(MyQtApp
   backend/engine/thread_pool.cpp
   backend/models/ecosystem.cpp
     backend/models/spatial_grid.cpp
-    backend/models/species_registry.cpp
+        backend/models/races_registry.cpp
     backend/models/species_statistics.cpp
   backend/models/species_base.cpp
   backend/models/race_base.cpp
   backend/models/thing_base.cpp
   backend/models/producer.cpp
   backend/models/animal.cpp
-  backend/models/species_factory.cpp
+    backend/models/race_factory.cpp
+    backend/models/thing_factory.cpp
   backend/models/species_config_provider_yaml.cpp
     backend/engine/logging.cpp
   # 前端 UI 模块

@@ -6,7 +6,7 @@
 #include "species.h"
 #include "utils.h"
 
-class SpeciesRegistry;
+class RacesRegistry;
 
 class SpatialGrid {
 public:
@@ -14,7 +14,7 @@ public:
 
     void clear();
     void add(const std::shared_ptr<Species>& species);
-    void build(const SpeciesRegistry& registry);
+    void build(const RacesRegistry& registry);
 
     std::vector<std::shared_ptr<Species>> get_nearby_species_broad(const Position& center, double radius) const;
 

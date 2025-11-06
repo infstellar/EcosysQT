@@ -5,6 +5,7 @@
 
 #include "ecosystem.h"
 #include "animal.h"
+#include "race_factory.h"
 #include "thread_pool.h"
 #include "tracy/Tracy.hpp"
 #include <random>
@@ -12,10 +13,10 @@
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
 #include <cmath>
-#include <limits>
-#include <cassert>
-#include <type_traits>
 #include <iterator>
+#include <limits>
+#include <memory>
+#include <type_traits>
 
 thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}()};
 thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
@@ -23,10 +24,10 @@ thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue =
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
-    : config(config),
-      time_step(0),
-      delta_ticks(1.0),
-      species_registry(config),
+        : config(config),
+            time_step(0),
+            delta_ticks(1.0),
+            races_registry(config),
       births(),
       deaths(),
       population_history(),
@@ -39,12 +40,12 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
-    auto names = species_registry.get_all_species_names();
+    auto names = races_registry.get_all_species_names();
     if (logger) {
         logger->info("[Init] Initializing populations for {} species", names.size());
     }
     for (const auto& name : names) {
-        int initial_count = species_registry.get_initial_count(name);
+        int initial_count = races_registry.get_initial_count(name);
         if (logger) {
             logger->info("[Init] '{}' initial count: {}", name, initial_count);
         }
@@ -56,8 +57,8 @@ void EcosystemState::initialize_populations() {
             int y = distY(get_thread_local_rng());
             try {
                 // 调用工厂时，传入 get_thread_local_rng()
-                auto new_individual = g_species_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
-                species_registry.add_individual(name, std::move(new_individual));
+                auto new_individual = g_race_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
+                races_registry.add_individual(name, std::move(new_individual));
             } catch (const std::exception& e) {
                 if (logger) {
                     logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
@@ -109,8 +110,14 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.current_quadrum_name = get_current_quadrum_name();
 
     // 填充species_lists map
-    for (const auto& species_name : species_registry.get_all_species_names()) {
-        state.species_lists[species_name] = species_registry.get_species_list(species_name);
+    for (const auto& species_name : races_registry.get_all_species_names()) {
+        const auto& race_list = races_registry.get_species_list(species_name);
+        std::vector<std::shared_ptr<Species>> as_species;
+        as_species.reserve(race_list.size());
+        for (const auto& race : race_list) {
+            as_species.push_back(race);
+        }
+        state.species_lists[species_name] = std::move(as_species);
     }
 
     // 预计算草的位置和存活对象 (Eigen矩阵)
@@ -181,7 +188,7 @@ void EcosystemState::prepare_for_update() {
         return;
     }
 
-    spatial_grid->build(species_registry);
+    spatial_grid->build(races_registry);
 }
 
 /**
@@ -219,7 +226,7 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     }
 
     // 定义一个 lambda 函数，用于将一部分个体（一个“块”）的决策任务提交到线程池。
-    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<Species>>& list,
+    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<RaceBase>>& list,
                                             std::size_t begin,
                                             std::size_t end) {
         // 向线程池提交一个新任务。
@@ -250,9 +257,9 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     };
 
     // 遍历所有已注册的物种，为它们分派决策任务。
-    const auto species_names = species_registry.get_all_species_names();
+    const auto species_names = races_registry.get_all_species_names();
     for (const auto& name : species_names) {
-        auto& list = species_registry.get_species_list(name);
+        auto& list = races_registry.get_species_list(name);
         if (list.empty()) {
             continue;
         }
@@ -330,10 +337,14 @@ void EcosystemState::resolve_interactions() {
             // 处理“尝试繁殖”请求。
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRequest>) {
                 auto& parent = req.parent;
-                if (!parent || !parent->alive) {
+                if (!parent) {
                     return;
                 }
-                reproduction_parents.push_back(parent);
+                auto race_parent = std::dynamic_pointer_cast<RaceBase>(parent);
+                if (!race_parent || !race_parent->alive) {
+                    return;
+                }
+                reproduction_parents.push_back(std::move(race_parent));
             // --- 新增：处理“尝试交配”请求 ---
             } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
                 auto& female = req.female;
@@ -366,7 +377,7 @@ void EcosystemState::resolve_interactions() {
 void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
     constexpr std::size_t chunk_size = 1024;
 
-    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<Species>>& list,
+    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<RaceBase>>& list,
                                             std::size_t begin,
                                             std::size_t end) {
         pool.submit([this, &list, begin, end] {
@@ -380,9 +391,9 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         });
     };
 
-    const auto species_names = species_registry.get_all_species_names();
+    const auto species_names = races_registry.get_all_species_names();
     for (const auto& name : species_names) {
-        auto& list = species_registry.get_species_list(name);
+        auto& list = races_registry.get_species_list(name);
         if (list.empty()) {
             continue;
         }
@@ -414,7 +425,7 @@ void EcosystemState::apply_registry_changes() {
     // 遍历所有物种，处理繁殖、死亡和能量变化。
 
     // 用于临时存储本轮出生的新个体。
-    std::unordered_map<std::string, std::vector<std::shared_ptr<Species>>> newborns_by_species;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<RaceBase>>> newborns_by_species;
     newborns_by_species.reserve(reproduction_parents.size());
 
     // --- 出生处理 ---
@@ -429,18 +440,18 @@ void EcosystemState::apply_registry_changes() {
         }
 
         // 调用工厂时，传入 get_thread_local_rng()
-        auto offspring_unique = g_species_factory.create(parent->species_name, spawn_position.value(), get_thread_local_rng());
+        auto offspring_unique = g_race_factory.create(parent->species_name, spawn_position.value(), get_thread_local_rng());
         if (!offspring_unique) {
             continue;
         }
 
-        std::shared_ptr<Species> offspring = std::move(offspring_unique);
+        std::shared_ptr<RaceBase> offspring = std::move(offspring_unique);
         offspring->position = spawn_position.value();
         newborns_by_species[parent->species_name].push_back(std::move(offspring));
     }
 
-    for (const auto& name : species_registry.get_all_species_names()) {
-        auto& list = species_registry.get_species_list(name);
+    for (const auto& name : races_registry.get_all_species_names()) {
+        auto& list = races_registry.get_species_list(name);
 
         int dead_count = 0;
         for (auto& individual : list) {
@@ -467,11 +478,11 @@ void EcosystemState::apply_registry_changes() {
             spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
         }
 
-        species_registry.filter_alive(name);
+        races_registry.filter_alive(name);
 
         auto newborn_it = newborns_by_species.find(name);
         if (newborn_it != newborns_by_species.end() && !newborn_it->second.empty()) {
-            species_registry.extend_individuals(name, newborn_it->second);
+            races_registry.extend_individuals(name, newborn_it->second);
             births.increment(name, static_cast<int>(newborn_it->second.size()));
             spdlog::get("ecosim")->info("{} {} new {} individuals born",
                 (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
@@ -542,8 +553,8 @@ void EcosystemState::restore_request_queue(std::vector<InteractionRequest>* prev
  */
 SpeciesStatistics EcosystemState::get_species_counts() const {
     SpeciesStatistics stats;
-    for (const auto& name : species_registry.get_all_species_names()) {
-        int count = species_registry.get_species_count(name);
+    for (const auto& name : races_registry.get_all_species_names()) {
+        int count = races_registry.get_species_count(name);
         stats.set_count(name, count);
     }
     return stats;
@@ -559,8 +570,8 @@ SpeciesStatistics EcosystemState::get_species_counts() const {
  */
 SpeciesPopulationData EcosystemState::get_species_data() const {
     SpeciesPopulationData data;
-    for (const auto& name : species_registry.get_all_species_names()) {
-        const auto& list = species_registry.get_species_list(name);
+    for (const auto& name : races_registry.get_all_species_names()) {
+        const auto& list = races_registry.get_species_list(name);
         std::vector<BaseIndividualData> individuals;
         for (const auto& individual : list) {
             if (individual->alive) {
@@ -592,7 +603,7 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     time_step = 0;
-    species_registry.clear_all();
+    races_registry.clear_all();
     births.reset();
     deaths.reset();
     population_history.clear();
@@ -616,8 +627,8 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
  */
 std::vector<std::string> EcosystemState::check_extinction() const {
     std::vector<std::string> extinct;
-    for (const auto& name : species_registry.get_all_species_names()) {
-        if (species_registry.get_species_count(name) == 0)
+    for (const auto& name : races_registry.get_all_species_names()) {
+        if (races_registry.get_species_count(name) == 0)
             extinct.push_back(name);
     }
     return extinct;
@@ -643,12 +654,12 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
     std::vector<std::shared_ptr<Species>> result;
     
     // 首先检查物种是否存在于注册表中。
-    if (!species_registry.has_species(species_name)) {
+    if (!races_registry.has_species(species_name)) {
         return result; // 如果物种不存在，返回空列表。
     }
 
     // 遍历该物种的所有个体。
-    const auto& species_list = species_registry.get_species_list(species_name);
+    const auto& species_list = races_registry.get_species_list(species_name);
     for (const auto& individual : species_list) {
         // 检查个体是否存活，并且其位置是否在指定的圆形范围内。
         if (individual->alive && 

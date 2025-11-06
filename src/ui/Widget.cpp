@@ -12,7 +12,7 @@
  * SimulationController (后端)
  *   └─ SimulationEngine (unique_ptr)
  *       └─ EcosystemState (unique_ptr)
- *           └─ SpeciesRegistry (所有生物数据)
+ *           └─ RacesRegistry (移动生物数据)
  * 
  * Widget 通过 controller->get_data() 获取数据快照（只读）
  */
