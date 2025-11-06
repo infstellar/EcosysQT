@@ -329,8 +329,9 @@ void EcosystemState::update_things() {
 void EcosystemState::prepare_for_update() {
     staged_requests.clear();      // 清空暂存的交互请求
     main_thread_requests.clear(); // 清空主线程处理的请求
-    energy_changes.clear();       // 清空能量变化记录
-    marked_for_death.clear();     // 清空待移除的生物体列表
+    race_energy_changes.clear();  // 清空能量变化记录
+    race_marked_for_death.clear();     // 清空待移除的生物体列表
+    thing_marked_for_death.clear();
     reproduction_parents.clear(); // 清空待新生的父代列表
     thing_reproduction_parents.clear();
 
@@ -339,11 +340,6 @@ void EcosystemState::prepare_for_update() {
     }
 
     spatial_grid->build(races_registry);
-    for (const auto& thing : m_all_things) {
-        if (thing && thing->alive) {
-            spatial_grid->add(thing);
-        }
-    }
 }
 
 /**
@@ -475,39 +471,38 @@ void EcosystemState::resolve_interactions() {
         // 使用 `std::visit` 和 `std::variant` 来处理不同类型的请求。
         std::visit([this](auto&& req) {
             using RequestType = std::decay_t<decltype(req)>;
-            // 处理“尝试捕食”请求。
-            if constexpr (std::is_same_v<RequestType, AttemptToEatRequest>) {
+            if constexpr (std::is_same_v<RequestType, AttemptToEatRaceRequest>) {
                 auto& initiator = req.initiator;
                 auto& target = req.target;
-                // 确保发起者和目标都存在且都存活。
                 if (!initiator || !target) return;
                 if (!initiator->alive || !target->alive) return;
 
-                // 检查目标是否已经被其他捕食者标记为死亡，以避免重复处理。
-                if (marked_for_death.find(target.get()) != marked_for_death.end()) return;
+                if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
 
-                // 将目标标记为死亡，并将其能量转移给发起者。
-                marked_for_death.insert(target.get());
-                energy_changes[initiator.get()] += target->energy;
-            // 处理“尝试繁殖”请求。
-            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRequest>) {
+                race_marked_for_death.insert(target.get());
+                race_energy_changes[initiator.get()] += target->energy;
+                target->die_from_predation(initiator->species_name);
+            } else if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
+                auto& initiator = req.initiator;
+                auto& target = req.target;
+                if (!initiator || !target) return;
+                if (!initiator->alive || !target->alive) return;
+
+                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
+
+                thing_marked_for_death.insert(target.get());
+                race_energy_changes[initiator.get()] += target->energy;
+                target->die_from_predation(initiator->species_name);
+            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
                 auto& parent = req.parent;
-                if (!parent) {
-                    return;
+                if (parent && parent->alive) {
+                    reproduction_parents.push_back(parent);
                 }
-                if (auto race_parent = std::dynamic_pointer_cast<RaceBase>(parent)) {
-                    if (race_parent->alive) {
-                        reproduction_parents.push_back(std::move(race_parent));
-                    }
-                    return;
+            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceThingRequest>) {
+                auto& parent = req.parent;
+                if (parent && parent->alive) {
+                    thing_reproduction_parents.push_back(parent);
                 }
-                if (auto thing_parent = std::dynamic_pointer_cast<ThingBase>(parent)) {
-                    if (thing_parent->alive) {
-                        thing_reproduction_parents.push_back(std::move(thing_parent));
-                    }
-                    return;
-                }
-            // --- 新增：处理“尝试交配”请求 ---
             } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
                 auto& female = req.female;
                 auto& male = req.male;
@@ -576,7 +571,7 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
  * @brief 应用所有在更新周期中累积的注册表变更。
  *
  * 此函数是更新周期的最后阶段，负责处理物种的出生和死亡。
- * 它会遍历所有物种，处理繁殖请求（创建新个体），并根据 `marked_for_death`
+ * 它会遍历所有物种，处理繁殖请求（创建新个体），并根据 `race_marked_for_death`
  * 集合移除死亡的个体。同时，它也会应用累积的能量变化，并更新统计数据。
  *
  * 将这些变更放在最后统一处理，可以避免在迭代物种列表时修改它，从而简化
@@ -624,7 +619,7 @@ void EcosystemState::apply_registry_changes() {
                 continue;
             }
 
-            if (marked_for_death.find(individual.get()) != marked_for_death.end()) {
+            if (race_marked_for_death.find(individual.get()) != race_marked_for_death.end()) {
                 if (individual->alive) {
                     individual->alive = false;
                     ++dead_count;
@@ -632,8 +627,8 @@ void EcosystemState::apply_registry_changes() {
                 continue;
             }
 
-            auto energy_it = energy_changes.find(individual.get());
-            if (energy_it != energy_changes.end()) {
+            auto energy_it = race_energy_changes.find(individual.get());
+            if (energy_it != race_energy_changes.end()) {
                 individual->energy += energy_it->second;
             }
         }
@@ -738,8 +733,9 @@ void EcosystemState::apply_registry_changes() {
 
     // --- 清理状态 ---
     // 清理本轮的状态标记，为下一轮更新做准备。
-    marked_for_death.clear();
-    energy_changes.clear();
+    race_marked_for_death.clear();
+    thing_marked_for_death.clear();
+    race_energy_changes.clear();
     staged_requests.clear();
     reproduction_parents.clear();
 }
@@ -856,8 +852,9 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     // 清理并发更新相关的状态
     staged_requests.clear();
     main_thread_requests.clear();
-    energy_changes.clear();
-    marked_for_death.clear();
+    race_energy_changes.clear();
+    race_marked_for_death.clear();
+    thing_marked_for_death.clear();
     reproduction_parents.clear();
     const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
     spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);
@@ -892,39 +889,7 @@ std::vector<std::string> EcosystemState::check_extinction() const {
  * @param radius 查询区域的半径。
  * @return 在指定范围内的所有存活个体的共享指针列表。
  */
-std::vector<std::shared_ptr<Species>> EcosystemState::get_species_in_range(
-    const std::string& species_name, 
-    const Position& center, 
-    double radius) const {
-    
-    std::vector<std::shared_ptr<Species>> result;
-
-    if (races_registry.has_species(species_name)) {
-        const auto& species_list = races_registry.get_species_list(species_name);
-        for (const auto& individual : species_list) {
-            if (individual->alive &&
-                individual->position.distance_to(center) <= radius) {
-                result.push_back(individual);
-            }
-        }
-    }
-
-    for (const auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        if (thing->species_name != species_name) {
-            continue;
-        }
-        if (thing->position.distance_to(center) <= radius) {
-            result.push_back(thing);
-        }
-    }
-
-    return result;
-}
-
-std::vector<std::shared_ptr<Species>> EcosystemState::get_nearby_species_broad(
+std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_nearby_races_broad(
     const Position& center,
     double radius) const {
 
@@ -933,5 +898,29 @@ std::vector<std::shared_ptr<Species>> EcosystemState::get_nearby_species_broad(
         return {};
     }
 
-    return spatial_grid->get_nearby_species_broad(center, radius);
+    return spatial_grid->get_nearby_races_broad(center, radius);
+}
+
+std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
+    const Position& center,
+    double radius) const {
+    std::vector<std::shared_ptr<ThingBase>> nearby;
+    if (radius < 0.0) {
+        return nearby;
+    }
+
+    const double radius_sq = radius * radius;
+    nearby.reserve(m_all_things.size());
+    for (const auto& thing : m_all_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        const double dx = thing->position.x - center.x;
+        const double dy = thing->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            nearby.push_back(thing);
+        }
+    }
+
+    return nearby;
 }

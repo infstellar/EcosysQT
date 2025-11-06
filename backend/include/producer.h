@@ -37,5 +37,5 @@ public:
 
     // 通用繁殖判断与实现（可被子类覆盖）
     bool can_reproduce() const override;
-    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+    std::unique_ptr<ThingBase> reproduce(const EcosystemState& ecosystem_state) override;
 };

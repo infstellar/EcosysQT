@@ -85,7 +85,6 @@ add_executable(MyQtApp
     backend/models/spatial_grid.cpp
         backend/models/races_registry.cpp
     backend/models/species_statistics.cpp
-  backend/models/species_base.cpp
   backend/models/race_base.cpp
   backend/models/thing_base.cpp
   backend/models/producer.cpp

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "race_base.h"
 #include "races_registry.h"
 
 SpatialGrid::SpatialGrid(int world_width, int world_height, double cell)
@@ -18,7 +19,7 @@ SpatialGrid::SpatialGrid(int world_width, int world_height, double cell)
 
     if (grid_width > 0 && grid_height > 0) {
         grid.resize(static_cast<std::size_t>(grid_width),
-            std::vector<std::vector<std::shared_ptr<Species>>>(static_cast<std::size_t>(grid_height)));
+            std::vector<std::vector<std::shared_ptr<RaceBase>>>(static_cast<std::size_t>(grid_height)));
     }
 }
 
@@ -30,20 +31,20 @@ void SpatialGrid::clear() {
     }
 }
 
-void SpatialGrid::add(const std::shared_ptr<Species>& species) {
-    if (!species || !species->alive || cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
+void SpatialGrid::add(const std::shared_ptr<RaceBase>& race) {
+    if (!race || !race->alive || cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
         return;
     }
 
-    const double normalized_x = species->position.x / cell_size;
-    const double normalized_y = species->position.y / cell_size;
+    const double normalized_x = race->position.x / cell_size;
+    const double normalized_y = race->position.y / cell_size;
     int cell_x = static_cast<int>(std::floor(normalized_x));
     int cell_y = static_cast<int>(std::floor(normalized_y));
 
     cell_x = std::clamp(cell_x, 0, grid_width - 1);
     cell_y = std::clamp(cell_y, 0, grid_height - 1);
 
-    grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)].push_back(species);
+    grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)].push_back(race);
 }
 
 void SpatialGrid::build(const RacesRegistry& registry) {
@@ -62,8 +63,8 @@ void SpatialGrid::build(const RacesRegistry& registry) {
     }
 }
 
-std::vector<std::shared_ptr<Species>> SpatialGrid::get_nearby_species_broad(const Position& center, double radius) const {
-    std::vector<std::shared_ptr<Species>> nearby;
+std::vector<std::shared_ptr<RaceBase>> SpatialGrid::get_nearby_races_broad(const Position& center, double radius) const {
+    std::vector<std::shared_ptr<RaceBase>> nearby;
     if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
         return nearby;
     }

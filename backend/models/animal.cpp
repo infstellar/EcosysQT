@@ -5,6 +5,7 @@
 
 #include "animal.h"
 #include "race_base.h"
+#include "thing_base.h"
 #include "species_params.h"
 #include "ecosystem.h"
 #include "tracy/Tracy.hpp"
@@ -60,6 +61,8 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         return;
     }
 
+    auto self = shared_from_this();
+
     // --- 1. 状态更新与意图重置 ---
     pending_move_mode = PendingMoveMode::None;
     skip_movement = false;
@@ -97,7 +100,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
             // 2. 提交分娩请求
             // 注意：能量消耗和冷却已在交配时处理，此处不再重复
-            ecosystem_state.submit_interaction_request(AttemptToReproduceRequest{shared_from_this()});
+            ecosystem_state.submit_interaction_request(AttemptToReproduceRaceRequest{self});
             
             // 分娩时通常会暂停移动
             skip_movement = true; 
@@ -116,7 +119,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
                 auto mate = mate_opt.value();
                 if (position.distance_to(mate->position) <= mating_range) {
                     // 在范围内，提交交配请求
-                    ecosystem_state.submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(shared_from_this())});
+                    ecosystem_state.submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(self)});
                     skip_movement = true;
                 } else {
                     // 不在范围内，将配偶设为最高优先级目标
@@ -131,21 +134,34 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         if (hunger_state != HungerState::SATISFIED && !food_types.empty()) {
             const std::string& primary_food = food_types.front();
             if (primary_food == "grass" && eating_range > 0.0) {
-                auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, eating_range);
-                for (const auto& entity : nearby_entities) {
-                    if (!entity || !entity->alive) {
-                        continue;
-                    }
-                    if (entity->species_name != "grass") {
-                        continue;
-                    }
-                    if (position.distance_to(entity->position) > eating_range) {
-                        continue;
-                    }
+                if (ecosystem_state.config.world_width > 0 && ecosystem_state.config.world_height > 0) {
+                    const int max_x = ecosystem_state.config.world_width - 1;
+                    const int max_y = ecosystem_state.config.world_height - 1;
+                    int tile_x = static_cast<int>(std::floor(position.x));
+                    int tile_y = static_cast<int>(std::floor(position.y));
+                    tile_x = std::clamp(tile_x, 0, max_x);
+                    tile_y = std::clamp(tile_y, 0, max_y);
 
-                    AttemptToEatRequest eat_request{shared_from_this(), entity};
-                    ecosystem_state.submit_interaction_request(std::move(eat_request));
-                    break; // 单次觅食
+                    if (ecosystem_state.is_valid_grid_coord(tile_x, tile_y)) {
+                        Tile& current_tile = ecosystem_state.get_tile(tile_x, tile_y);
+                        for (ThingBase* thing : current_tile.things) {
+                            if (!thing || !thing->alive) {
+                                continue;
+                            }
+                            if (thing->species_name != "grass") {
+                                continue;
+                            }
+
+                            auto target = thing->shared_from_this();
+                            if (!target) {
+                                continue;
+                            }
+
+                            ecosystem_state.submit_interaction_request(
+                                AttemptToEatThingRequest{self, target});
+                            break; // 单次觅食
+                        }
+                    }
                 }
             }
 
@@ -154,20 +170,22 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
                 if (desire > 0.0) {
                     std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
                     if (hunt_dist(rng) < hunting_success_rate * desire) {
-                        auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, hunting_range);
-                        for (const auto& entity : nearby_entities) {
-                            if (!entity || !entity->alive) {
+                        auto nearby_races = ecosystem_state.get_nearby_races_broad(position, hunting_range);
+                        for (const auto& race : nearby_races) {
+                            if (!race || !race->alive) {
                                 continue;
                             }
-                            if (entity->species_name != "cow") {
+                            if (race.get() == this) {
                                 continue;
                             }
-                            if (position.distance_to(entity->position) > hunting_range) {
+                            if (race->species_name != "cow") {
+                                continue;
+                            }
+                            if (position.distance_to(race->position) > hunting_range) {
                                 continue;
                             }
 
-                            AttemptToEatRequest hunt_request{shared_from_this(), entity};
-                            ecosystem_state.submit_interaction_request(std::move(hunt_request));
+                            ecosystem_state.submit_interaction_request(AttemptToEatRaceRequest{self, race});
                             start_hunting_cooldown();
                             break; // 单次狩猎
                         }
@@ -419,13 +437,15 @@ void Animal::select_target_point(const EcosystemState& ecosystem_state) {
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
 
-    const auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, detection_range);
-    for (const auto& entity : nearby_entities) {
+    const auto nearby_races = ecosystem_state.get_nearby_races_broad(position, detection_range);
+    const auto nearby_things = ecosystem_state.get_nearby_things_broad(position, detection_range);
+
+    const auto consider_entity = [&](const auto& entity) {
         if (!entity || !entity->alive) {
-            continue;
+            return;
         }
         if (std::find(food_types.begin(), food_types.end(), entity->species_name) == food_types.end()) {
-            continue;
+            return;
         }
 
         double distance = position.distance_to(entity->position);
@@ -433,6 +453,13 @@ void Animal::select_target_point(const EcosystemState& ecosystem_state) {
             min_distance = distance;
             nearest_food = entity->position;
         }
+    };
+
+    for (const auto& race : nearby_races) {
+        consider_entity(race);
+    }
+    for (const auto& thing : nearby_things) {
+        consider_entity(thing);
     }
 
     if (nearest_food.has_value()) {
@@ -504,7 +531,7 @@ void Animal::start_reproduction_cooldown() {
     reproduction_cooldown = base_reproduction_cooldown;
 }
 
-std::unique_ptr<Species> Animal::reproduce(const EcosystemState& ecosystem_state) {
+std::unique_ptr<RaceBase> Animal::reproduce(const EcosystemState& ecosystem_state) {
     (void)ecosystem_state;
     return nullptr;
 }
@@ -526,7 +553,7 @@ std::optional<std::shared_ptr<Animal>> Animal::find_available_mate(const Ecosyst
     if (sex == Sex::FEMALE) return std::nullopt;
     std::optional<std::shared_ptr<Animal>> nearest_mate;
     double min_distance = std::numeric_limits<double>::max();
-    const auto nearby_entities = ecosystem_state.get_nearby_species_broad(position, detection_range);
+    const auto nearby_entities = ecosystem_state.get_nearby_races_broad(position, detection_range);
     for (const auto& entity_ptr : nearby_entities) {
         if (!entity_ptr || !entity_ptr->alive || entity_ptr.get() == this || entity_ptr->species_name != this->species_name) continue;
         auto potential_mate = std::dynamic_pointer_cast<Animal>(entity_ptr);

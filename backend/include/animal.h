@@ -75,7 +75,7 @@ public:
     // 开始繁殖冷却
     void start_reproduction_cooldown();
     // 统一的繁殖实现：基于当前物种键创建子代
-    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
+    std::unique_ptr<RaceBase> reproduce(const EcosystemState& ecosystem_state) override;
 
     // 交配相关接口
     void begin_mating_with(std::shared_ptr<Animal> partner);

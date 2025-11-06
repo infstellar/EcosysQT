@@ -14,7 +14,6 @@
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
-#include "species.h"
 #include "races_registry.h"
 #include "species_statistics.h"
 #include "spatial_grid.h"
@@ -94,7 +93,7 @@ public:
     // 决策任务分派：将所有物种的决策任务（如移动、觅食）提交到线程池。
     void dispatch_decision_tasks(ThreadPool& pool);
     // 交互解决：在所有决策任务完成后，同步处理它们之间的交互（如捕食）。
-    
+
     void resolve_interactions();
     // 应用任务分派：将所有物种的状态更新任务（如能量变化、位置更新）提交到线程池。
     void dispatch_apply_tasks(ThreadPool& pool);
@@ -122,24 +121,26 @@ public:
     // 访问当前更新推进的tick数量
     double get_delta_ticks() const { return delta_ticks; }
     
-    // 通用查询接口：获取指定范围内的物种个体
-    std::vector<std::shared_ptr<Species>> get_species_in_range(
-        const std::string& species_name, 
-        const Position& center, 
+    std::vector<std::shared_ptr<RaceBase>> get_nearby_races_broad(
+        const Position& center,
         double radius) const;
 
-    /**
-     * @brief [线程安全] 基于空间网格的粗查询，返回附近单元格中的所有物种。
-     * @param center 查询中心点
-     * @param radius 查询半径（用于确定应访问的网格单元）
-     * @return 包含周围单元格内所有物种指针的列表（结果未去重，也可能包含超出精确半径的个体）
-     */
-    std::vector<std::shared_ptr<Species>> get_nearby_species_broad(
+    std::vector<std::shared_ptr<ThingBase>> get_nearby_things_broad(
+        const Position& center,
+        double radius) const;
+
+    std::vector<std::shared_ptr<RaceBase>> get_races_in_range(
+        const std::string& species_name,
+        const Position& center,
+        double radius) const;
+
+    std::vector<std::shared_ptr<ThingBase>> get_things_in_range(
+        const std::string& species_name,
         const Position& center,
         double radius) const;
 
     // 并发只读接口：访问空间网格与参数
-    const std::vector<std::vector<std::vector<std::shared_ptr<Species>>>>& get_spatial_grid() const { return spatial_grid->cells(); }
+    const std::vector<std::vector<std::vector<std::shared_ptr<RaceBase>>>>& get_spatial_grid() const { return spatial_grid->cells(); }
     double get_cell_size() const { return spatial_grid->get_cell_size(); }
     int get_grid_width() const { return spatial_grid->get_width(); }
     int get_grid_height() const { return spatial_grid->get_height(); }
@@ -155,10 +156,11 @@ private:
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
 
-    // 存储能量变化的映射，键为物种指针，值为能量变化量。
-    std::unordered_map<Species*, double> energy_changes;
-    // 标记待移除的物种集合。
-    std::unordered_set<Species*> marked_for_death;
+    // 存储能量变化的映射
+    std::unordered_map<RaceBase*, double> race_energy_changes;
+    // 标记待移除的个体集合
+    std::unordered_set<RaceBase*> race_marked_for_death;
+    std::unordered_set<ThingBase*> thing_marked_for_death;
     // 标记待出生的新物种的父代指针。
     std::vector<std::shared_ptr<RaceBase>> reproduction_parents;
     std::vector<std::shared_ptr<ThingBase>> thing_reproduction_parents;

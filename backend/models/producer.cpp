@@ -112,7 +112,7 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
                 pending_spawn_position = spawn_pos;
                 energy -= reproduction_energy_cost;
                 reproduction_cooldown = base_reproduction_cooldown;
-                ecosystem_state.submit_interaction_request(AttemptToReproduceRequest{shared_from_this()});
+                ecosystem_state.submit_interaction_request(AttemptToReproduceThingRequest{shared_from_this()});
             }
         }
     }
@@ -130,7 +130,7 @@ bool Producer::can_reproduce() const {
     return ThingBase::can_reproduce();
 }
 
-std::unique_ptr<Species> Producer::reproduce(const EcosystemState& ecosystem_state) {
+std::unique_ptr<ThingBase> Producer::reproduce(const EcosystemState& ecosystem_state) {
     (void)ecosystem_state;
     return nullptr;
 }
