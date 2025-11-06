@@ -10,53 +10,38 @@
 #include <memory>
 #include <string>
 #include "utils.h"
+#include "species.h"
 
 // 前向声明
 class EcosystemState;
 
-// 移动物体的基类
-class RaceBase : public std::enable_shared_from_this<RaceBase> {
+// 移动物体的中间基类：继承自 Species，保留移动相关扩展
+class RaceBase : public Species {
 public:
-    // 关键：保留位置（浮点坐标）
-    Position position;
-    // 通用生命/能量属性
-    double energy;
-    double max_energy;
-    int age;
-    int max_age;
-    bool alive;
-    int reproduction_cooldown;
-    std::string death_reason;
-    std::string species_name;
-    double reproduction_energy_cost;
+    // 继承 Species 的通用属性与接口
 
-    // 构造函数
+    // 构造函数（转发到 Species）
     RaceBase(Position pos,
              double energy = 100,
              int max_age = 100,
              double reproduction_energy_cost = 50);
 
     // 决策阶段
-    virtual void decide(EcosystemState& ecosystem_state, std::mt19937& rng);
+    void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     // 应用阶段
-    virtual void apply(const EcosystemState& ecosystem_state);
+    void apply(const EcosystemState& ecosystem_state) override;
 
     // 繁殖能力/行为（默认不繁殖）
-    virtual bool can_reproduce() const;
-    virtual std::unique_ptr<RaceBase> reproduce(const EcosystemState& ecosystem_state);
+    bool can_reproduce() const override;
+    std::unique_ptr<Species> reproduce(const EcosystemState& ecosystem_state) override;
 
     // 随机移动（仅移动类需要）
     virtual void move_randomly(int world_width, int world_height, double speed, std::mt19937& rng);
 
-    // 生命周期
-    virtual void age_one_step();
-    virtual void die(const std::string& reason = "Unknown");
-    virtual void die_from_old_age();
-    virtual void die_from_starvation();
-    virtual void die_from_predation(const std::string& predator_name);
-    virtual ~RaceBase() = default;
-
-    // 阶段化更新暂存
-    std::optional<Position> pending_spawn_position;
-    std::optional<Position> consume_pending_spawn_position();
+    // 生命周期（保持覆盖能力）
+    void age_one_step() override;
+    void die(const std::string& reason = "Unknown") override;
+    void die_from_old_age() override;
+    void die_from_starvation() override;
+    void die_from_predation(const std::string& predator_name) override;
 };

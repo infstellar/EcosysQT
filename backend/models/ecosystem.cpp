@@ -4,6 +4,7 @@
 */
 
 #include "ecosystem.h"
+#include "animal.h"
 #include "thread_pool.h"
 #include "tracy/Tracy.hpp"
 #include <random>

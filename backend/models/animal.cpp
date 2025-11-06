@@ -3,7 +3,8 @@
 定义生态系统中的动物基类，继承自Species并添加智能移动
 */
 
-#include "species.h"
+#include "animal.h"
+#include "race_base.h"
 #include "species_params.h"
 #include "ecosystem.h"
 #include "tracy/Tracy.hpp"
@@ -14,7 +15,7 @@
 // --- Animal ---
 // 动物基类 - 继承自Species并添加智能移动
 Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
-        : Species(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+        : RaceBase(pos, params.energy, params.max_age, params.reproduction_energy_cost),
             base_movement_speed(params.movement_speed),
             movement_speed(params.movement_speed),
             base_energy_consumption(params.energy_consumption),
@@ -54,7 +55,7 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
 
 void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
-    Species::decide(ecosystem_state, rng);
+    RaceBase::decide(ecosystem_state, rng);
     if (!alive) {
         return;
     }
@@ -244,7 +245,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
 void Animal::apply(const EcosystemState& ecosystem_state) {
     ZoneScoped;
-    Species::apply(ecosystem_state);
+    RaceBase::apply(ecosystem_state);
     if (!alive) {
         return;
     }
@@ -489,11 +490,11 @@ void Animal::start_hunting_cooldown() {
 bool Animal::can_reproduce() const {
     if (sex == Sex::MALE) {
         // 雄性检查自身状态（能量、年龄、冷却）
-        return Species::can_reproduce() && age > min_reproduction_age;
+        return RaceBase::can_reproduce() && age > min_reproduction_age;
     }
     if (sex == Sex::FEMALE) {
         // 雌性检查是否“可受孕”
-        return !is_pregnant && mating_timer <= 0 && Species::can_reproduce() && age > min_reproduction_age;
+        return !is_pregnant && mating_timer <= 0 && RaceBase::can_reproduce() && age > min_reproduction_age;
     }
     return false;
 }

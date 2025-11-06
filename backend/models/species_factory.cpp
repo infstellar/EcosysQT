@@ -5,7 +5,9 @@
 
 #include "species_factory.h"
 #include "species_params.h"
-#include "species.h" // 包含 Animal 和 Producer 的定义
+#include "species.h" // 基类 Species 定义
+#include "animal.h"  // Animal 定义
+#include "producer.h" // Producer 定义
 #include <stdexcept>
 #include <spdlog/spdlog.h>
 #include <QDir>

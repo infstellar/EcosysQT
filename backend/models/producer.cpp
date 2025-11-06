@@ -3,7 +3,8 @@
 抽象生产者通用逻辑，供草/树/灌木等具体植物继承
 */
 
-#include "species.h"
+#include "producer.h"
+#include "thing_base.h"
 #include "species_params.h"
 #include "ecosystem.h"
 #include "tracy/Tracy.hpp"
@@ -14,7 +15,7 @@
 // --- Producer ---
 
 Producer::Producer(Position pos, const PlantParams& params)
-    : Species(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+    : ThingBase(pos, params.energy, params.max_age, params.reproduction_energy_cost),
       base_growth_rate(params.base_growth_rate),
       reproduction_chance(params.reproduction_chance),
       competition_radius(params.competition_radius),
@@ -49,7 +50,7 @@ double Producer::get_competition_adjusted_growth_rate(const EcosystemState& ecos
 
 void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
-    Species::decide(ecosystem_state, rng);
+    ThingBase::decide(ecosystem_state, rng);
     if (!alive) return;
     // 单位制对齐：1秒=30 ticks；按推进的tick数量进行缩放，兼容不同帧率/速度
     const double dt_ticks = ecosystem_state.get_delta_ticks();
@@ -76,14 +77,14 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
 void Producer::apply(const EcosystemState& ecosystem_state) {
     ZoneScoped;
-    Species::apply(ecosystem_state);
+    ThingBase::apply(ecosystem_state);
     if (!alive) { pending_growth = 0.0; return; }
     energy = std::min(max_energy, energy + pending_growth);
     pending_growth = 0.0;
 }
 
 bool Producer::can_reproduce() const {
-    return Species::can_reproduce();
+    return ThingBase::can_reproduce();
 }
 
 std::unique_ptr<Species> Producer::reproduce(const EcosystemState& ecosystem_state) {
