@@ -126,6 +126,8 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
             // 2. 提交分娩请求
             // 注意：能量消耗和冷却已在交配时处理，此处不再重复
             ecosystem_state.submit_interaction_request(AttemptToReproduceRaceRequest{self});
+            // 3. 产后冷却：防止立即再交配，降低繁殖频率
+            start_reproduction_cooldown();
             
             // 分娩时通常会暂停移动
             skip_movement = true; 
@@ -172,34 +174,13 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         if (hunger_state != HungerState::SATISFIED && !food_types.empty()) {
             const std::string& primary_food = food_types.front();
             if (primary_food == "grass" && eating_range > 0.0) {
-                if (ecosystem_state.config.world_width > 0 && ecosystem_state.config.world_height > 0) {
-                    const int max_x = ecosystem_state.config.world_width - 1;
-                    const int max_y = ecosystem_state.config.world_height - 1;
-                    int tile_x = static_cast<int>(std::floor(position.x));
-                    int tile_y = static_cast<int>(std::floor(position.y));
-                    tile_x = std::clamp(tile_x, 0, max_x);
-                    tile_y = std::clamp(tile_y, 0, max_y);
-
-                    if (ecosystem_state.is_valid_grid_coord(tile_x, tile_y)) {
-                        Tile& current_tile = ecosystem_state.get_tile(tile_x, tile_y);
-                        for (ThingBase* thing : current_tile.things) {
-                            if (!thing || !thing->alive) {
-                                continue;
-                            }
-                            if (thing->species_name != "grass") {
-                                continue;
-                            }
-
-                            auto target = thing->shared_from_this();
-                            if (!target) {
-                                continue;
-                            }
-
-                            ecosystem_state.submit_interaction_request(
-                                AttemptToEatThingRequest{self, target});
-                            break; // 单次觅食
-                        }
+                auto nearby_things = ecosystem_state.get_things_in_range("grass", position, eating_range);
+                for (const auto& thing_ptr : nearby_things) {
+                    if (!thing_ptr || !thing_ptr->alive) {
+                        continue;
                     }
+                    ecosystem_state.submit_interaction_request(AttemptToEatThingRequest{self, thing_ptr});
+                    break; // 单次觅食
                 }
             }
 
@@ -375,6 +356,14 @@ void Animal::adjust_stats_by_state() {
             energy_consumption = base_energy_consumption * 1.0;
             break;
     }
+
+    // 怀孕速度惩罚：在饥饿状态调整后叠加
+    if (is_pregnant) {
+        movement_speed *= std::max(0.0, pregnancy_speed_penalty);
+    }
+
+    // 保持每 tick 步长与当前速度一致
+    step_distance_per_tick = movement_speed;
 }
 
 double Animal::get_hunting_desire() const {
@@ -598,7 +587,6 @@ void Animal::become_pregnant() {
     if (sex == Sex::FEMALE) {
         is_pregnant = true;
         pregnancy_timer = pregnancy_duration;
-        start_reproduction_cooldown();
     }
 }
 
@@ -684,27 +672,13 @@ void Animal::build_behavior_tree() {
         }
         const std::string& primary_food = food_types.front();
 
-        // 草类：同格进食
+        // 草类：使用 eating_range 近场半径进食
         if (primary_food == std::string("grass") && eating_range > 0.0) {
-            if (world->config.world_width > 0 && world->config.world_height > 0) {
-                const int max_x = world->config.world_width - 1;
-                const int max_y = world->config.world_height - 1;
-                int tile_x = static_cast<int>(std::floor(position.x));
-                int tile_y = static_cast<int>(std::floor(position.y));
-                tile_x = std::clamp(tile_x, 0, max_x);
-                tile_y = std::clamp(tile_y, 0, max_y);
-
-                if (world->is_valid_grid_coord(tile_x, tile_y)) {
-                    Tile& current_tile = world->get_tile(tile_x, tile_y);
-                    for (ThingBase* thing : current_tile.things) {
-                        if (!thing || !thing->alive) continue;
-                        if (thing->species_name != "grass") continue;
-                        auto target = thing->shared_from_this();
-                        if (!target) continue;
-                        world->submit_interaction_request(AttemptToEatThingRequest{shared_from_this(), target});
-                        break; // 单次觅食
-                    }
-                }
+            auto nearby_things = world->get_things_in_range("grass", position, eating_range);
+            for (const auto& thing_ptr : nearby_things) {
+                if (!thing_ptr || !thing_ptr->alive) continue;
+                world->submit_interaction_request(AttemptToEatThingRequest{shared_from_this(), thing_ptr});
+                break; // 单次觅食
             }
         }
 

@@ -1,0 +1,61 @@
+# ------------------------------------
+#  老虎 (Tiger) 的行为树定义 (YAML 格式)
+# ------------------------------------
+ThinkTreeDef:
+  defName: Tiger
+  thinkRoot:
+    Class: ThinkNode_Priority
+    subNodes:
+      # ==================================
+      # 1. 最高优先级：紧急生存状态
+      # ==================================
+      - Class: ThinkNode_Subtree
+        treeDef: Downed
+      - Class: ThinkNode_Subtree
+        treeDef: BurningResponse
+      - Class: ThinkNode_Subtree
+        treeDef: MentalStateCritical
+      - Class: JobGiver_ReactToCloseMeleeThreat
+
+      # ==================================
+      # 2. 次高优先级：快饿死时狩猎 (节能模式)
+      # ==================================
+      - Class: ThinkNode_ConditionalStarving
+        subNodes:
+          # JobGiver_Hunt 是捕食者的专属任务
+          - Class: JobGiver_Hunt
+            # Amble(漫步/潜行)模式，对应低移速和低能耗
+            locomotionUrgency: Amble
+            comment: "濒死：潜行接近猎物（牛），节约最后的体力。"
+
+      # ==================================
+      # 3. 常规优先级：正常饥饿时狩猎 (高效模式)
+      # ==================================
+      - Class: ThinkNode_ConditionalHungry
+        subNodes:
+          - Class: JobGiver_Hunt
+            # Sprint(冲刺)模式，对应高移速和高能耗
+            locomotionUrgency: Sprint
+            comment: "饥饿：快速追捕猎物（牛），确保捕猎效率。"
+
+      # ==================================
+      # 4. 低优先级：吃饱后的行为
+      # ==================================
+      - Class: ThinkNode_ChancePerHour_Constant
+        # 捕食者的繁殖周期可能更长，比如平均每6小时尝试一次
+        mtbHours: 6
+        subNodes:
+          - Class: ThinkNode_ConditionalCanMate
+            subNodes:
+              # 繁殖行为本身是高能耗的
+              - Class: JobGiver_Mate
+
+      # 捕食者通常会在自己的领地游荡
+      - Class: JobGiver_WanderOwnTerritory
+        maxDanger: Deadly
+        ticksBetweenWandersRange: 400~800
+
+      # ==================================
+      # 5. 最低优先级：空闲和错误处理
+      # ==================================
+      - Class: JobGiver_IdleError

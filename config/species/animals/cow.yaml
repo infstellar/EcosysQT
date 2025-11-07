@@ -3,7 +3,7 @@ parent: base_animal
 species:
   energy: 400
   max_age: 4000
-  reproduction_energy_cost: 1
+  reproduction_energy_cost: 50     # 提高繁殖能量门槛，避免能量过低仍繁殖
 animal:
   movement_speed: 3.0
   energy_consumption: 2
@@ -11,13 +11,14 @@ animal:
   detection_range: 800.0
   food_types:
     - grass
-  min_reproduction_age: 1
-  reproduction_cooldown: 1
+  min_reproduction_age: 200        # 提高性成熟年龄，降低早期繁殖
+  reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
   eating_range: 8.0
   satisfied_threshold_ratio: 0.9
   starving_threshold_ratio: 0.3
   wandering_duration: 150
   energy_efficiency: 0.5
-  pregnancy_duration: 1
+  pregnancy_duration: 300         # 延长妊娠时间
   mating_range: 5.0        
   pregnancy_speed_penalty: 0.8 
+  mating_desire_probability: 0.2  # 降低交配意愿概率

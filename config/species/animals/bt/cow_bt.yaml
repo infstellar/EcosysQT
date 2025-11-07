@@ -1,0 +1,60 @@
+# ------------------------------------
+#  牛 (Cow) 的行为树定义 (YAML 格式)
+# ------------------------------------
+ThinkTreeDef:
+  defName: Cow
+  thinkRoot:
+    Class: ThinkNode_Priority
+    subNodes:
+      # ==================================
+      # 1. 最高优先级：紧急生存状态
+      # ==================================
+      - Class: ThinkNode_Subtree
+        treeDef: Downed
+      - Class: ThinkNode_Subtree
+        treeDef: BurningResponse
+      - Class: ThinkNode_Subtree
+        treeDef: MentalStateCritical
+      - Class: JobGiver_ReactToCloseMeleeThreat
+
+      # ==================================
+      # 2. 次高优先级：快饿死时寻找食物 (节能模式)
+      # ==================================
+      - Class: ThinkNode_ConditionalStarving
+        subNodes:
+          - Class: JobGiver_GetFood
+            # Amble(漫步)模式，对应低移速和低能耗
+            locomotionUrgency: Amble
+            # YAML中的注释
+            comment: "濒死：缓慢移动以节约能量寻找草料。"
+
+      # ==================================
+      # 3. 常规优先级：正常饥饿时寻找食物 (高效模式)
+      # ==================================
+      - Class: ThinkNode_ConditionalHungry
+        subNodes:
+          - Class: JobGiver_GetFood
+            # Sprint(冲刺)模式，对应高移速和高能耗
+            locomotionUrgency: Sprint
+            comment: "饥饿：快速移动以高效地寻找草料。"
+
+      # ==================================
+      # 4. 低优先级：吃饱后的行为
+      # ==================================
+      - Class: ThinkNode_ChancePerHour_Constant
+        # 平均每4小时尝试一次繁殖
+        mtbHours: 4
+        subNodes:
+          - Class: ThinkNode_ConditionalCanMate
+            subNodes:
+              # 繁殖行为本身是高能耗的
+              - Class: JobGiver_Mate
+
+      - Class: JobGiver_WanderAnywhere
+        maxDanger: Deadly
+        ticksBetweenWandersRange: 300~600
+
+      # ==================================
+      # 5. 最低优先级：空闲和错误处理
+      # ==================================
+      - Class: JobGiver_IdleError
