@@ -165,6 +165,9 @@ static void load_params_recursive(const std::string& name, T& params, const std:
 
     if constexpr (std::is_base_of_v<AnimalParams, T>) {
         apply_yaml_fields_by_name(node["animal"], params);
+        // 解析 bt_params（按层覆盖）
+        parse_bt_params_node(node["species"], params);
+        parse_bt_params_node(node["animal"], params);
     }
     if constexpr (std::is_base_of_v<PlantParams, T>) {
         apply_yaml_fields_by_name(node["plant"], params);
@@ -172,6 +175,9 @@ static void load_params_recursive(const std::string& name, T& params, const std:
     }
 
     apply_yaml_fields_by_name(node[name], params);
+    if constexpr (std::is_base_of_v<AnimalParams, T>) {
+        parse_bt_params_node(node[name], params);
+    }
     SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Applied overrides for '{}'", name);
 }
 
@@ -208,4 +214,67 @@ PlantParams YamlSpeciesConfigProvider::get_plant_params(const std::string& name)
 
 std::string YamlSpeciesConfigProvider::get_config_root_dir() const {
     return root_dir;
+}
+// 解析行为树黑板参数 bt_params 并写入 AnimalParams 的字典
+static void parse_bt_params_node(const YAML::Node& node, AnimalParams& params) {
+    if (!node) return;
+    const YAML::Node bp = node["bt_params"];
+    if (!bp) return;
+
+    auto try_assign_scalar = [&](const std::string& key, const YAML::Node& v) {
+        try { params.bt_params_ints[key] = v.as<int>(); return; } catch (...) {}
+        try { params.bt_params_doubles[key] = v.as<double>(); return; } catch (...) {}
+        try { params.bt_params_strings[key] = v.as<std::string>(); return; } catch (...) {}
+    };
+
+    std::function<void(const YAML::Node&, const std::string&)> parse_any_map = [&](const YAML::Node& m, const std::string& prefix){
+        if (!m || !m.IsMap()) return;
+        for (auto it : m) {
+            const std::string k = it.first.as<std::string>();
+            const YAML::Node v = it.second;
+            const std::string full_key = prefix.empty() ? k : (prefix + "." + k);
+            if (v.IsMap()) {
+                parse_any_map(v, full_key);
+            } else if (v.IsSequence()) {
+                try_assign_scalar(full_key, v);
+            } else {
+                try_assign_scalar(full_key, v);
+            }
+        }
+    };
+
+    if (bp.IsMap()) {
+        const YAML::Node ints = bp["ints"];
+        const YAML::Node doubles = bp["doubles"];
+        const YAML::Node strings = bp["strings"];
+        if (ints && ints.IsMap()) {
+            for (auto it : ints) {
+                const std::string k = it.first.as<std::string>();
+                try { params.bt_params_ints[k] = it.second.as<int>(); } catch (...) {}
+            }
+        }
+        if (doubles && doubles.IsMap()) {
+            for (auto it : doubles) {
+                const std::string k = it.first.as<std::string>();
+                try { params.bt_params_doubles[k] = it.second.as<double>(); } catch (...) {}
+            }
+        }
+        if (strings && strings.IsMap()) {
+            for (auto it : strings) {
+                const std::string k = it.first.as<std::string>();
+                try { params.bt_params_strings[k] = it.second.as<std::string>(); } catch (...) {}
+            }
+        }
+
+        for (auto it : bp) {
+            const std::string k = it.first.as<std::string>();
+            if (k == "ints" || k == "doubles" || k == "strings") continue;
+            const YAML::Node v = it.second;
+            if (v.IsMap()) {
+                parse_any_map(v, k);
+            } else {
+                try_assign_scalar(k, v);
+            }
+        }
+    }
 }

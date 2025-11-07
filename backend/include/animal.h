@@ -59,12 +59,8 @@ public:
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;
 
-    // 寻找最近的食物来源
-    virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
     // 向目标位置移动
     void move_towards_target(const Position& target_position, int world_width, int world_height);
-    // 智能移动：目标选择与移动执行
-    virtual void intelligent_move(const EcosystemState& ecosystem_state);
     // 目标选择
     virtual void select_target_point(const EcosystemState& ecosystem_state);
     // 路径规划（占位）
@@ -85,6 +81,9 @@ public:
     void become_pregnant();
     virtual std::optional<std::shared_ptr<Animal>> find_available_mate(const EcosystemState& ecosystem_state);
     virtual double get_hunting_desire() const;
+
+    // 将 YAML/编辑器提供的 bt_params 写入行为树黑板
+    void apply_bt_params_to_blackboard(const AnimalParams& params);
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式

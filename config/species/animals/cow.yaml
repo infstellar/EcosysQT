@@ -12,6 +12,10 @@ animal:
   food_types:
     - grass
   use_bt: true
+  # 行为树黑板参数：吃草的总持续tick数，可被 ProgressDecorator 读取
+  bt_params:
+    ints:
+      eat_grass_total_ticks: 20
   min_reproduction_age: 200        # 提高性成熟年龄，降低早期繁殖
   reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
   eating_range: 8.0
