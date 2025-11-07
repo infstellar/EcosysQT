@@ -289,9 +289,8 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
         return;
     }
 
-    // 基于tick缩放本次移动距离，确保不同帧率/速度下一致性
-    const double dt_ticks = ecosystem_state.get_delta_ticks();
-    current_step_distance = step_distance_per_tick * dt_ticks;
+    // 单步锁步：每次应用阶段推进一个固定步长
+    current_step_distance = step_distance_per_tick;
 
     const int world_width = ecosystem_state.config.world_width;
     const int world_height = ecosystem_state.config.world_height;
@@ -446,9 +445,8 @@ void Animal::intelligent_move(const EcosystemState& ecosystem_state) {
     int world_width = ecosystem_state.config.world_width;
     int world_height = ecosystem_state.config.world_height;
 
-    // 基于tick缩放本次移动距离（智能移动路径）
-    const double dt_ticks2 = ecosystem_state.get_delta_ticks();
-    current_step_distance = step_distance_per_tick * dt_ticks2;
+    // 单步锁步：智能移动与 apply 使用一致步长
+    current_step_distance = step_distance_per_tick;
 
     if (current_target.has_value()) {
         // 为目标规划路径（占位，未来可替换为 A*）

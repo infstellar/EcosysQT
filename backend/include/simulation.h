@@ -24,8 +24,6 @@ public:
     void stop();
     void reset(const EcosystemConfig& new_config);
     void step();
-
-    void set_speed(double speed);
     EcosystemStateData get_data() const;
     void update_config(const EcosystemConfig& new_config);
 
@@ -43,7 +41,6 @@ private:
 
     std::atomic<bool> running;
     std::atomic<bool> paused;
-    std::atomic<double> simulation_speed;
     int target_fps;
 
     /**
@@ -67,8 +64,6 @@ public:
     void stop();
     void reset(const EcosystemConfig& config);
     void step();
-
-    void set_speed(double speed);
     EcosystemStateData get_data() const;
     void update_config(const EcosystemConfig& config);
 

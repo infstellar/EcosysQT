@@ -64,8 +64,6 @@ class EcosystemState {
 public:
     EcosystemConfig config;
     int time_step;
-    // 本次更新推进的tick数量（可为小数，用于平滑）
-    double delta_ticks;
     RacesRegistry races_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
@@ -81,8 +79,8 @@ public:
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
-    // 基于tick的时间推进（每次更新推进的tick数量）
-    void update_time_ticks(double delta_ticks_param);
+    // 推进一个整数tick
+    void update_one_tick();
     void update_statistics();
 
     // --- 新的并发更新阶段 ---
@@ -117,9 +115,6 @@ public:
     const Tile& get_tile(int x, int y) const;
     bool is_valid_grid_coord(int x, int y) const;
 
-    // 访问当前更新推进的tick数量
-    double get_delta_ticks() const { return delta_ticks; }
-    
     std::vector<std::shared_ptr<RaceBase>> get_nearby_races_broad(
         const Position& center,
         double radius) const;
