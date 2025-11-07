@@ -362,118 +362,91 @@ void EcosystemState::prepare_for_update() {
  * @param pool 用于执行任务的线程池。
  */
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
-    // 标记当前阶段为决策阶段
     current_phase = UpdatePhase::Decision;
-    // 定义每个任务处理的个体数量。选择一个较大的值可以减少任务创建的开销，
-    // 但也可能导致负载不均。1024 是一个在开销和负载均衡之间的合理权衡。
-    constexpr std::size_t chunk_size = 1024;
 
-    // 确保 `worker_request_queues` 的大小与线程池的工作线程数一致。
-    // 如果不一致（例如，线程池大小在运行时发生变化），则重新分配队列。
+    constexpr std::size_t heavy_chunk_size = 64;
+    constexpr std::size_t light_chunk_size = 4096;
+
     const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());
     if (worker_request_queues.size() != worker_count) {
         worker_request_queues.assign(worker_count, {});
     }
-    // 在新一轮决策开始前，清空所有线程的请求队列。
     for (auto& queue : worker_request_queues) {
         queue.clear();
     }
-    // --- 聚合：构建统一的动物与植物列表 ---
+
     std::vector<std::shared_ptr<RaceBase>> all_races_to_update;
-    std::vector<std::shared_ptr<ThingBase>> all_things_to_update;
-
-    // 聚合动物：遍历所有物种并追加至统一列表
-    {
-        const auto species_names = races_registry.get_all_species_names();
-        for (const auto& name : species_names) {
-            auto& list = races_registry.get_species_list(name);
-            if (!list.empty()) {
-                all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
-            }
-        }
+    const auto species_names = races_registry.get_all_species_names();
+    std::size_t total_races = 0;
+    for (const auto& name : species_names) {
+        total_races += races_registry.get_species_list(name).size();
     }
-    // 聚合植物：直接使用 m_all_things
-    all_things_to_update = m_all_things;
-
-    // 使用共享指针确保聚合列表在任务执行期间保持有效
+    all_races_to_update.reserve(total_races);
+    for (const auto& name : species_names) {
+        auto& list = races_registry.get_species_list(name);
+        all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
+    }
     auto races_agg = std::make_shared<std::vector<std::shared_ptr<RaceBase>>>(std::move(all_races_to_update));
-    auto things_agg = std::make_shared<std::vector<std::shared_ptr<ThingBase>>>(std::move(all_things_to_update));
 
-    // --- 分块：为每个块创建闭包（不立即提交） ---
-    auto make_race_chunk_task = [this](const std::shared_ptr<std::vector<std::shared_ptr<RaceBase>>>& list_ptr,
-                                       std::size_t begin,
-                                       std::size_t end) -> std::function<void()> {
-        return [this, list_ptr, begin, end] {
-            auto& list = *list_ptr;
-            // 为决策阶段激活线程本地请求队列
-            const auto worker_index = ThreadPool::current_worker_index();
-            std::vector<InteractionRequest>* active_queue = nullptr;
-            if (worker_index < worker_request_queues.size()) {
-                active_queue = &worker_request_queues[worker_index];
-            }
-            auto* previous_queue = activate_request_queue(active_queue);
-
-            auto& rng = get_thread_local_rng();
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) continue;
-                individual->decide(*this, rng);
-            }
-            restore_request_queue(previous_queue);
-        };
-    };
-
-    auto make_thing_chunk_task = [this](const std::shared_ptr<std::vector<std::shared_ptr<ThingBase>>>& list_ptr,
-                                        std::size_t begin,
-                                        std::size_t end) -> std::function<void()> {
-        return [this, list_ptr, begin, end] {
-            auto& list = *list_ptr;
-            const auto worker_index = ThreadPool::current_worker_index();
-            std::vector<InteractionRequest>* active_queue = nullptr;
-            if (worker_index < worker_request_queues.size()) {
-                active_queue = &worker_request_queues[worker_index];
-            }
-            auto* previous_queue = activate_request_queue(active_queue);
-
-            auto& rng = get_thread_local_rng();
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) continue;
-                individual->decide(*this, rng);
-            }
-            restore_request_queue(previous_queue);
-        };
-    };
-
-    const std::size_t race_count = races_agg->size();
-    const std::size_t thing_count = things_agg->size();
+    std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
     std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve((race_count + thing_count) / chunk_size + 2);
+    master_task_list.reserve(
+        (races_agg->size() / heavy_chunk_size) +
+        (all_things_to_update.size() / light_chunk_size) + 2
+    );
 
-    // 为动物创建任务块
-    if (race_count > 0) {
-        for (std::size_t begin = 0; begin < race_count; begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, race_count);
-            master_task_list.push_back(make_race_chunk_task(races_agg, begin, end));
+    if (!races_agg->empty()) {
+        for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
+            const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
+            master_task_list.push_back([this, races_agg, begin, end] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                std::vector<InteractionRequest>* active_queue = nullptr;
+                if (worker_index < worker_request_queues.size()) {
+                    active_queue = &worker_request_queues[worker_index];
+                }
+                auto* previous_queue = activate_request_queue(active_queue);
+                auto& rng = get_thread_local_rng();
+
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = (*races_agg)[i];
+                    if (individual) {
+                        individual->decide(*this, rng);
+                    }
+                }
+
+                restore_request_queue(previous_queue);
+            });
         }
     }
 
-    // 为植物创建任务块
-    if (thing_count > 0) {
-        for (std::size_t begin = 0; begin < thing_count; begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, thing_count);
-            master_task_list.push_back(make_thing_chunk_task(things_agg, begin, end));
+    if (!all_things_to_update.empty()) {
+        for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
+            const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
+            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                std::vector<InteractionRequest>* active_queue = nullptr;
+                if (worker_index < worker_request_queues.size()) {
+                    active_queue = &worker_request_queues[worker_index];
+                }
+                auto* previous_queue = activate_request_queue(active_queue);
+                auto& rng = get_thread_local_rng();
+
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = all_things_to_update[i];
+                    if (individual) {
+                        individual->decide(*this, rng);
+                    }
+                }
+
+                restore_request_queue(previous_queue);
+            });
         }
     }
 
-    // --- 洗牌：打乱重轻任务的顺序，实现负载均衡 ---
-    if (master_task_list.size() > 1) {
-        auto& rng = get_thread_local_rng();
-        std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
-    }
+    auto& rng = get_thread_local_rng();
+    std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
 
-    // --- 分派：统一批量提交到线程池，避免重复加锁 ---
     pool.submit_bulk(std::move(master_task_list));
 }
 
@@ -580,79 +553,64 @@ void EcosystemState::resolve_interactions() {
  * @param pool 要使用的线程池。
  */
 void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
-    // 标记当前阶段为应用阶段
     current_phase = UpdatePhase::Apply;
-    constexpr std::size_t chunk_size = 1024;
 
-    // --- 聚合：构建统一列表 ---
+    constexpr std::size_t heavy_chunk_size = 64;
+    constexpr std::size_t light_chunk_size = 4096;
+
     std::vector<std::shared_ptr<RaceBase>> all_races_to_update;
-    std::vector<std::shared_ptr<ThingBase>> all_things_to_update = m_all_things;
-
     const auto species_names = races_registry.get_all_species_names();
+    std::size_t total_races = 0;
+    for (const auto& name : species_names) {
+        total_races += races_registry.get_species_list(name).size();
+    }
+    all_races_to_update.reserve(total_races);
     for (const auto& name : species_names) {
         auto& list = races_registry.get_species_list(name);
-        if (!list.empty()) {
-            all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
-        }
+        all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
     }
-
-    // 使用共享指针保证聚合列表在任务执行期间保持有效
     auto races_agg = std::make_shared<std::vector<std::shared_ptr<RaceBase>>>(std::move(all_races_to_update));
-    auto things_agg = std::make_shared<std::vector<std::shared_ptr<ThingBase>>>(std::move(all_things_to_update));
 
-    // --- 分块：为每个块创建闭包 ---
-    auto make_race_chunk_task = [this](const std::shared_ptr<std::vector<std::shared_ptr<RaceBase>>>& list_ptr,
-                                       std::size_t begin,
-                                       std::size_t end) -> std::function<void()> {
-        return [this, list_ptr, begin, end] {
-            auto& list = *list_ptr;
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) continue;
-                individual->apply(*this);
-            }
-        };
-    };
-
-    auto make_thing_chunk_task = [this](const std::shared_ptr<std::vector<std::shared_ptr<ThingBase>>>& list_ptr,
-                                        std::size_t begin,
-                                        std::size_t end) -> std::function<void()> {
-        return [this, list_ptr, begin, end] {
-            auto& list = *list_ptr;
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) continue;
-                individual->apply(*this);
-            }
-        };
-    };
-
-    const std::size_t race_count = races_agg->size();
-    const std::size_t thing_count = things_agg->size();
+    std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
     std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve((race_count + thing_count) / chunk_size + 2);
+    master_task_list.reserve(
+        (races_agg->size() / heavy_chunk_size) +
+        (all_things_to_update.size() / light_chunk_size) + 2
+    );
 
-    if (race_count > 0) {
-        for (std::size_t begin = 0; begin < race_count; begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, race_count);
-            master_task_list.push_back(make_race_chunk_task(races_agg, begin, end));
+    if (!races_agg->empty()) {
+        for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
+            const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
+            master_task_list.push_back([this, races_agg, begin, end] {
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = (*races_agg)[i];
+                    if (individual) {
+                        individual->apply(*this);
+                    }
+                }
+            });
         }
     }
-    if (thing_count > 0) {
-        for (std::size_t begin = 0; begin < thing_count; begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, thing_count);
-            master_task_list.push_back(make_thing_chunk_task(things_agg, begin, end));
+
+    if (!all_things_to_update.empty()) {
+        for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
+            const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
+            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = all_things_to_update[i];
+                    if (individual) {
+                        individual->apply(*this);
+                    }
+                }
+            });
         }
     }
 
-    // 洗牌：打乱轻重任务顺序
-    if (master_task_list.size() > 1) {
-        auto& rng = get_thread_local_rng();
-        std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
+    if (!master_task_list.empty()) {
+        std::shuffle(master_task_list.begin(), master_task_list.end(), get_thread_local_rng());
     }
 
-    // 分派：统一提交
     pool.submit_bulk(std::move(master_task_list));
 }
 

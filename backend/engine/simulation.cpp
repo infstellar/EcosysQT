@@ -13,7 +13,7 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
             running(false),
             paused(false),
-            target_fps(300),
+            target_fps(3000),
             stop_event(false) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
@@ -95,7 +95,7 @@ void SimulationEngine::update_config(const EcosystemConfig& new_config) {
 // --- 新增：实现设置目标FPS的函数 ---
 void SimulationEngine::set_target_fps(int fps) {
     // 限制FPS在合理范围内，例如 1 到 200
-    this->target_fps = std::clamp(fps, 1, 200);
+    this->target_fps = std::clamp(fps, 1, 2000);
 }
 bool SimulationEngine::is_running() const {
     return running;
@@ -131,7 +131,7 @@ void SimulationEngine::simulation_loop() {
             // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
             
             const auto sleep_duration = target_frame_duration - frame_elapsed;
-            if (sleep_duration.count() > 8) {
+            if (sleep_duration.count() > 10 && false) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
                 // 打印 sleep 时间，单位是毫秒
 
