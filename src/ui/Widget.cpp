@@ -39,6 +39,68 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         m_currentData = m_controller->get_data();
         updateStatistics();
     }
+    
+    // ========== 创建控制按钮 ==========
+    /**
+     * 创建三个控制按钮：暂停、继续、重启
+     * 
+     * 布局位置：窗口右上角
+     * 按钮尺寸：80x30 像素
+     * 间距：10 像素
+     * 
+     * 信号连接：
+     * - 暂停按钮 → controller->pause()   暂停模拟更新
+     * - 继续按钮 → controller->resume()  恢复模拟更新
+     * - 重启按钮 → controller->reset()   重置生态系统到初始状态
+     * 
+     * 注意：
+     * - 按钮的父对象是 this，Qt 会自动管理内存
+     * - 使用 setGeometry 设置绝对位置，不使用布局管理器
+     * - 按钮会自动显示在绘制内容的上层
+     */
+    
+    // 创建暂停按钮（右上角第一个）
+    m_pauseButton = new QPushButton("暂停", this);
+    m_pauseButton->setGeometry(width() - 280, 10, 80, 30);
+    
+    // 创建继续按钮（右上角第二个）
+    m_resumeButton = new QPushButton("继续", this);
+    m_resumeButton->setGeometry(width() - 190, 10, 80, 30);
+    
+    // 创建重启按钮（右上角第三个）
+    m_restartButton = new QPushButton("重启", this);
+    m_restartButton->setGeometry(width() - 100, 10, 80, 30);
+    
+    // 连接按钮信号到控制器的方法（使用 lambda 函数）
+    connect(m_pauseButton, &QPushButton::clicked, 
+            [this]() {
+                if (m_controller) {
+                    m_controller->pause();
+                    qDebug() << "模拟已暂停";
+                }
+            });
+    
+    connect(m_resumeButton, &QPushButton::clicked, 
+            [this]() {
+                if (m_controller) {
+                    m_controller->resume();
+                    qDebug() << "模拟已继续";
+                }
+            });
+    
+    connect(m_restartButton, &QPushButton::clicked, 
+            [this]() {
+                if (m_controller) {
+                    // 重启需要传递配置参数，这里使用当前配置
+                    EcosystemConfig config(
+                        m_currentData.world_width,
+                        m_currentData.world_height,
+                        100, 10, 2  // 初始草、牛、老虎数量
+                    );
+                    m_controller->reset(config);
+                    qDebug() << "模拟已重启";
+                }
+            });
 }
 
 Widget::~Widget()

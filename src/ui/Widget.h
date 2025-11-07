@@ -5,6 +5,7 @@
 #include <QPaintEvent>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QPushButton>
 #include <memory>
 #include "ecosystem.h"  // 用于 EcosystemStateData
 #include "species.h"    // 用于 SpeciesType
@@ -86,6 +87,12 @@ private:
      * - std::string species_name 物种名称
      */
     EcosystemStateData m_currentData;
+    
+    // ========== UI 控件 ==========
+    
+    QPushButton* m_pauseButton;   // 暂停按钮
+    QPushButton* m_resumeButton;  // 继续按钮
+    QPushButton* m_restartButton; // 重启按钮
     
     // ========== UI 资源 ==========
     
