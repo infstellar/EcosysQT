@@ -19,7 +19,7 @@
 // --- Producer ---
 
 // Producer类的构造函数
-Producer::Producer(Position pos, const PlantParams& params)
+Producer::Producer(Position pos, const PlantParams& params, std::mt19937& rng)
     // 初始化基类ThingBase的成员变量
     : ThingBase(pos, params.energy, params.max_age, params.reproduction_energy_cost),
       // 初始化Producer自身的成员变量
@@ -30,6 +30,9 @@ Producer::Producer(Position pos, const PlantParams& params)
       base_reproduction_cooldown(params.reproduction_cooldown),
       expansion_boost(params.expansion_boost),
       min_growth_factor(params.min_growth_factor) {
+    // 初始化随机 Tick 偏移（用于与全局 Tick 解耦）
+    std::uniform_int_distribution<> dist(0, MAX_INTERVAL - 1);
+    m_tick_offset = dist(rng);
 }
 
 // Producer的决策函数，每个tick调用一次
@@ -37,22 +40,23 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped; // Tracy性能分析作用域
     ThingBase::decide(ecosystem_state, rng); // 调用基类的决策逻辑
     if (!alive) return; // 如果已经死亡，则不执行任何操作
-    // 定义四个基本方向（上、下、左、右）的偏移量
-    static constexpr std::array<std::pair<int, int>, 4> kCardinalOffsets{{\
-        {0, -1}, {1, 0}, {0, 1}, {-1, 0}\
-    }};
-    // 定义四个对角线方向的偏移量
-    static constexpr std::array<std::pair<int, int>, 4> kDiagonalOffsets{{\
-        {1, -1}, {1, 1}, {-1, 1}, {-1, -1}\
-    }};
 
-    // 固定检查周围八个格子（Moore 邻域），不再依赖 competition_radius
-    std::vector<std::pair<int, int>> neighbor_offsets; // 存储邻居的偏移量
-    neighbor_offsets.reserve(8);
-    // 插入基本方向与对角线方向（共8邻居）
-    neighbor_offsets.insert(neighbor_offsets.end(), kCardinalOffsets.begin(), kCardinalOffsets.end());
-    neighbor_offsets.insert(neighbor_offsets.end(), kDiagonalOffsets.begin(), kDiagonalOffsets.end());
+    // 生长逻辑：根据邻居密度计算 pending_growth
+    if ((ecosystem_state.time_step + m_tick_offset) % GROWTH_CHECK_INTERVAL == 0) {
+        compute_growth(ecosystem_state);
+    }
+    
+    if ((ecosystem_state.time_step + m_tick_offset) % REPRODUCTION_CHECK_INTERVAL == 0) {
+        attempt_reproduction(ecosystem_state, rng);
+    }
+    
+}
 
+// 生长逻辑：根据邻居密度计算 pending_growth
+void Producer::compute_growth(const EcosystemState& ecosystem_state) {
+    // base_growth_rate的单位是1250tick，所以我们需要
+    base_growth_rate = base_growth_rate * GROWTH_CHECK_INTERVAL / 1250;
+    const auto neighbor_offsets = Producer::build_neighbor_offsets();
     int nearby_same_species = 0; // 周围同种种子的数量
     // 遍历所有邻居位置
     for (const auto& [dx, dy] : neighbor_offsets) {
@@ -90,9 +94,14 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     double adjusted_growth_rate = base_growth_rate * competition_factor;
     double min_growth_rate = base_growth_rate * min_growth_factor; // 最小生长速率
     // 计算待处理的生长量
+    
+    
     pending_growth = std::max(min_growth_rate, adjusted_growth_rate);
+}
 
-    // 检查是否满足繁殖条件
+// 繁殖逻辑：根据条件尝试繁殖
+void Producer::attempt_reproduction(EcosystemState& ecosystem_state, std::mt19937& rng) {
+    const auto neighbor_offsets = Producer::build_neighbor_offsets();
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
     if (ready_for_birth && !pending_spawn_position.has_value()) {
         std::uniform_real_distribution<> chance_dist(0.0, 1.0); // 创建一个均匀分布的随机数生成器
@@ -137,6 +146,24 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
             }
         }
     }
+}
+
+// 邻居偏移构建（Moore 邻域，8方向）
+std::vector<std::pair<int, int>> Producer::build_neighbor_offsets() {
+    // 定义四个基本方向（上、下、左、右）的偏移量
+    static constexpr std::array<std::pair<int, int>, 4> kCardinalOffsets{{
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    }};
+    // 定义四个对角线方向的偏移量
+    static constexpr std::array<std::pair<int, int>, 4> kDiagonalOffsets{{
+        {1, -1}, {1, 1}, {-1, 1}, {-1, -1}
+    }};
+
+    std::vector<std::pair<int, int>> neighbor_offsets;
+    neighbor_offsets.reserve(8);
+    neighbor_offsets.insert(neighbor_offsets.end(), kCardinalOffsets.begin(), kCardinalOffsets.end());
+    neighbor_offsets.insert(neighbor_offsets.end(), kDiagonalOffsets.begin(), kDiagonalOffsets.end());
+    return neighbor_offsets;
 }
 
 // Producer的应用函数，在决策之后调用

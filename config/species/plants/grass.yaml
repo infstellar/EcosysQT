@@ -1,7 +1,15 @@
 schema_version: 1
 parent: base_plant
 species:
-  energy: 40
+  energy: 50
   max_age: 600000
-  reproduction_energy_cost: 20
+  reproduction_energy_cost: 25
+plant:
+  base_growth_rate: 0.83 # 基础生长速率，单位是1250tick
+  reproduction_chance: 0.33
+  competition_radius: 1 # 没用了
+  max_competition_effect: 2.0 
+  reproduction_cooldown: 30000 # 1天
+  expansion_boost: 1.5
+  min_growth_factor: 0.1 # 单位是1250tick
 plant: {}
