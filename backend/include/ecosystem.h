@@ -142,6 +142,11 @@ public:
     int get_grid_height() const { return spatial_grid->get_height(); }
     
 private:
+    // --- 更新阶段标记 ---
+    // 用于在并发更新循环中标识当前所处阶段，便于加守卫确保请求仅在决策阶段提交。
+    enum class UpdatePhase { Idle, Prepare, Decision, Resolve, Apply, Finalize };
+    UpdatePhase current_phase = UpdatePhase::Idle;
+
     // --- 并发阶段共享状态 ---
     // 这些数据结构用于在并发更新的不同阶段之间传递状态。
 

@@ -11,6 +11,7 @@ animal:
   detection_range: 800.0
   food_types:
     - grass
+  use_bt: true
   min_reproduction_age: 200        # 提高性成熟年龄，降低早期繁殖
   reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
   eating_range: 8.0

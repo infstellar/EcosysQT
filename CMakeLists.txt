@@ -89,6 +89,7 @@ add_executable(MyQtApp
   backend/models/thing_base.cpp
   backend/models/producer.cpp
   backend/models/animal.cpp
+  backend/models/animal_behavior.cpp
     backend/models/race_factory.cpp
     backend/models/thing_factory.cpp
   backend/models/species_config_provider_yaml.cpp
