@@ -6,7 +6,7 @@ species:
   reproduction_energy_cost: 50     # 提高繁殖能量门槛，避免能量过低仍繁殖
 animal:
   movement_speed: 3.0
-  energy_consumption: 2
+  energy_consumption: 0.5
   hunting_success_rate: 1.0
   detection_range: 800.0
   food_types:
