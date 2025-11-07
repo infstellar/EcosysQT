@@ -11,6 +11,7 @@
 #include <memory>
 #include "utils.h"
 #include "race_base.h"
+#include "animal_behavior.h" // 提供行为树构建函数声明，用于 friend 授权访问
 
 // 前向声明
 class EcosystemState;
@@ -86,6 +87,8 @@ public:
     virtual double get_hunting_desire() const;
 
 protected:
+    // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式
+    friend std::unique_ptr<bt::BehaviorTree> behavior::build_tree_for_animal(Animal& self);
     // 行为树脚手架（默认关闭）
     std::unique_ptr<bt::BehaviorTree> behavior_tree;
     bool use_bt{false};

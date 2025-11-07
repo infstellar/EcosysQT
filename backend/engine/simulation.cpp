@@ -12,7 +12,7 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
             running(false),
             paused(false),
-            target_fps(300),
+            target_fps(40),
             stop_event(false) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));

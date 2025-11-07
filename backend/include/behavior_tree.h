@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 #include <cstddef>
+#include <string>
+#include <unordered_map>
 
 namespace bt {
 
@@ -14,6 +16,15 @@ enum class Status { Success, Failure, Running };
 struct TickContext {
     void* self{nullptr};
     void* world{nullptr};
+    // 行为树黑板：为装饰器与动作共享的键值存储
+    struct Blackboard* blackboard{nullptr};
+};
+
+// 简易黑板实现：支持整型、浮点与字符串存储
+struct Blackboard {
+    std::unordered_map<std::string, int> ints;
+    std::unordered_map<std::string, double> doubles;
+    std::unordered_map<std::string, std::string> strings;
 };
 
 class Node {
@@ -156,14 +167,75 @@ public:
     void reset() override { if (child) child->reset(); }
 };
 
+// 通用装饰器基类
+class Decorator : public Node {
+protected:
+    std::shared_ptr<Node> child;
+public:
+    Decorator() = default;
+    explicit Decorator(std::shared_ptr<Node> c) : child(std::move(c)) {}
+    void set_child(std::shared_ptr<Node> c) { child = std::move(c); }
+};
+
+// 进度装饰器：在达到 total_ticks 前持续返回 Running；达到后执行子节点并返回其状态。
+class ProgressDecorator : public Decorator {
+    std::string total_key;
+    std::string current_key;
+    int default_total_ticks{1};
+public:
+    ProgressDecorator(std::shared_ptr<Node> c,
+                      std::string totalKey,
+                      std::string currentKey,
+                      int defaultTotalTicks)
+        : Decorator(std::move(c)),
+          total_key(std::move(totalKey)),
+          current_key(std::move(currentKey)),
+          default_total_ticks(defaultTotalTicks) {}
+
+    Status tick(TickContext& ctx) override {
+        if (!ctx.blackboard) {
+            // 无黑板则直接执行子节点
+            return child ? child->tick(ctx) : Status::Failure;
+        }
+        auto& bb = *ctx.blackboard;
+        // 初始化 total_ticks
+        int total = default_total_ticks;
+        if (auto it = bb.ints.find(total_key); it != bb.ints.end() && it->second > 0) {
+            total = it->second;
+        } else {
+            bb.ints[total_key] = default_total_ticks;
+        }
+
+        // 推进 current_ticks
+        int current = 0;
+        if (auto it2 = bb.ints.find(current_key); it2 != bb.ints.end()) {
+            current = it2->second;
+        }
+        if (current < total) {
+            bb.ints[current_key] = current + 1;
+            return Status::Running;
+        }
+
+        // 进度完成后执行子节点
+        return child ? child->tick(ctx) : Status::Success;
+    }
+
+    void reset() override {
+        // 重置仅重置子节点；是否清零进度由具体使用场景决定
+        if (child) child->reset();
+    }
+};
+
 class BehaviorTree {
     std::shared_ptr<Node> root;
+    Blackboard blackboard_;
 public:
     BehaviorTree() = default;
     explicit BehaviorTree(std::shared_ptr<Node> r) : root(std::move(r)) {}
     void set_root(std::shared_ptr<Node> r) { root = std::move(r); }
     Status tick(TickContext& ctx) { return root ? root->tick(ctx) : Status::Failure; }
     void reset() { if (root) root->reset(); }
+    Blackboard& blackboard() { return blackboard_; }
 };
 
 } // namespace bt
