@@ -20,6 +20,8 @@ namespace behavior {
 
 using namespace bt;
 
+// 主节点：吃草动作（内联 Action），在近场范围内提交吃草交互
+
 std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     // 根：序列(UpdateState -> Succeeder(PrioritySelector(交配/觅食/游荡)) -> Finalize)
     // 使用 Succeeder 包裹优先选择器，确保无论其返回 Running/Success 都继续执行 Finalize，
@@ -31,6 +33,9 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     auto act_update = std::make_shared<Action>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
+
+        // 注：skip_movement 仅由本 tick 的具体动作设置（交配、分娩、近场吃草/捕食），
+        // 不再从黑板读取跨 tick 标记，避免装饰器未被执行时残留导致卡住。
 
         // 饥饿与状态系数
         self.update_hunger_state();
@@ -132,12 +137,66 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         }
     }));
 
-    // --- 觅食/捕食序列：条件 -> 搜索/进食 ---
+    // --- 觅食/捕食序列：条件 -> 近场吃草(进度) -> 远处目标与移动/捕食 ---
     auto seq_forage = std::make_shared<Sequence>();
     seq_forage->add_child(std::make_shared<Condition>([&self](TickContext&){
         return self.hunger_state != HungerState::SATISFIED && !self.food_types.empty();
     }));
-    seq_forage->add_child(std::make_shared<Action>([&self](TickContext& ctx){
+    // 近场吃草：由进度装饰器控制持续时间（仅当主食为 grass 时）
+    // 并通过 Selector 保障非草食动物（如老虎）不会被该动作阻塞
+    auto sel_forage_inner = std::make_shared<Selector>();
+    {
+        const int default_eat_ticks = 300; // 可配置：行为树编辑器参数 ${total_ticks}
+        auto eat_action = std::make_shared<Action>([&self](TickContext& ctx){
+            auto* world = static_cast<EcosystemState*>(ctx.world);
+            if (!world || !self.alive) return Status::Failure;
+            if (self.skip_movement) return Status::Failure;
+            if (self.food_types.empty() || self.hunger_state == HungerState::SATISFIED) {
+                return Status::Failure;
+            }
+            const std::string& primary_food = self.food_types.front();
+            if (primary_food != std::string("grass")) {
+                return Status::Failure;
+            }
+            if (self.eating_range <= 0.0) {
+                return Status::Failure;
+            }
+            auto nearby_things = world->get_things_in_range("grass", self.position, self.eating_range);
+            for (const auto& thing_ptr : nearby_things) {
+                if (!thing_ptr || !thing_ptr->alive) continue;
+                world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), thing_ptr});
+                self.skip_movement = true; // 本 tick 不移动
+                // 进度相关：若存在黑板，保持 current/total 用于显示
+                (void)ctx.blackboard;
+                return Status::Success;
+            }
+            return Status::Failure;
+        });
+        auto eat_with_progress = std::make_shared<ProgressDecorator>(eat_action,
+            "eat_grass_total_ticks",
+            "eat_grass_current_ticks",
+            default_eat_ticks);
+        // 仅在主食为 grass 时执行进度吃草，否则跳过以尝试后续分支
+        auto grass_only_seq = std::make_shared<Sequence>();
+        grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext&){
+            if (self.food_types.empty()) return false;
+            const std::string& primary_food = self.food_types.front();
+            return primary_food == std::string("grass");
+        }));
+        // 仅当近场确有草可吃时才进入进度阶段，避免在无草时被阻塞
+        grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
+            auto* world = static_cast<EcosystemState*>(ctx.world);
+            if (!world || !self.alive) return false;
+            if (self.eating_range <= 0.0) return false;
+            auto nearby_things = world->get_things_in_range("grass", self.position, self.eating_range);
+            return !nearby_things.empty();
+        }));
+        grass_only_seq->add_child(eat_with_progress);
+        sel_forage_inner->add_child(grass_only_seq);
+    }
+
+    // 远处移动/捕食与兜底逻辑
+    auto action_hunt_or_move = std::make_shared<Action>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
         if (self.skip_movement) return Status::Failure;
@@ -146,17 +205,6 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             return Status::Failure;
         }
         const std::string& primary_food = self.food_types.front();
-
-        // 草类：使用 eating_range 近场半径进食
-        if (primary_food == std::string("grass") && self.eating_range > 0.0) {
-            auto nearby_things = world->get_things_in_range("grass", self.position, self.eating_range);
-            for (const auto& thing_ptr : nearby_things) {
-                if (!thing_ptr || !thing_ptr->alive) continue;
-                world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), thing_ptr});
-                self.skip_movement = true; // 近场进食本 tick 不移动
-                break; // 单次觅食
-            }
-        }
 
         // 捕食：对牛的狩猎（与现有逻辑一致）
         if (primary_food == std::string("cow") && self.hunting_range > 0.0 && self.hunting_cooldown <= 0) {
@@ -180,7 +228,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             }
         }
 
-        // 远处食物：选择最近食物为目标并前往
+        // 远处食物：选择最近食物为目标并前往；若无目标，交由游荡分支
         self.select_target_point(*world);
         if (self.current_target.has_value()) {
             self.plan_path_to_target(*world, self.current_target);
@@ -193,10 +241,16 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             if (self.energy <= 0.0) {
                 self.die_from_starvation();
             }
+            return Status::Running;
         }
 
-        return Status::Running;
-    }));
+        // 无目标：返回 Failure，让 Selector 切到游荡
+        return Status::Failure;
+    });
+    sel_forage_inner->add_child(action_hunt_or_move);
+
+    // 将内层 Selector 作为觅食序列的第二个子节点
+    seq_forage->add_child(sel_forage_inner);
 
     // --- 游荡行为：无条件行动 ---
     auto act_wander = std::make_shared<Action>([&self](TickContext& ctx){
@@ -214,7 +268,8 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             const int wh = world->config.world_height;
             const Position target = self.wander_target.value();
             self.move_towards_target(target, ww, wh);
-            const double arrival_threshold = std::max(1.0, self.current_step_distance * 0.5);
+            // 满足状态下步长较小，降低到达阈值，避免“未动就判定到达”
+            const double arrival_threshold = std::max(0.2, self.current_step_distance * 0.5);
             if (self.position.distance_to(target) <= arrival_threshold) {
                 self.wander_target.reset();
             }
@@ -259,7 +314,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         const int wh2 = world->config.world_height;
         const Position target2 = self.wander_target.value();
         self.move_towards_target(target2, ww2, wh2);
-        const double arrival_threshold2 = std::max(1.0, self.current_step_distance * 0.5);
+        const double arrival_threshold2 = std::max(0.2, self.current_step_distance * 0.5);
         if (self.position.distance_to(target2) <= arrival_threshold2) {
             self.wander_target.reset();
         }
