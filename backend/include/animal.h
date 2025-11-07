@@ -27,6 +27,7 @@ enum class HungerState {
 enum class Sex { MALE, FEMALE };
 
 // 动物类，继承自 RaceBase，添加移动和交互逻辑
+namespace bt { class BehaviorTree; }
 class Animal : public RaceBase {
 public:
     // 交配属性
@@ -51,6 +52,7 @@ public:
 
     // 构造函数
     Animal(Position pos, const AnimalParams& params, std::mt19937& rng);
+    virtual ~Animal();
 
     // 更新流程
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
@@ -84,6 +86,10 @@ public:
     virtual double get_hunting_desire() const;
 
 protected:
+    // 行为树脚手架（默认关闭）
+    std::unique_ptr<bt::BehaviorTree> behavior_tree;
+    bool use_bt{false};
+    void build_behavior_tree();
     // 繁殖偏移半径
     virtual double reproduction_spawn_radius() const { return 10.0; }
     // 当前移动目标与路径
@@ -112,6 +118,10 @@ protected:
     double mating_range;
     double pregnancy_speed_penalty;
     double mating_desire_probability;
+
+    // 交配意图锁定，防止与捕食来回切换
+    int mating_intent_lock_ticks{0};
+    int mating_intent_lock_duration{30};
 
     // 饱食状态更新与属性调整
     void update_hunger_state();

@@ -8,6 +8,7 @@
 #include "thing_base.h"
 #include "species_params.h"
 #include "ecosystem.h"
+#include "behavior_tree.h"
 #include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
@@ -52,7 +53,15 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
     is_pregnant = false;
     pregnancy_timer = 0;
     mating_timer = 0;
+    // 初始化交配意图锁定时长（可按需调整或从参数映射）
+    mating_intent_lock_ticks = 0;
+    mating_intent_lock_duration = 30;
+
+    // 行为树脚手架构建（默认关闭）
+    build_behavior_tree();
 }
+
+Animal::~Animal() = default;
 
 void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped;
@@ -67,11 +76,21 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     pending_move_mode = PendingMoveMode::None;
     skip_movement = false;
     current_target.reset(); // 每轮决策前清空最终目标
-    wander_target.reset();
-    mating_target.reset(); // 清空临时的交配目标
+    // mating_target 不再每帧重置；通过锁定与条件释放控制
 
     update_hunger_state();
     adjust_stats_by_state();
+
+    // 交配意图锁定与释放策略：
+    // - 锁定期间保持交配目标，不进入觅食分支，避免来回切换
+    // - 若进入饥饿严重状态（STARVING）且锁定已结束，则释放交配目标让位觅食
+    if (mating_intent_lock_ticks > 0) {
+        mating_intent_lock_ticks -= 1;
+    } else {
+        if (mating_target.has_value() && hunger_state == HungerState::STARVING) {
+            mating_target.reset();
+        }
+    }
 
     // --- 2. 处理进行中的高优先级状态 (交配/怀孕) ---
     if (mating_timer > 0) {
@@ -124,6 +143,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
                 } else {
                     // 不在范围内，将配偶设为最高优先级目标
                     mating_target = mate->position;
+                    mating_intent_lock_ticks = mating_intent_lock_duration; // 锁定意图一段时间
                 }
             }
         }
@@ -203,6 +223,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         // 如果因提交请求而跳过移动，则清空所有目标
         current_target.reset();
         wander_target.reset();
+        mating_target.reset(); // 提交交配或分娩后，释放交配目标避免残留
     } else {
         // 按照优先级，将最高意图的目标赋给 current_target
         if (mating_target.has_value()) {
@@ -582,4 +603,40 @@ std::optional<std::shared_ptr<Animal>> Animal::find_available_mate(const Ecosyst
         }
     }
     return nearest_mate;
+}
+void Animal::build_behavior_tree() {
+    using namespace bt;
+    // 根：优先级选择器（高优先级在前）
+    auto root = std::make_shared<PrioritySelector>();
+
+    // 交配序列：条件 -> 追配偶/提交交互（占位行动）
+    auto seq_mate = std::make_shared<Sequence>();
+    seq_mate->add_child(std::make_shared<Condition>([this](TickContext&){
+        return sex == Sex::MALE && can_reproduce();
+    }));
+    seq_mate->add_child(std::make_shared<Action>([this](TickContext&){
+        // 占位：在完整迁移时将调用寻找配偶与路径规划
+        // 目前返回 Running 以表示此分支可持续执行
+        return Status::Running;
+    }));
+
+    // 觅食/捕食序列：条件 -> 搜索/进食（占位行动）
+    auto seq_forage = std::make_shared<Sequence>();
+    seq_forage->add_child(std::make_shared<Condition>([this](TickContext&){
+        return hunger_state != HungerState::SATISFIED && !food_types.empty();
+    }));
+    seq_forage->add_child(std::make_shared<Action>([this](TickContext&){
+        return Status::Running;
+    }));
+
+    // 游荡行为：无条件行动（占位）
+    auto act_wander = std::make_shared<Action>([this](TickContext&){
+        return Status::Running;
+    });
+
+    root->add_child(seq_mate);
+    root->add_child(seq_forage);
+    root->add_child(act_wander);
+
+    behavior_tree = std::make_unique<BehaviorTree>(root);
 }
