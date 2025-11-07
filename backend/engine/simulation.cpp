@@ -1,5 +1,6 @@
 #include "simulation.h"
 #include "tracy/Tracy.hpp"
+#include "high_resolution_timer.h"
 #include <chrono>
 #include <iostream>
 
@@ -11,7 +12,7 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
             running(false),
             paused(false),
-            target_fps(30),
+            target_fps(300),
             stop_event(false) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
@@ -97,25 +98,44 @@ bool SimulationEngine::is_paused() const {
 }
 
 void SimulationEngine::simulation_loop() {
+    // Raise timer resolution for the duration of the simulation loop on Windows.
+    // This improves precision of short sleeps used for frame pacing.
+    #ifdef _WIN32
+    HighResolutionTimer _hrt(1);
+    #endif
     while (!stop_event) {
+        ZoneScoped;
         const auto frame_start = std::chrono::steady_clock::now();
         if (!paused) {
-            update_ecosystem();
-            // 发布新的模拟帧数据供 GUI 线程读取。
-            auto new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
-            std::atomic_store(&m_visible_data, new_data_snapshot);
+            {
+                ZoneScopedN("Update Frame");
+                update_ecosystem();
+            }
+            {
+                ZoneScopedN("Sent frame to ui");
+                // 发布新的模拟帧数据供 GUI 线程读取。
+                auto new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+                std::atomic_store(&m_visible_data, new_data_snapshot);
+            }
         }
+        {
+            ZoneScopedN("Sleep");
+            const auto frame_end = std::chrono::steady_clock::now();
+            const auto target_frame_duration = std::chrono::duration<double, std::milli>(1000.0 / target_fps);
+            const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
+            // 打印 frame_elapsed 时间，单位是毫秒
 
-        const auto frame_end = std::chrono::steady_clock::now();
-    const auto target_frame_duration = std::chrono::duration<double, std::milli>(1000.0 / target_fps);
-        const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
+            // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
+            
+            const auto sleep_duration = target_frame_duration - frame_elapsed;
+            if (sleep_duration.count() > 10) {
+                const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
+                // 打印 sleep 时间，单位是毫秒
 
-        // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
-        const auto sleep_duration = target_frame_duration - frame_elapsed;
-        if (sleep_duration.count() > 0.0) {
-            const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
-            std::this_thread::sleep_for(sleep_ns);
+                std::this_thread::sleep_for(sleep_ns);
+            }
         }
+        
 
         FrameMark;
     }
