@@ -3,6 +3,7 @@
         <file>images/background.png</file>
         <file>images/grass.png</file>
         <file>images/cow.png</file>
+        <file>images/bull.png</file>
         <file>images/tiger.png</file>
     </qresource>
 </RCC>

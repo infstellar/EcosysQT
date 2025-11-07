@@ -101,6 +101,7 @@ private:
     
     QPixmap m_backgroundImage;
     QPixmap m_cowTexture;
+    QPixmap m_bullTexture;
     QPixmap m_tigerTexture;
     QPixmap m_grassTexture;
 
