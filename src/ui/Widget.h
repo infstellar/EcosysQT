@@ -18,7 +18,7 @@ class SimulationController;  // 前向声明
  * Widget 类 - 生态系统可视化界面
  * 
  * 数据流向：
- * SimulationController (后端) -> get_data() -> EcosystemStateData -> Widget -> 屏幕显示
+ * SimulationController (后端) -> get_data() -> std::shared_ptr<EcosystemStateData> -> Widget -> 屏幕显示
  * 
  * 关键变化：
  * - 不再持有 EcosystemState 的智能指针
@@ -69,41 +69,9 @@ private:
     SimulationController* m_controller;
     
     /**
-     * 当前帧的数据快照
-     * 
-     * 数据来源：m_controller->get_data()
-     * 数据类型：EcosystemStateData（定义在 backend/include/utils.h）
-     * 
-     * 实际结构（重要！）：
-     * struct EcosystemStateData {
-     *     int world_width;                                              // 世界宽度
-     *     int world_height;                                             // 世界高度
-    *     std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;
-    *     std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;
-     *     int time_step;                                                // 当前时间步
-     *     Eigen::MatrixXd grass_positions_array;                        // 草的位置矩阵
-    *     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;  // 存活的草对象
-     * };
-     * 
-    * race_lists 的结构：
-    * {
-    *     "cow":   [shared_ptr<RaceBase>, shared_ptr<RaceBase>, ...],
-    *     "tiger": [shared_ptr<RaceBase>, shared_ptr<RaceBase>, ...]
-    * }
-    * thing_lists 的结构：
-    * {
-    *     "grass": [shared_ptr<ThingBase>, shared_ptr<ThingBase>, ...]
-    * }
-     * 
-    * RaceBase / ThingBase 对象包含：
-     * - Position position        {double x, double y}
-     * - double energy            当前能量值
-     * - double max_energy        最大能量值
-     * - int age                  年龄（时间步数）
-     * - bool alive               是否存活
-    * - std::string species_name 物种名称
+     * 当前帧的数据快照，延迟复制：UI 线程请求时锁定后端并复制。
      */
-    EcosystemStateData m_currentData;
+    std::shared_ptr<EcosystemStateData> m_currentData;
     
     // ========== UI 资源 ==========
     

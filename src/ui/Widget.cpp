@@ -31,6 +31,7 @@ static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& view
 Widget::Widget(SimulationController* controller, QWidget *parent)
     : QWidget(parent)
     , m_controller(controller)
+    , m_currentData(std::make_shared<EcosystemStateData>())
     , m_updateTimer(new QTimer(this))
     , m_grassCount(0)
     , m_cowCount(0)
@@ -121,10 +122,13 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     
     if (m_controller) {
         m_controller->set_target_fps(30);
-        m_currentData = m_controller->get_data();
-        updateStatistics();
-        // --- 新增：初始化视图中心为世界中心 ---
-        m_viewCenter = QPointF(m_currentData.world_width / 2.0, m_currentData.world_height / 2.0);
+        auto initialData = m_controller->get_data();
+        if (initialData) {
+            m_currentData = initialData;
+            updateStatistics();
+            // --- 新增：初始化视图中心为世界中心 ---
+            m_viewCenter = QPointF(m_currentData->world_width / 2.0, m_currentData->world_height / 2.0);
+        }
     }
 }
 
@@ -150,9 +154,10 @@ void Widget::updateFrame()
     }
     
     // ========== 从后端获取数据快照 ==========
-    // get_data() 返回 EcosystemStateData，提供独立的 race_lists 和 thing_lists
-    // key: 物种名称（小写），value: 存活实体的共享指针列表
-    m_currentData = m_controller->get_data();
+    auto newData = m_controller->get_data();
+    if (newData) {
+        m_currentData = newData;
+    }
     
     updateStatistics();
     update();
@@ -164,7 +169,7 @@ void Widget::updateFrame()
  * 从 m_currentData 中提取各物种的数量
  * 
  * 数据来源：
- * m_currentData.race_lists / thing_lists
+ * m_currentData->race_lists / thing_lists
  *   └─ key: std::string 物种名称（小写）
  *   └─ value: std::vector<std::shared_ptr<RaceBase/ThingBase>> 个体列表
  *       └─ individual->alive (bool 是否存活)
@@ -174,19 +179,24 @@ void Widget::updateStatistics()
     if (!m_controller) {
         return;
     }
+
+    const auto data = m_currentData;
+    if (!data) {
+        return;
+    }
     
     m_grassCount = 0;
     m_cowCount = 0;
     m_tigerCount = 0;
     
-    m_timeStep = m_currentData.time_step;
-    m_currentYear = m_currentData.current_year;
-    m_currentDay = m_currentData.current_day;
-    m_currentQuadrumName = m_currentData.current_quadrum_name;
-    m_currentHour = m_currentData.current_hour;
-    m_currentMinute = m_currentData.current_minute;
+    m_timeStep = data->time_step;
+    m_currentYear = data->current_year;
+    m_currentDay = data->current_day;
+    m_currentQuadrumName = data->current_quadrum_name;
+    m_currentHour = data->current_hour;
+    m_currentMinute = data->current_minute;
     // 汇总 races 数量
-    for (const auto& [name, individuals] : m_currentData.race_lists) {
+    for (const auto& [name, individuals] : data->race_lists) {
         int alive_count = 0;
         for (const auto& individual : individuals) {
             if (individual && individual->alive) {
@@ -202,7 +212,7 @@ void Widget::updateStatistics()
     }
 
     // 汇总 things 数量
-    for (const auto& [name, individuals] : m_currentData.thing_lists) {
+    for (const auto& [name, individuals] : data->thing_lists) {
         int alive_count = 0;
         for (const auto& individual : individuals) {
             if (individual && individual->alive) {
@@ -228,6 +238,11 @@ void Widget::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
+
+    const auto data = m_currentData;
+    if (!data) {
+        return;
+    }
     
     // ========== 步骤1: 绘制背景和时间遮罩 ==========
     // 1.1 首先绘制基础背景图
@@ -288,7 +303,7 @@ void Widget::paintEvent(QPaintEvent *event)
     entitiesToDraw.reserve(m_grassCount + m_cowCount + m_tigerCount); // 预分配内存以提高效率
 
     // 循环 1: 收集 Races (动物)
-    for (const auto& [name, individuals] : m_currentData.race_lists) {
+    for (const auto& [name, individuals] : data->race_lists) {
         for (const auto& individual_base : individuals) {
             if (!individual_base || !individual_base->alive) continue;
 
@@ -321,7 +336,7 @@ void Widget::paintEvent(QPaintEvent *event)
     }
 
     // 循环 2: 收集 Things (植物)
-    for (const auto& [name, individuals] : m_currentData.thing_lists) {
+    for (const auto& [name, individuals] : data->thing_lists) {
         if (name == "grass") {
             if (m_grassTexture.isNull()) continue;
             for (const auto& individual : individuals) {
@@ -441,8 +456,14 @@ void Widget::paintEvent(QPaintEvent *event)
  */
 void Widget::wheelEvent(QWheelEvent *event)
 {
+    const auto data = m_currentData;
+    if (!data) {
+        event->ignore();
+        return;
+    }
+
     const QPointF mousePos = event->position();
-    const QSize worldSize(m_currentData.world_width, m_currentData.world_height);
+    const QSize worldSize(data->world_width, data->world_height);
 
     // 1. 记录缩放前的世界坐标
     const QPointF worldPosBeforeZoom = screenToWorldCoords(mousePos, m_viewCenter, m_zoomFactor, size(), worldSize);
@@ -505,18 +526,17 @@ void Widget::mousePressEvent(QMouseEvent *event)
 void Widget::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_isDragging) {
+        const auto data = m_currentData;
+        if (!data) {
+            event->ignore();
+            return;
+        }
+
         QPointF delta = event->localPos() - m_lastMousePos;
 
-        // --- 修改：实现等比缩放下的拖动计算 ---
-        // 1. 获取等比缩放后的可见世界尺寸
-        double visibleWorldWidth = m_currentData.world_width / m_zoomFactor;
-        double screenAspect = (double)width() / (double)height();
-        double visibleWorldHeight = visibleWorldWidth / screenAspect;
-
-        // 2. 根据可见尺寸计算世界坐标的偏移量
-        double worldDeltaX = (delta.x() / width()) * visibleWorldWidth;
-        double worldDeltaY = (delta.y() / height()) * visibleWorldHeight;
-        // --- 修改结束 ---
+        // 将屏幕上的像素偏移转换为世界坐标下的偏移
+        double worldDeltaX = (delta.x() / width()) * (data->world_width / m_zoomFactor);
+        double worldDeltaY = (delta.y() / height()) * (data->world_height / m_zoomFactor);
 
         // 视图中心向相反方向移动
         m_viewCenter -= QPointF(worldDeltaX, worldDeltaY);
@@ -584,17 +604,14 @@ QColor Widget::getColorForName(const std::string& name) const
  */
 QPointF Widget::toScreenCoords(const Position& pos) const
 {
-    if (m_currentData.world_width <= 0 || m_currentData.world_height <= 0) {
+    const auto data = m_currentData;
+    if (!data || data->world_width <= 0 || data->world_height <= 0) {
         return QPointF();
     }
 
-    // --- 修改：实现等比缩放下的坐标转换 ---
-    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽度
-    double visibleWorldWidth = m_currentData.world_width / m_zoomFactor;
-    // 修复：可见高度必须根据可见宽度和屏幕宽高比计算，以保持等比缩放
-    double screenAspect = (double)width() / (double)height();
-    double visibleWorldHeight = visibleWorldWidth / screenAspect;
-    // --- 修改结束 ---
+    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽高
+    double visibleWorldWidth = data->world_width / m_zoomFactor;
+    double visibleWorldHeight = data->world_height / m_zoomFactor;
 
     // 2. 计算视图在世界坐标系中的左上角坐标
     double viewLeft = m_viewCenter.x() - visibleWorldWidth / 2.0;
@@ -742,10 +759,10 @@ void Widget::onCustomSpeedClicked()
 
     bool ok;
     int newFps = QInputDialog::getInt(this, "设置模拟速度",
-                                      "请输入目标 FPS (1-300):",
+                                      "请输入目标 FPS (1-2000):",
                                       currentFps, // 对话框的默认值
                                       1,          // 最小值
-                                      300,        // 最大值
+                                      2000,        // 最大值
                                       1,          // 步长
                                       &ok);
 
