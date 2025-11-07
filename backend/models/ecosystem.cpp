@@ -164,6 +164,17 @@ int EcosystemState::get_current_quadrum() const {
     int day_of_year = ((get_current_day() - 1) % 60) + 1;
     return ((day_of_year - 1) / 15) + 1;
 }
+int EcosystemState::get_current_hour() const {
+    // 获取当天已经过的步数
+    const int ticks_in_day = time_step % 30000;
+    return ticks_in_day / 1250;
+}
+int EcosystemState::get_current_minute() const {
+    // 获取当前小时已经过的步数
+    const int ticks_in_hour = (time_step % 30000) % 1250;
+    // 将小时内的步数比例映射到 0-59 分钟
+    return static_cast<int>((static_cast<double>(ticks_in_hour) / 1250.0) * 60.0);
+}
 
 std::string EcosystemState::get_current_quadrum_name() const {
     static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
@@ -187,7 +198,8 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     state.current_quadrum = get_current_quadrum();
     state.current_year = get_current_year();
     state.current_quadrum_name = get_current_quadrum_name();
-
+    state.current_hour = get_current_hour();
+    state.current_minute = get_current_minute();
     // 填充 race_lists
     for (const auto& species_name : races_registry.get_all_species_names()) {
         const auto& race_list = races_registry.get_species_list(species_name);

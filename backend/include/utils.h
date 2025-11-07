@@ -36,6 +36,8 @@ struct EcosystemStateData {
     int current_day;
     int current_quadrum;
     int current_year;
+    int current_hour;
+    int current_minute;
     std::string current_quadrum_name;
     Eigen::MatrixXd grass_positions_array; // 对应Python中的numpy数组
     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;

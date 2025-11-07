@@ -75,6 +75,8 @@ public:
     int get_current_day() const;
     int get_current_quadrum() const;
     int get_current_year() const;
+    int get_current_hour() const;
+    int get_current_minute() const;
     std::string get_current_quadrum_name() const;
 
     void initialize_populations();
