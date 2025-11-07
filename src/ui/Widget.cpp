@@ -2,6 +2,7 @@
 #include "simulation.h"
 #include "race_base.h"
 #include "thing_base.h"
+#include "animal.h" 
 #include <QPainter>
 #include <QDebug>
 #include <algorithm>
@@ -49,6 +50,11 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     m_cowTexture.load(":/images/cow.png");
     if (m_cowTexture.isNull()) {
         qDebug() << "警告: 牛贴图加载失败";
+    }
+    // --- 新增：加载公牛贴图 ---
+    m_bullTexture.load(":/images/bull.png");
+    if (m_bullTexture.isNull()) {
+        qDebug() << "警告: 牛(公)贴图加载失败";
     }
     m_tigerTexture.load(":/images/tiger.png");
     if (m_tigerTexture.isNull()) {
@@ -179,70 +185,73 @@ void Widget::paintEvent(QPaintEvent *event)
         painter.fillRect(rect(), QColor(34, 139, 34));
     }
     
-    // ========== 步骤2: 绘制所有生物 (无高亮) ==========
+    // ========== 步骤2: 收集、排序并绘制所有生物 ==========
 
-    // 循环 1: 绘制 Things (植物)
+    // 定义一个结构体来存储绘制所需的信息
+    struct DrawableEntity {
+        const QPixmap* texture;
+        QRect targetRect;
+        double worldY; // 用于排序
+    };
+
+    std::vector<DrawableEntity> entitiesToDraw;
+    entitiesToDraw.reserve(m_grassCount + m_cowCount + m_tigerCount); // 预分配内存以提高效率
+
+    // 循环 1: 收集 Races (动物)
+    for (const auto& [name, individuals] : m_currentData.race_lists) {
+        for (const auto& individual_base : individuals) {
+            if (!individual_base || !individual_base->alive) continue;
+
+            const QPixmap* texture = nullptr;
+            
+            // --- 核心修改：根据物种和性别选择贴图 ---
+            if (name == "cow") {
+                // 尝试将 RaceBase 指针安全地转换为 Animal 指针以访问性别
+                auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
+                if (animal_ptr) { // 转换成功
+                    texture = (animal_ptr->sex == Sex::MALE) ? &m_bullTexture : &m_cowTexture;
+                } else { // 转换失败（理论上不应发生），使用默认母牛贴图
+                    texture = &m_cowTexture;
+                }
+            } else if (name == "tiger") {
+                texture = &m_tigerTexture;
+            }
+            // --- 修改结束 ---
+
+            if (!texture || texture->isNull()) continue;
+
+            QPointF screenPos = toScreenCoords(individual_base->position);
+            const double max_energy = std::max(1.0, individual_base->max_energy);
+            const double energyRatio = std::clamp(individual_base->energy / max_energy, 0.0, 1.5);
+            const double size = 40.0 + energyRatio * 12.0;
+            QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
+            
+            entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
+        }
+    }
+
+    // 循环 2: 收集 Things (植物)
     for (const auto& [name, individuals] : m_currentData.thing_lists) {
         if (name == "grass") {
+            if (m_grassTexture.isNull()) continue;
             for (const auto& individual : individuals) {
-                if (!individual || !individual->alive) {
-                    continue;
-                }
-
+                if (!individual || !individual->alive) continue;
                 QPointF screenPos = toScreenCoords(individual->position);
-                
-                if (!m_grassTexture.isNull()) {
-                    const double size = 20.0;
-                    QRectF targetRect(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
-                    
-                    // --- 修改：直接绘制贴图，不再使用描边函数 ---
-                    painter.drawPixmap(targetRect.toRect(), m_grassTexture);
-
-                } else {
-                    // 回退方案
-                    painter.setBrush(getColorForName(name));
-                    painter.setPen(Qt::NoPen);
-                    painter.drawEllipse(screenPos, 3, 3);
-                }
+                const double size = 20.0;
+                QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
+                entitiesToDraw.push_back({&m_grassTexture, targetRectF.toRect(), individual->position.y});
             }
         }
     }
-    // 循环 2: 绘制 Races (动物)
-    for (const auto& [name, individuals] : m_currentData.race_lists) {
-        QPixmap* texture = nullptr;
-        if (name == "cow") {
-            texture = &m_cowTexture;
-        } else if (name == "tiger") {
-            texture = &m_tigerTexture;
-        }
 
-        for (const auto& individual : individuals) {
-            if (!individual || !individual->alive) {
-                continue;
-            }
+    // 排序：根据世界坐标的Y值从小到大排序，解决遮挡问题
+    std::sort(entitiesToDraw.begin(), entitiesToDraw.end(), [](const DrawableEntity& a, const DrawableEntity& b) {
+        return a.worldY < b.worldY;
+    });
 
-            QPointF screenPos = toScreenCoords(individual->position);
-            
-            if (texture && !texture->isNull()) {
-                const double max_energy = std::max(1.0, individual->max_energy);
-                const double energyRatio = std::clamp(individual->energy / max_energy, 0.0, 1.5);
-                // --- 修改：增加基础尺寸和能量加成，让动物图片更大 ---
-                const double size = 40.0 + energyRatio * 12.0;
-                QRectF targetRect(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
-                
-                // --- 修改：直接绘制贴图，不再使用描边函数 ---
-                painter.drawPixmap(targetRect.toRect(), *texture);
-
-            } else {
-                // 回退方案
-                const double max_energy = std::max(1.0, individual->max_energy);
-                const double energyRatio = std::clamp(individual->energy / max_energy, 0.0, 1.5);
-                const double radius = 6.0 + energyRatio * 4.0;
-                painter.setBrush(getColorForName(name));
-                painter.setPen(QPen(Qt::white, 2));
-                painter.drawEllipse(screenPos, radius, radius);
-            }
-        }
+    // 循环 3: 按排序后的顺序绘制所有实体
+    for (const auto& entity : entitiesToDraw) {
+        painter.drawPixmap(entity.targetRect, *entity.texture);
     }
     // ========== 步骤3: 绘制信息面板 ==========
     /**
