@@ -9,6 +9,7 @@
 #include <memory>
 #include "ecosystem.h"  // 用于 EcosystemStateData
 #include "utils.h"      // 用于 Position
+#include <QPushButton>
 
 class SimulationController;  // 前向声明
 
@@ -47,6 +48,10 @@ protected:
 
 private slots:
     void updateFrame();  // 每秒更新一次
+    // --- 新增：控制按钮的槽函数 ---
+    void onPauseResumeClicked();
+    void onSpeedUpClicked();
+    void onSlowDownClicked();
 
 private:
     // ========== 核心数据 ==========
@@ -105,6 +110,11 @@ private:
     QPixmap m_tigerTexture;
     QPixmap m_grassTexture;
 
+    // --- 新增：UI控制按钮 ---
+    QPushButton* m_pauseButton;
+    QPushButton* m_speedUpButton;
+    QPushButton* m_slowDownButton;
+
     QTimer* m_updateTimer;
     // ========== 视图控制 ==========
     double m_zoomFactor;   // 缩放因子
@@ -123,6 +133,8 @@ private:
     int m_currentHour;
     int m_currentMinute;
     std::string m_currentQuadrumName;
+    // --- 新增：用于跟踪当前速度状态的成员 ---
+    int m_currentSpeedLevel;
 
     // ========== 辅助函数 ==========
     

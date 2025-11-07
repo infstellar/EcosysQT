@@ -26,7 +26,8 @@ public:
     void step();
     EcosystemStateData get_data() const;
     void update_config(const EcosystemConfig& new_config);
-
+    // --- 新增：设置目标FPS的接口 ---
+    void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
 
@@ -66,7 +67,8 @@ public:
     void step();
     EcosystemStateData get_data() const;
     void update_config(const EcosystemConfig& config);
-
+    // --- 新增：设置目标FPS的接口 ---
+    void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
 

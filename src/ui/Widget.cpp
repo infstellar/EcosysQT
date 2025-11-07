@@ -9,6 +9,7 @@
 // --- 新增：包含鼠标事件头文件 ---
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QHBoxLayout>
 
 // --- 新增：前向声明一个辅助函数 ---
 static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize);
@@ -40,6 +41,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_currentMinute(0)
     , m_zoomFactor(1.0)
     , m_isDragging(false)
+    , m_currentSpeedLevel(2)
 {
     m_backgroundImage.load(":/images/background.png");
     if (m_backgroundImage.isNull()) {
@@ -65,11 +67,42 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         qDebug() << "警告: 草贴图加载失败";
     }
 
+    // --- 新增：创建和布局控制按钮 ---
+    m_pauseButton = new QPushButton("暂停", this);
+    m_slowDownButton = new QPushButton("减速 (-)", this);
+    m_speedUpButton = new QPushButton("加速 (+)", this);
+
+    // 设置按钮样式
+    QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+    m_pauseButton->setStyleSheet(buttonStyle);
+    m_slowDownButton->setStyleSheet(buttonStyle);
+    m_speedUpButton->setStyleSheet(buttonStyle);
+
+    // 使用水平布局管理器来放置按钮
+    QHBoxLayout* layout = new QHBoxLayout();
+    layout->addStretch(); // 添加一个弹簧，将按钮推到右边
+    layout->addWidget(m_slowDownButton);
+    layout->addWidget(m_pauseButton);
+    layout->addWidget(m_speedUpButton);
+    layout->setContentsMargins(0, 0, 10, 10); // 设置外边距
+
+    // 将这个布局设置在主窗口的底部
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    mainLayout->addStretch();
+    mainLayout->addLayout(layout);
+    setLayout(mainLayout);
+
+    // --- 新增：连接按钮信号到槽函数 ---
+    connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
+    connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
+    connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
+
     
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
     m_updateTimer->start(16);
     
     if (m_controller) {
+        m_controller->set_target_fps(30);
         m_currentData = m_controller->get_data();
         updateStatistics();
         // --- 新增：初始化视图中心为世界中心 ---
@@ -532,4 +565,57 @@ static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& view
     double relativeY = (screenPos.y() / screenSize.height()) * visibleWorldHeight;
 
     return QPointF(viewLeft + relativeX, viewTop + relativeY);
+}
+
+// --- 新增：实现按钮的槽函数 ---
+
+void Widget::onPauseResumeClicked()
+{
+    if (!m_controller) return;
+
+    if (m_controller->is_paused()) {
+        m_controller->resume();
+        m_pauseButton->setText("暂停");
+    } else {
+        m_controller->pause();
+        m_pauseButton->setText("继续");
+    }
+}
+
+void Widget::onSpeedUpClicked()
+{
+    if (!m_controller) return;
+    m_currentSpeedLevel++;
+    // --- 修改：定义新的10级速度映射表 (1-100 FPS) ---
+    const std::map<int, int> speedMap = {
+        {0, 10}, {1, 20}, {2, 30}, {3, 40}, {4, 50}, 
+        {5, 60}, {6, 70}, {7, 80}, {8, 90}, {9, 100}
+    };
+    
+    // --- 修改：更新速度等级上限为 9 ---
+    if (m_currentSpeedLevel > 9) m_currentSpeedLevel = 9;
+
+    auto it = speedMap.find(m_currentSpeedLevel);
+    if (it != speedMap.end()) {
+        m_controller->set_target_fps(it->second);
+        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+    }
+}
+
+void Widget::onSlowDownClicked()
+{
+    if (!m_controller) return;
+    m_currentSpeedLevel--;
+    // --- 修改：定义新的10级速度映射表 (1-100 FPS) ---
+    const std::map<int, int> speedMap = {
+        {0, 10}, {1, 20}, {2, 30}, {3, 40}, {4, 50}, 
+        {5, 60}, {6, 70}, {7, 80}, {8, 90}, {9, 100}
+    };
+    if (m_currentSpeedLevel < 0) m_currentSpeedLevel = 0;
+
+    auto it = speedMap.find(m_currentSpeedLevel);
+    if (it != speedMap.end()) {
+        m_controller->set_target_fps(it->second);
+        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+    }
 }
