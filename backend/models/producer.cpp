@@ -29,8 +29,7 @@ Producer::Producer(Position pos, const PlantParams& params)
       max_competition_effect(params.max_competition_effect),
       base_reproduction_cooldown(params.reproduction_cooldown),
       expansion_boost(params.expansion_boost),
-      min_growth_factor(params.min_growth_factor),
-      growth_time_scale_ms(params.growth_time_scale_ms) {
+      min_growth_factor(params.min_growth_factor) {
 }
 
 // Producer的决策函数，每个tick调用一次
