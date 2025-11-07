@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
          */
         EcosystemConfig config(800, 600);
         config.initial_populations = {
-            {"grass", 200},
+            {"grass", 50},
             {"cow", 10},
             {"tiger", 2},
         };

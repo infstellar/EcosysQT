@@ -42,6 +42,11 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
             wandering_cooldown(params.wandering_duration),
             wander_radius(params.wander_radius),
             mating_desire_probability(params.mating_desire_probability) {
+    // 交配/怀孕相关参数初始化
+    mating_duration = params.mating_duration;
+    pregnancy_duration = params.pregnancy_duration;
+    mating_range = params.mating_range;
+    pregnancy_speed_penalty = params.pregnancy_speed_penalty;
     // 初始化每tick步长为当前移动速度（tick制）
     step_distance_per_tick = movement_speed;
     current_step_distance = step_distance_per_tick; // 首帧近似为1 tick
@@ -58,6 +63,7 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
     mating_intent_lock_duration = 30;
 
     // 行为树脚手架构建（默认关闭）
+    use_bt = params.use_bt;
     build_behavior_tree();
 }
 
@@ -124,6 +130,18 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
             // 分娩时通常会暂停移动
             skip_movement = true; 
         }
+    }
+
+    // 如开启行为树，则使用 BT 进行行为决策（阶段性迁移：当前仅迁移游荡）
+    if (use_bt && behavior_tree) {
+        bt::TickContext ctx;
+        ctx.self = this;
+        ctx.world = &ecosystem_state;
+        (void)behavior_tree->tick(ctx);
+        if (hunting_cooldown > 0) {
+            hunting_cooldown -= 1;
+        }
+        return;
     }
 
     // --- 3. 行为决策 (按优先级进行) ---
@@ -419,7 +437,7 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 
     if (distance > 0) {
         // 到达减速（Arrive）：临近目标时按比例减速，平滑收敛
-    const double slow_radius = std::max(current_step_distance * 8.0, step_distance_per_tick * 4.0);
+    const double slow_radius = std::max(current_step_distance * 4.0, step_distance_per_tick * 2.0);
     const double ratio = std::min(1.0, distance / std::max(1e-9, slow_radius));
     const double desired = current_step_distance * ratio;
         const double step = std::min(desired, distance);
@@ -612,10 +630,42 @@ void Animal::build_behavior_tree() {
     seq_mate->add_child(std::make_shared<Condition>([this](TickContext&){
         return sex == Sex::MALE && can_reproduce();
     }));
-    seq_mate->add_child(std::make_shared<Action>([this](TickContext&){
-        // 占位：在完整迁移时将调用寻找配偶与路径规划
-        // 目前返回 Running 以表示此分支可持续执行
-        return Status::Running;
+    seq_mate->add_child(std::make_shared<Action>([this](TickContext& ctx){
+        // 迁移交配：雄性在意愿命中时寻找并追逐最近配偶，接近后提交交配请求
+        auto* world = static_cast<EcosystemState*>(ctx.world);
+        if (!world || !alive) return Status::Failure;
+        if (skip_movement) return Status::Failure;
+
+        // 求偶意愿概率
+        auto& rng_local = world->get_thread_local_rng();
+        std::uniform_real_distribution<> desire_dist(0.0, 1.0);
+        if (desire_dist(rng_local) >= mating_desire_probability) {
+            return Status::Failure; // 未命中意愿，交由后续分支
+        }
+
+        auto mate_opt = find_available_mate(*world);
+        if (!mate_opt.has_value()) {
+            return Status::Failure;
+        }
+        auto mate = mate_opt.value();
+        if (!mate || !mate->alive) {
+            return Status::Failure;
+        }
+
+        if (position.distance_to(mate->position) <= mating_range) {
+            // 在范围内，提交交配请求并跳过移动
+            world->submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(shared_from_this())});
+            skip_movement = true;
+            return Status::Running;
+        } else {
+            // 未到范围内：锁定交配意图并前往配偶位置
+            mating_target = mate->position;
+            mating_intent_lock_ticks = mating_intent_lock_duration;
+            current_target = mating_target;
+            plan_path_to_target(*world, current_target);
+            pending_move_mode = PendingMoveMode::Path;
+            return Status::Running;
+        }
     }));
 
     // 觅食/捕食序列：条件 -> 搜索/进食（占位行动）
@@ -623,12 +673,117 @@ void Animal::build_behavior_tree() {
     seq_forage->add_child(std::make_shared<Condition>([this](TickContext&){
         return hunger_state != HungerState::SATISFIED && !food_types.empty();
     }));
-    seq_forage->add_child(std::make_shared<Action>([this](TickContext&){
+    seq_forage->add_child(std::make_shared<Action>([this](TickContext& ctx){
+        // 迁移觅食/捕食：当在范围内可立即进食或狩猎时提交请求；否则选择并前往最近食物
+        auto* world = static_cast<EcosystemState*>(ctx.world);
+        if (!world || !alive) return Status::Failure;
+        if (skip_movement) return Status::Failure;
+
+        if (food_types.empty() || hunger_state == HungerState::SATISFIED) {
+            return Status::Failure;
+        }
+        const std::string& primary_food = food_types.front();
+
+        // 草类：同格进食
+        if (primary_food == std::string("grass") && eating_range > 0.0) {
+            if (world->config.world_width > 0 && world->config.world_height > 0) {
+                const int max_x = world->config.world_width - 1;
+                const int max_y = world->config.world_height - 1;
+                int tile_x = static_cast<int>(std::floor(position.x));
+                int tile_y = static_cast<int>(std::floor(position.y));
+                tile_x = std::clamp(tile_x, 0, max_x);
+                tile_y = std::clamp(tile_y, 0, max_y);
+
+                if (world->is_valid_grid_coord(tile_x, tile_y)) {
+                    Tile& current_tile = world->get_tile(tile_x, tile_y);
+                    for (ThingBase* thing : current_tile.things) {
+                        if (!thing || !thing->alive) continue;
+                        if (thing->species_name != "grass") continue;
+                        auto target = thing->shared_from_this();
+                        if (!target) continue;
+                        world->submit_interaction_request(AttemptToEatThingRequest{shared_from_this(), target});
+                        break; // 单次觅食
+                    }
+                }
+            }
+        }
+
+        // 捕食：对牛的狩猎（与现有逻辑一致）
+        if (primary_food == std::string("cow") && hunting_range > 0.0 && hunting_cooldown <= 0) {
+            const double desire = get_hunting_desire();
+            if (desire > 0.0) {
+                auto& rng_local = world->get_thread_local_rng();
+                std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
+                if (hunt_dist(rng_local) < hunting_success_rate * desire) {
+                    auto nearby_races = world->get_nearby_races_broad(position, hunting_range);
+                    for (const auto& race : nearby_races) {
+                        if (!race || !race->alive) continue;
+                        if (race.get() == this) continue;
+                        if (race->species_name != "cow") continue;
+                        if (position.distance_to(race->position) > hunting_range) continue;
+                        world->submit_interaction_request(AttemptToEatRaceRequest{shared_from_this(), race});
+                        start_hunting_cooldown();
+                        break; // 单次狩猎
+                    }
+                }
+            }
+        }
+
+        // 远处食物：选择最近食物为目标并前往
+        select_target_point(*world);
+        if (current_target.has_value()) {
+            plan_path_to_target(*world, current_target);
+            pending_move_mode = PendingMoveMode::Path;
+        }
+
         return Status::Running;
     }));
 
     // 游荡行为：无条件行动（占位）
-    auto act_wander = std::make_shared<Action>([this](TickContext&){
+    auto act_wander = std::make_shared<Action>([this](TickContext& ctx){
+        // 复用现有游荡目标与到达逻辑：为决策阶段设置 wander_target 与移动模式
+        auto* world = static_cast<EcosystemState*>(ctx.world);
+        if (!world || !alive) return Status::Failure;
+        if (skip_movement) return Status::Failure; // 本 tick 不应移动
+
+        const int world_width = world->config.world_width;
+        const int world_height = world->config.world_height;
+
+        // 若已有游荡目标，直接使用并标记移动模式
+        if (wander_target.has_value()) {
+            pending_move_mode = PendingMoveMode::Wander;
+            return Status::Running;
+        }
+
+        // 采样新游荡目标（与现有 decide 中一致）
+        auto& rng_local = world->get_thread_local_rng();
+        std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
+        std::uniform_real_distribution<> unit01(0.0, 1.0);
+
+        for (int tries = 0; tries < 6 && !wander_target.has_value(); ++tries) {
+            const double angle = angle_dist(rng_local);
+            const double r = std::max(movement_speed, std::sqrt(unit01(rng_local)) * wander_radius);
+            Position candidate{
+                position.x + std::cos(angle) * r,
+                position.y + std::sin(angle) * r
+            };
+            candidate.x = std::max(0.0, std::min(static_cast<double>(world_width), candidate.x));
+            candidate.y = std::max(0.0, std::min(static_cast<double>(world_height), candidate.y));
+            if (position.distance_to(candidate) < 1e-6) continue;
+            wander_target = candidate;
+        }
+        if (!wander_target.has_value()) {
+            // 兜底：若未选中合法目标，执行一次小幅随机移动
+            std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
+            const double a2 = angle2(rng_local);
+            Position fallback{
+                std::max(0.0, std::min(static_cast<double>(world_width), position.x + std::cos(a2) * movement_speed)),
+                std::max(0.0, std::min(static_cast<double>(world_height), position.y + std::sin(a2) * movement_speed))
+            };
+            wander_target = fallback;
+        }
+
+        pending_move_mode = PendingMoveMode::Wander;
         return Status::Running;
     });
 
