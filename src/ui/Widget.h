@@ -116,6 +116,8 @@ private:
     uint64_t m_timeStep;
     int m_currentYear;
     int m_currentDay;
+    int m_currentHour;
+    int m_currentMinute;
     std::string m_currentQuadrumName;
 
     // ========== 辅助函数 ==========

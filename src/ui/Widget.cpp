@@ -35,6 +35,8 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_currentYear(1)   // 初始化新增变量
     , m_currentDay(1)    // 初始化新增变量
     , m_currentQuadrumName("Aprimay") // 初始化新增变量
+    , m_currentHour(0)
+    , m_currentMinute(0)
     , m_zoomFactor(1.0)
     , m_isDragging(false)
 {
@@ -110,6 +112,8 @@ void Widget::updateStatistics()
     m_currentYear = m_currentData.current_year;
     m_currentDay = m_currentData.current_day;
     m_currentQuadrumName = m_currentData.current_quadrum_name;
+    m_currentHour = m_currentData.current_hour;
+    m_currentMinute = m_currentData.current_minute;
     // 汇总 races 数量
     for (const auto& [name, individuals] : m_currentData.race_lists) {
         int alive_count = 0;
@@ -248,6 +252,32 @@ void Widget::paintEvent(QPaintEvent *event)
     painter.drawText(20, textY, "老虎: ");
     painter.fillRect(70, textY - 14, 18, 18, getColorForName("tiger"));
     painter.drawText(95, textY, QString::number(m_tigerCount));
+
+    // ========== 步骤4: 绘制右上角时间 ==========
+    {
+        // 格式化时间字符串，例如 07:09
+        QString timeString = QString("%1:%2")
+                                 .arg(m_currentHour, 2, 10, QChar('0'))
+                                 .arg(m_currentMinute, 2, 10, QChar('0'));
+
+        // 设置字体和颜色
+        QFont timeFont("Arial", 16, QFont::Bold);
+        painter.setFont(timeFont);
+        painter.setPen(Qt::white);
+
+        // 计算文本绘制位置，使其右对齐
+        QFontMetrics fm(timeFont);
+        int textWidth = fm.horizontalAdvance(timeString);
+        int margin = 15;
+        int x = width() - textWidth - margin;
+        int y = 35; // 与信息面板顶部对齐
+
+        // 绘制带阴影的文本以增加可读性
+        painter.setPen(QColor(0, 0, 0, 120));
+        painter.drawText(x + 2, y + 2, timeString); // 阴影
+        painter.setPen(Qt::white);
+        painter.drawText(x, y, timeString); // 主文本
+    }
 }
 
 // --- 新增：实现 wheelEvent 函数 ---
