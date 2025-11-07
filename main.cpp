@@ -57,7 +57,7 @@
  * 前端线程 (1 FPS):
  * Widget::updateFrame()
  *   ├─ controller->get_data()           (获取数据快照)
- *   │   └─ 返回 EcosystemStateData
+ *   │   └─ 返回 std::shared_ptr<EcosystemStateData>
  *   │       ├─ world_width, world_height (int)
  *   │       ├─ time_step (int)
  *   │       ├─ race_lists  (map<string, vector<shared_ptr<RaceBase>>>)
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
         /**
          * 获取第一帧数据快照并输出统计信息
          * 
-         * get_data() 返回的数据结构：
+         * get_data() 返回的共享指针指向：
          * EcosystemStateData {
          *     int world_width;                                              // 世界宽度
          *     int world_height;                                             // 世界高度
@@ -275,10 +275,12 @@ int main(int argc, char *argv[])
          * 
          * race_lists / thing_lists 均为 map 类型（见 utils.h）
          */
-        EcosystemStateData initialData = controller->get_data();
+        auto initialData = controller->get_data();
         qDebug() << "生态系统初始化完成";
-        qDebug() << "世界大小:" << initialData.world_width << "x" << initialData.world_height;
-        qDebug() << "时间步:" << initialData.time_step;
+        if (initialData) {
+            qDebug() << "世界大小:" << initialData->world_width << "x" << initialData->world_height;
+            qDebug() << "时间步:" << initialData->time_step;
+        }
         
         // 统计初始种群（遍历 map）
         /**
@@ -304,29 +306,31 @@ int main(int argc, char *argv[])
          * individuals 是该物种的所有个体（智能指针列表）
          */
         qDebug() << "Races:";
-        for (const auto& [species_name, individuals] : initialData.race_lists) {
-            int alive_count = 0;
-            for (const auto& ind : individuals) {
-                if (ind && ind->alive) {
-                    alive_count++;
+        if (initialData) {
+            for (const auto& [species_name, individuals] : initialData->race_lists) {
+                int alive_count = 0;
+                for (const auto& ind : individuals) {
+                    if (ind && ind->alive) {
+                        alive_count++;
+                    }
                 }
+
+                qDebug() << "  " << QString::fromStdString(species_name)
+                         << ":" << alive_count;
             }
 
-            qDebug() << "  " << QString::fromStdString(species_name)
-                     << ":" << alive_count;
-        }
-
-        qDebug() << "Things:";
-        for (const auto& [species_name, individuals] : initialData.thing_lists) {
-            int alive_count = 0;
-            for (const auto& ind : individuals) {
-                if (ind && ind->alive) {
-                    alive_count++;
+            qDebug() << "Things:";
+            for (const auto& [species_name, individuals] : initialData->thing_lists) {
+                int alive_count = 0;
+                for (const auto& ind : individuals) {
+                    if (ind && ind->alive) {
+                        alive_count++;
+                    }
                 }
-            }
 
-            qDebug() << "  " << QString::fromStdString(species_name)
-                     << ":" << alive_count;
+                qDebug() << "  " << QString::fromStdString(species_name)
+                         << ":" << alive_count;
+            }
         }
         
         // ========== 步骤 7: 进入 Qt 事件循环 ==========
@@ -346,7 +350,7 @@ int main(int argc, char *argv[])
          * 
          * 线程通信：
          * - Widget 每秒调用 controller->get_data()
-         * - get_data() 返回数据快照（拷贝）
+         * - get_data() 返回共享指针快照
          * - 没有共享可变数据，线程安全
          * 
          * 退出条件：
