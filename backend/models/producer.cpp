@@ -29,8 +29,7 @@ Producer::Producer(Position pos, const PlantParams& params)
       max_competition_effect(params.max_competition_effect),
       base_reproduction_cooldown(params.reproduction_cooldown),
       expansion_boost(params.expansion_boost),
-      min_growth_factor(params.min_growth_factor),
-      growth_time_scale_ms(params.growth_time_scale_ms) {
+      min_growth_factor(params.min_growth_factor) {
 }
 
 // Producer的决策函数，每个tick调用一次
@@ -38,8 +37,6 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ZoneScoped; // Tracy性能分析作用域
     ThingBase::decide(ecosystem_state, rng); // 调用基类的决策逻辑
     if (!alive) return; // 如果已经死亡，则不执行任何操作
-    // 单位制对齐：1秒=30 ticks；按推进的tick数量进行缩放，兼容不同帧率/速度
-    const double dt_ticks = ecosystem_state.get_delta_ticks(); // 获取时间增量
     // 定义四个基本方向（上、下、左、右）的偏移量
     static constexpr std::array<std::pair<int, int>, 4> kCardinalOffsets{{\
         {0, -1}, {1, 0}, {0, 1}, {-1, 0}\
@@ -93,7 +90,7 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     double adjusted_growth_rate = base_growth_rate * competition_factor;
     double min_growth_rate = base_growth_rate * min_growth_factor; // 最小生长速率
     // 计算待处理的生长量
-    pending_growth = std::max(min_growth_rate, adjusted_growth_rate) * dt_ticks;
+    pending_growth = std::max(min_growth_rate, adjusted_growth_rate);
 
     // 检查是否满足繁殖条件
     const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;

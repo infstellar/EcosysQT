@@ -25,7 +25,6 @@ public:
     // 参数化竞争与时间缩放（通用）
     double expansion_boost;
     double min_growth_factor;
-    double growth_time_scale_ms;
     double pending_growth{0.0};
 
     // 构造函数

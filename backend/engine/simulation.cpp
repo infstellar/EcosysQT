@@ -11,7 +11,6 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
             running(false),
             paused(false),
-            simulation_speed(1.0),
             target_fps(30),
             stop_event(false) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
@@ -74,10 +73,6 @@ void SimulationEngine::step() {
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
 }
 
-void SimulationEngine::set_speed(double speed) {
-    simulation_speed = std::max(0.1, std::min(5.0, speed));
-}
-
 EcosystemStateData SimulationEngine::get_data() const {
     // 原子地获取可见快照指针，确保跨线程读取安全。
     std::shared_ptr<EcosystemStateData> data_ptr = std::atomic_load(&m_visible_data);
@@ -112,7 +107,7 @@ void SimulationEngine::simulation_loop() {
         }
 
         const auto frame_end = std::chrono::steady_clock::now();
-        const auto target_frame_duration = std::chrono::duration<double, std::milli>((1000.0 / target_fps) / simulation_speed);
+    const auto target_frame_duration = std::chrono::duration<double, std::milli>(1000.0 / target_fps);
         const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
 
         // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
@@ -132,9 +127,7 @@ void SimulationEngine::update_ecosystem() {
     // within the C++ EcosystemState methods.
     
     // 1. Update time (tick-based)
-    // 使用目标帧率与模拟速度计算每次更新推进的tick数量（30 ticks/秒 为基线）
-    const double dt_ticks = (30.0 / static_cast<double>(target_fps)) / static_cast<double>(simulation_speed);
-    ecosystem->update_time_ticks(dt_ticks);
+    ecosystem->update_one_tick();
 
     // 2. 分阶段并发更新
     // 使用线程池来并发处理物种的决策和应用阶段，以提高性能。
@@ -239,10 +232,6 @@ void SimulationController::reset(const EcosystemConfig& config) {
 
 void SimulationController::step() {
     engine->step();
-}
-
-void SimulationController::set_speed(double speed) {
-    engine->set_speed(speed);
 }
 
 EcosystemStateData SimulationController::get_data() const {

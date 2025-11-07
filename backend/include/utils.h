@@ -33,7 +33,6 @@ struct EcosystemStateData {
     std::map<std::string, std::vector<std::shared_ptr<RaceBase>>> race_lists;
     std::map<std::string, std::vector<std::shared_ptr<ThingBase>>> thing_lists;
     int time_step;
-    double delta_ticks; // 本次更新推进的tick数量（可为小数）
     int current_day;
     int current_quadrum;
     int current_year;

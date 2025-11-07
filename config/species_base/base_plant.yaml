@@ -6,6 +6,5 @@ plant:
   competition_radius: 30.0
   max_competition_effect: 2.0
   reproduction_cooldown: 15
-  growth_time_scale_ms: 33.3
   expansion_boost: 1.5
   min_growth_factor: 0.0005

@@ -50,7 +50,6 @@ struct PlantParams : SpeciesBaseParams {
     // 新增：引入 delta_time 相关与可调竞争因子
     double expansion_boost = 1.0;         // 低密度扩张加成（原固定2.0）
     double min_growth_factor = 0.001;     // 最低生长比例（原固定0.001）
-    double growth_time_scale_ms = 33.333333; // 生长按毫秒缩放的基准（默认一帧约33.33ms）
 };
 
 // 为自动匹配提供成员名与继承关系描述（一次性声明，保持 DRY）
@@ -60,4 +59,4 @@ BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
     (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius,mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
     mating_desire_probability))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
-    (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor, growth_time_scale_ms))
+    (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor))
