@@ -1,60 +1,50 @@
-# ------------------------------------
-#  牛 (Cow) 的行为树定义 (YAML 格式)
-# ------------------------------------
-ThinkTreeDef:
+schema_version: 1
+BehaviorTreeDef:
   defName: Cow
-  thinkRoot:
-    Class: ThinkNode_Priority
-    subNodes:
-      # ==================================
-      # 1. 最高优先级：紧急生存状态
-      # ==================================
-      - Class: ThinkNode_Subtree
-        treeDef: Downed
-      - Class: ThinkNode_Subtree
-        treeDef: BurningResponse
-      - Class: ThinkNode_Subtree
-        treeDef: MentalStateCritical
-      - Class: JobGiver_ReactToCloseMeleeThreat
+  root:
+    type: PrioritySelector
+    children:
+      # ========== 交配（雄性） ==========
+      - type: Sequence
+        name: Mate
+        children:
+          - type: Condition
+            cond: sex_is_male                # Animal::sex == MALE
+          - type: Condition
+            cond: can_reproduce              # Animal::can_reproduce()
+          - type: Condition
+            cond: desire_below_param         # 随机数 < mating_desire_probability
+            params:
+              probability_param: mating_desire_probability
+          - type: Action
+            action: find_available_mate      # Animal::find_available_mate(world)
+          - type: Action
+            action: approach_or_mate         # 近则提交 AttemptToMateRequest；远则设定 mating_target
+            params:
+              mating_range_param: mating_range
 
-      # ==================================
-      # 2. 次高优先级：快饿死时寻找食物 (节能模式)
-      # ==================================
-      - Class: ThinkNode_ConditionalStarving
-        subNodes:
-          - Class: JobGiver_GetFood
-            # Amble(漫步)模式，对应低移速和低能耗
-            locomotionUrgency: Amble
-            # YAML中的注释
-            comment: "濒死：缓慢移动以节约能量寻找草料。"
+      # ========== 觅食（草） ==========
+      - type: Sequence
+        name: Forage
+        children:
+          - type: Condition
+            cond: is_hungry                  # hunger_state != SATISFIED
+          - type: Condition
+            cond: has_food_types             # !food_types.empty()
+          - type: Action
+            action: eat_nearby_thing         # 就近吃草 AttemptToEatThingRequest
+            params:
+              kind: grass
+              range_param: eating_range
+          - type: Action
+            action: select_target_point      # 远处食物目标选择（保留现有实现）
+          - type: Action
+            action: plan_path_to_target      # 路径规划至 current_target
 
-      # ==================================
-      # 3. 常规优先级：正常饥饿时寻找食物 (高效模式)
-      # ==================================
-      - Class: ThinkNode_ConditionalHungry
-        subNodes:
-          - Class: JobGiver_GetFood
-            # Sprint(冲刺)模式，对应高移速和高能耗
-            locomotionUrgency: Sprint
-            comment: "饥饿：快速移动以高效地寻找草料。"
-
-      # ==================================
-      # 4. 低优先级：吃饱后的行为
-      # ==================================
-      - Class: ThinkNode_ChancePerHour_Constant
-        # 平均每4小时尝试一次繁殖
-        mtbHours: 4
-        subNodes:
-          - Class: ThinkNode_ConditionalCanMate
-            subNodes:
-              # 繁殖行为本身是高能耗的
-              - Class: JobGiver_Mate
-
-      - Class: JobGiver_WanderAnywhere
-        maxDanger: Deadly
-        ticksBetweenWandersRange: 300~600
-
-      # ==================================
-      # 5. 最低优先级：空闲和错误处理
-      # ==================================
-      - Class: JobGiver_IdleError
+      # ========== 游荡 ==========
+      - type: Action
+        name: Wander
+        action: wander_anywhere
+        params:
+          radius_param: wander_radius
+          duration_param: wandering_duration

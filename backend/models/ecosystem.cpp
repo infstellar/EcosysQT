@@ -325,6 +325,8 @@ void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
  *    这确保了在决策阶段，所有空间查询（如邻居查找）都使用最新的数据。
  */
 void EcosystemState::prepare_for_update() {
+    // 标记当前阶段为准备阶段
+    current_phase = UpdatePhase::Prepare;
     staged_requests.clear();      // 清空暂存的交互请求
     main_thread_requests.clear(); // 清空主线程处理的请求
     race_energy_changes.clear();  // 清空能量变化记录
@@ -360,6 +362,8 @@ void EcosystemState::prepare_for_update() {
  * @param pool 用于执行任务的线程池。
  */
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
+    // 标记当前阶段为决策阶段
+    current_phase = UpdatePhase::Decision;
     // 定义每个任务处理的个体数量。选择一个较大的值可以减少任务创建的开销，
     // 但也可能导致负载不均。1024 是一个在开销和负载均衡之间的合理权衡。
     constexpr std::size_t chunk_size = 1024;
@@ -474,6 +478,8 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
  * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
  */
 void EcosystemState::resolve_interactions() {
+    // 标记当前阶段为交互解决阶段
+    current_phase = UpdatePhase::Resolve;
     // 清空上一轮的暂存请求。
     staged_requests.clear();
     // 将所有工作线程的本地请求队列中的请求移动到统一的 `staged_requests` 队列中。
@@ -564,6 +570,8 @@ void EcosystemState::resolve_interactions() {
  * @param pool 要使用的线程池。
  */
 void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
+    // 标记当前阶段为应用阶段
+    current_phase = UpdatePhase::Apply;
     constexpr std::size_t chunk_size = 1024;
 
     const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<RaceBase>>& list,
@@ -635,6 +643,8 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
  * 并发控制和逻辑。
  */
 void EcosystemState::apply_registry_changes() {
+    // 标记当前阶段为最终化阶段
+    current_phase = UpdatePhase::Finalize;
     // --- 阶段 3/4：应用变更 --- 
     // 遍历所有物种，处理繁殖、死亡和能量变化。
 
@@ -796,6 +806,9 @@ void EcosystemState::apply_registry_changes() {
     thing_energy_changes.clear();
     staged_requests.clear();
     reproduction_parents.clear();
+
+    // 重置为 Idle，准备进入下一轮更新
+    current_phase = UpdatePhase::Idle;
 }
 
 /**
@@ -813,6 +826,14 @@ std::mt19937& EcosystemState::get_thread_local_rng() {
  * @param request 要提交的交互请求。
  */
 void EcosystemState::submit_interaction_request(InteractionRequest request) {
+    // 仅允许在决策阶段提交交互请求，其他阶段拒绝并记录日志
+    if (current_phase != UpdatePhase::Decision) {
+        auto logger = spdlog::get("ecosim");
+        if (logger) {
+            logger->warn("Rejecting interaction request outside Decision phase (phase={})", static_cast<int>(current_phase));
+        }
+        return;
+    }
     // 如果当前线程有一个活动的请求队列（在工作线程中），则将请求添加到该队列。
     if (tls_active_queue) {
         tls_active_queue->push_back(std::move(request));

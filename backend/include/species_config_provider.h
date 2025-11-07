@@ -3,6 +3,8 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <mutex>
 #include "species_params.h"
 
 // 抽象配置提供者：按物种返回强类型参数
@@ -26,4 +28,9 @@ public:
 
 private:
     std::string root_dir;
+    // 缓存：避免重复文件 IO 与解析
+    mutable std::unordered_map<std::string, AnimalParams> animal_cache;
+    mutable std::unordered_map<std::string, PlantParams> plant_cache;
+    // 线程安全：提供者可能被并发读取
+    mutable std::mutex cache_mutex;
 };

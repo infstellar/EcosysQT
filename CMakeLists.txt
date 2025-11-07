@@ -87,6 +87,7 @@ add_executable(MyQtApp
   backend/models/thing_base.cpp
   backend/models/producer.cpp
   backend/models/animal.cpp
+  backend/models/animal_behavior.cpp
     backend/models/race_factory.cpp
     backend/models/thing_factory.cpp
   backend/models/species_config_provider_yaml.cpp
@@ -115,3 +116,8 @@ target_compile_definitions(${PROJECT_NAME}
     PRIVATE
     TRACY_ENABLE # <--- 定义这个宏来开启分析
 )
+
+# 在 Windows 上为高精度定时器链接 winmm
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+endif()
