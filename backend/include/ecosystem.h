@@ -111,7 +111,6 @@ public:
     SpeciesPopulationData get_species_data() const;
     void reset(const EcosystemConfig& config);
     std::vector<std::string> check_extinction() const;
-    void update_things();
 
     std::size_t get_grid_index(int x, int y) const;
     Tile& get_tile(int x, int y);

@@ -305,17 +305,6 @@ void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
     thing.m_grid_y = -1;
 }
 
-void EcosystemState::update_things() {
-    auto& rng = get_thread_local_rng();
-    for (auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        thing->decide(*this, rng);
-        thing->apply(*this);
-    }
-}
-
 /**
  * @brief 为并发更新周期准备生态系统状态。
  *
@@ -408,6 +397,30 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
         });
     };
 
+    // 为植物(things)定义与动物相同的决策分派逻辑。
+    const auto submit_thing_chunk = [this, &pool](std::vector<std::shared_ptr<ThingBase>>& list,
+                                                  std::size_t begin,
+                                                  std::size_t end) {
+        pool.submit([this, &list, begin, end] {
+            const auto worker_index = ThreadPool::current_worker_index();
+            std::vector<InteractionRequest>* active_queue = nullptr;
+            if (worker_index < worker_request_queues.size()) {
+                active_queue = &worker_request_queues[worker_index];
+            }
+
+            auto* previous_queue = activate_request_queue(active_queue);
+            auto& rng = get_thread_local_rng();
+            for (std::size_t i = begin; i < end; ++i) {
+                auto& individual = list[i];
+                if (!individual) {
+                    continue;
+                }
+                individual->decide(*this, rng);
+            }
+            restore_request_queue(previous_queue);
+        });
+    };
+
     // 遍历所有已注册的物种，为它们分派决策任务。
     const auto species_names = races_registry.get_all_species_names();
     for (const auto& name : species_names) {
@@ -426,6 +439,17 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
         for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
             const std::size_t end = std::min(begin + chunk_size, list.size());
             submit_chunk(list, begin, end);
+        }
+    }
+
+    if (!m_all_things.empty()) {
+        if (m_all_things.size() <= chunk_size) {
+            submit_thing_chunk(m_all_things, 0, m_all_things.size());
+        } else {
+            for (std::size_t begin = 0; begin < m_all_things.size(); begin += chunk_size) {
+                const std::size_t end = std::min(begin + chunk_size, m_all_things.size());
+                submit_thing_chunk(m_all_things, begin, end);
+            }
         }
     }
 }
@@ -547,6 +571,20 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         });
     };
 
+    const auto submit_thing_chunk = [this, &pool](std::vector<std::shared_ptr<ThingBase>>& list,
+                                                  std::size_t begin,
+                                                  std::size_t end) {
+        pool.submit([this, &list, begin, end] {
+            for (std::size_t i = begin; i < end; ++i) {
+                auto& individual = list[i];
+                if (!individual) {
+                    continue;
+                }
+                individual->apply(*this);
+            }
+        });
+    };
+
     const auto species_names = races_registry.get_all_species_names();
     for (const auto& name : species_names) {
         auto& list = races_registry.get_species_list(name);
@@ -562,6 +600,17 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
             const std::size_t end = std::min(begin + chunk_size, list.size());
             submit_chunk(list, begin, end);
+        }
+    }
+
+    if (!m_all_things.empty()) {
+        if (m_all_things.size() <= chunk_size) {
+            submit_thing_chunk(m_all_things, 0, m_all_things.size());
+        } else {
+            for (std::size_t begin = 0; begin < m_all_things.size(); begin += chunk_size) {
+                const std::size_t end = std::min(begin + chunk_size, m_all_things.size());
+                submit_thing_chunk(m_all_things, begin, end);
+            }
         }
     }
 }
