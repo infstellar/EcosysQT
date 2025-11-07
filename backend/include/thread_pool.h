@@ -20,6 +20,14 @@ public:
     // 提交一个无参数任务到队列
     void submit(std::function<void()> task);
 
+    /**
+     * @brief 批量提交一组任务到队列，减少互斥锁竞争。
+     *
+     * 该接口一次性将多个任务放入内部队列，只需获取一次锁，显著降低
+     * 高频小任务提交时的调度开销。
+     */
+    void submit_bulk(std::vector<std::function<void()>> tasks);
+
     // 阻塞直到所有已提交的任务执行完毕
     void wait_for_completion();
 

@@ -445,22 +445,24 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
         };
     };
 
+    const std::size_t race_count = races_agg->size();
+    const std::size_t thing_count = things_agg->size();
+
     std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve(
-        (all_races_to_update.size() + all_things_to_update.size()) / chunk_size + 2);
+    master_task_list.reserve((race_count + thing_count) / chunk_size + 2);
 
     // 为动物创建任务块
-    if (!races_agg->empty()) {
-        for (std::size_t begin = 0; begin < races_agg->size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, races_agg->size());
+    if (race_count > 0) {
+        for (std::size_t begin = 0; begin < race_count; begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, race_count);
             master_task_list.push_back(make_race_chunk_task(races_agg, begin, end));
         }
     }
 
     // 为植物创建任务块
-    if (!things_agg->empty()) {
-        for (std::size_t begin = 0; begin < things_agg->size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, things_agg->size());
+    if (thing_count > 0) {
+        for (std::size_t begin = 0; begin < thing_count; begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, thing_count);
             master_task_list.push_back(make_thing_chunk_task(things_agg, begin, end));
         }
     }
@@ -471,10 +473,8 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
         std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
     }
 
-    // --- 分派：统一提交到线程池 ---
-    for (const auto& task : master_task_list) {
-        pool.submit(task);
-    }
+    // --- 分派：统一批量提交到线程池，避免重复加锁 ---
+    pool.submit_bulk(std::move(master_task_list));
 }
 
 /**
@@ -627,19 +627,21 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         };
     };
 
-    std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve(
-        (all_races_to_update.size() + all_things_to_update.size()) / chunk_size + 2);
+    const std::size_t race_count = races_agg->size();
+    const std::size_t thing_count = things_agg->size();
 
-    if (!races_agg->empty()) {
-        for (std::size_t begin = 0; begin < races_agg->size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, races_agg->size());
+    std::vector<std::function<void()>> master_task_list;
+    master_task_list.reserve((race_count + thing_count) / chunk_size + 2);
+
+    if (race_count > 0) {
+        for (std::size_t begin = 0; begin < race_count; begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, race_count);
             master_task_list.push_back(make_race_chunk_task(races_agg, begin, end));
         }
     }
-    if (!things_agg->empty()) {
-        for (std::size_t begin = 0; begin < things_agg->size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, things_agg->size());
+    if (thing_count > 0) {
+        for (std::size_t begin = 0; begin < thing_count; begin += chunk_size) {
+            const std::size_t end = std::min(begin + chunk_size, thing_count);
             master_task_list.push_back(make_thing_chunk_task(things_agg, begin, end));
         }
     }
@@ -651,9 +653,7 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
     }
 
     // 分派：统一提交
-    for (const auto& task : master_task_list) {
-        pool.submit(task);
-    }
+    pool.submit_bulk(std::move(master_task_list));
 }
 
 /**
