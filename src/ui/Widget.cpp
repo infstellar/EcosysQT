@@ -181,7 +181,33 @@ void Widget::paintEvent(QPaintEvent *event)
     
     // ========== 步骤2: 绘制所有生物 (无高亮) ==========
 
-    // 循环 1: 绘制 Races (动物)
+    // 循环 1: 绘制 Things (植物)
+    for (const auto& [name, individuals] : m_currentData.thing_lists) {
+        if (name == "grass") {
+            for (const auto& individual : individuals) {
+                if (!individual || !individual->alive) {
+                    continue;
+                }
+
+                QPointF screenPos = toScreenCoords(individual->position);
+                
+                if (!m_grassTexture.isNull()) {
+                    const double size = 20.0;
+                    QRectF targetRect(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
+                    
+                    // --- 修改：直接绘制贴图，不再使用描边函数 ---
+                    painter.drawPixmap(targetRect.toRect(), m_grassTexture);
+
+                } else {
+                    // 回退方案
+                    painter.setBrush(getColorForName(name));
+                    painter.setPen(Qt::NoPen);
+                    painter.drawEllipse(screenPos, 3, 3);
+                }
+            }
+        }
+    }
+    // 循环 2: 绘制 Races (动物)
     for (const auto& [name, individuals] : m_currentData.race_lists) {
         QPixmap* texture = nullptr;
         if (name == "cow") {
@@ -218,34 +244,6 @@ void Widget::paintEvent(QPaintEvent *event)
             }
         }
     }
-
-    // 循环 2: 绘制 Things (植物)
-    for (const auto& [name, individuals] : m_currentData.thing_lists) {
-        if (name == "grass") {
-            for (const auto& individual : individuals) {
-                if (!individual || !individual->alive) {
-                    continue;
-                }
-
-                QPointF screenPos = toScreenCoords(individual->position);
-                
-                if (!m_grassTexture.isNull()) {
-                    const double size = 20.0;
-                    QRectF targetRect(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
-                    
-                    // --- 修改：直接绘制贴图，不再使用描边函数 ---
-                    painter.drawPixmap(targetRect.toRect(), m_grassTexture);
-
-                } else {
-                    // 回退方案
-                    painter.setBrush(getColorForName(name));
-                    painter.setPen(Qt::NoPen);
-                    painter.drawEllipse(screenPos, 3, 3);
-                }
-            }
-        }
-    }
-    
     // ========== 步骤3: 绘制信息面板 ==========
     /**
      * 信息面板布局：
