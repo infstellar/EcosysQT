@@ -88,7 +88,11 @@ void SimulationEngine::update_config(const EcosystemConfig& new_config) {
     // Note: This matches Python behavior, only updating the config object.
     // The ecosystem itself is not reset here.
 }
-
+// --- 新增：实现设置目标FPS的函数 ---
+void SimulationEngine::set_target_fps(int fps) {
+    // 限制FPS在合理范围内，例如 1 到 200
+    this->target_fps = std::clamp(fps, 1, 200);
+}
 bool SimulationEngine::is_running() const {
     return running;
 }
@@ -260,6 +264,11 @@ EcosystemStateData SimulationController::get_data() const {
 
 void SimulationController::update_config(const EcosystemConfig& config) {
     engine->update_config(config);
+}
+
+// --- 新增：实现控制器对外的接口 ---
+void SimulationController::set_target_fps(int fps) {
+    engine->set_target_fps(fps);
 }
 
 bool SimulationController::is_running() const {

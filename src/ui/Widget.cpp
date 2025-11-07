@@ -9,6 +9,7 @@
 // --- 新增：包含鼠标事件头文件 ---
 #include <QWheelEvent>
 #include <QMouseEvent>
+#include <QHBoxLayout>
 
 // --- 新增：前向声明一个辅助函数 ---
 static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize);
@@ -40,6 +41,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_currentMinute(0)
     , m_zoomFactor(1.0)
     , m_isDragging(false)
+    , m_currentSpeedLevel(2)
 {
     m_backgroundImage.load(":/images/background.png");
     if (m_backgroundImage.isNull()) {
@@ -65,11 +67,55 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         qDebug() << "警告: 草贴图加载失败";
     }
 
+    // --- 创建和布局所有控制按钮 ---
+    m_restartButton = new QPushButton("重新开始", this);
+    m_pauseButton = new QPushButton("暂停", this);
+    m_slowDownButton = new QPushButton("减速 (-)", this);
+    m_speedUpButton = new QPushButton("加速 (+)", this);
+
+    // 设置按钮样式
+    QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+    m_restartButton->setStyleSheet(buttonStyle);
+    m_pauseButton->setStyleSheet(buttonStyle);
+    m_slowDownButton->setStyleSheet(buttonStyle);
+    m_speedUpButton->setStyleSheet(buttonStyle);
+
+    // --- 核心修改：使用网格布局 (Grid Layout) 实现新布局 ---
+    QGridLayout* controlsLayout = new QGridLayout();
+    controlsLayout->setSpacing(5);
+
+    // 第一行：一个居中的重启按钮
+    // 我们将它放在第0行，第1列，它将自然地居中在下面三个按钮的中间按钮之上
+    controlsLayout->addWidget(m_restartButton, 0, 1); 
+
+    // 第二行：三个控制按钮
+    controlsLayout->addWidget(m_slowDownButton, 1, 0); // 第1行，第0列
+    controlsLayout->addWidget(m_pauseButton,    1, 1); // 第1行，第1列
+    controlsLayout->addWidget(m_speedUpButton,  1, 2); // 第1行，第2列
+
+    // 将整个控件组布局设置在主窗口的右下角
+    QHBoxLayout* hLayout = new QHBoxLayout();
+    hLayout->addStretch(); // 左侧弹簧，将网格布局推到右边
+    hLayout->addLayout(controlsLayout);
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    mainLayout->addStretch(); // 顶部弹簧，将所有东西推到底部
+    mainLayout->addLayout(hLayout);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    setLayout(mainLayout);
+
+    // --- 新增：连接新按钮的信号到槽函数 ---
+    connect(m_restartButton, &QPushButton::clicked, this, &Widget::onRestartClicked);
+    connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
+    connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
+    connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
+
     
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
     m_updateTimer->start(16);
     
     if (m_controller) {
+        m_controller->set_target_fps(30);
         m_currentData = m_controller->get_data();
         updateStatistics();
         // --- 新增：初始化视图中心为世界中心 ---
@@ -178,11 +224,50 @@ void Widget::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     
-    // ========== 步骤1: 绘制背景 ==========
+    // ========== 步骤1: 绘制背景和时间遮罩 ==========
+    // 1.1 首先绘制基础背景图
     if (!m_backgroundImage.isNull()) {
         painter.drawPixmap(rect(), m_backgroundImage);
     } else {
-        painter.fillRect(rect(), QColor(34, 139, 34));
+        painter.fillRect(rect(), QColor(34, 139, 34)); // 回退方案
+    }
+
+    // 1.2 根据当前小时计算并绘制一个半透明的遮罩层
+    {
+        int alpha = 0; // 透明度 (0=完全透明, 255=完全不透明)
+        const int nightAlpha = 160; // 夜晚最暗时的透明度
+
+        // 定义一天中的四个阶段
+        const int dawnStart = 4;  // 黎明开始 (4:00)
+        const int dayStart = 8;   // 白天开始 (8:00)
+        const int duskStart = 18; // 黄昏开始 (18:00)
+        const int nightStart = 22; // 夜晚开始 (22:00)
+
+        if (m_currentHour >= nightStart || m_currentHour < dawnStart) {
+            // --- 夜晚 (22:00 - 03:59) ---
+            alpha = nightAlpha;
+        } else if (m_currentHour >= duskStart) {
+            // --- 黄昏 (18:00 - 21:59) ---
+            // 透明度从 0 (18:00) 线性增加到 nightAlpha (22:00)
+            double progress = static_cast<double>(m_currentHour - duskStart) / (nightStart - duskStart);
+            alpha = static_cast<int>(progress * nightAlpha);
+        } else if (m_currentHour >= dayStart) {
+            // --- 白天 (08:00 - 17:59) ---
+            alpha = 0; // 完全明亮，无遮罩
+        } else if (m_currentHour >= dawnStart) {
+            // --- 黎明 (04:00 - 07:59) ---
+            // 透明度从 nightAlpha (04:00) 线性减少到 0 (08:00)
+            double progress = static_cast<double>(m_currentHour - dawnStart) / (dayStart - dawnStart);
+            alpha = static_cast<int>((1.0 - progress) * nightAlpha);
+        }
+
+        // 限制 alpha 在有效范围内
+        alpha = std::clamp(alpha, 0, 255);
+
+        // 绘制遮罩
+        if (alpha > 0) {
+            painter.fillRect(rect(), QColor(0, 0, 30, alpha)); // 使用深蓝色调的遮罩，效果更自然
+        }
     }
     
     // ========== 步骤2: 收集、排序并绘制所有生物 ==========
@@ -532,4 +617,89 @@ static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& view
     double relativeY = (screenPos.y() / screenSize.height()) * visibleWorldHeight;
 
     return QPointF(viewLeft + relativeX, viewTop + relativeY);
+}
+
+// --- 新增：实现按钮的槽函数 ---
+
+void Widget::onRestartClicked()
+{
+    if (!m_controller) return;
+
+    qDebug() << "请求重新开始模拟...";
+
+    // 1. 创建一个新的、与 main.cpp 中相同的默认配置
+    EcosystemConfig newConfig(800, 600);
+    newConfig.initial_populations = {
+        {"grass", 800},
+        {"cow", 3},
+        {"tiger", 0},
+    };
+
+    // 2. 调用后端的 reset 方法
+    m_controller->reset(newConfig);
+
+    // 3. 重置前端UI状态
+    m_zoomFactor = 1.0; // 恢复默认缩放
+    m_viewCenter = QPointF(newConfig.world_width / 2.0, newConfig.world_height / 2.0); // 视图回到中心
+    m_currentSpeedLevel = 4; // 恢复默认速度等级
+    if (m_controller->is_paused()) {
+        m_pauseButton->setText("继续");
+    } else {
+        m_pauseButton->setText("暂停");
+    }
+
+
+    // 4. 立即获取一次新数据并刷新界面
+    updateFrame();
+}
+
+void Widget::onPauseResumeClicked()
+{
+    if (!m_controller) return;
+
+    if (m_controller->is_paused()) {
+        m_controller->resume();
+        m_pauseButton->setText("暂停");
+    } else {
+        m_controller->pause();
+        m_pauseButton->setText("继续");
+    }
+}
+
+void Widget::onSpeedUpClicked()
+{
+    if (!m_controller) return;
+    m_currentSpeedLevel++;
+    // --- 修改：定义新的10级速度映射表 (1-100 FPS) ---
+    const std::map<int, int> speedMap = {
+        {0, 10}, {1, 20}, {2, 30}, {3, 40}, {4, 50}, 
+        {5, 60}, {6, 70}, {7, 80}, {8, 90}, {9, 100}
+    };
+    
+    // --- 修改：更新速度等级上限为 9 ---
+    if (m_currentSpeedLevel > 9) m_currentSpeedLevel = 9;
+
+    auto it = speedMap.find(m_currentSpeedLevel);
+    if (it != speedMap.end()) {
+        m_controller->set_target_fps(it->second);
+        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+    }
+}
+
+void Widget::onSlowDownClicked()
+{
+    if (!m_controller) return;
+    m_currentSpeedLevel--;
+    // --- 修改：定义新的10级速度映射表 (1-100 FPS) ---
+    const std::map<int, int> speedMap = {
+        {0, 10}, {1, 20}, {2, 30}, {3, 40}, {4, 50}, 
+        {5, 60}, {6, 70}, {7, 80}, {8, 90}, {9, 100}
+    };
+    if (m_currentSpeedLevel < 0) m_currentSpeedLevel = 0;
+
+    auto it = speedMap.find(m_currentSpeedLevel);
+    if (it != speedMap.end()) {
+        m_controller->set_target_fps(it->second);
+        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+    }
 }
