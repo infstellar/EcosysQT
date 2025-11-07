@@ -54,6 +54,8 @@ private slots:
     void onSpeedUpClicked();
     void onSlowDownClicked();
     void onRestartClicked();
+    void onCustomSpeedClicked(); // <-- 新增：自定义速度按钮的槽函数
+
 private:
     // ========== 核心数据 ==========
     
@@ -116,6 +118,7 @@ private:
     QPushButton* m_speedUpButton;
     QPushButton* m_slowDownButton;
     QPushButton* m_restartButton; 
+    QPushButton* m_customSpeedButton; // <-- 新增：自定义速度按钮
 
     QTimer* m_updateTimer;
     // ========== 视图控制 ==========

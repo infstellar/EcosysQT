@@ -10,6 +10,8 @@
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QHBoxLayout>
+#include <QInputDialog> // <-- 新增：包含输入对话框头文件
+#include <QGridLayout>  // 确保包含了 QGridLayout
 
 // --- 新增：前向声明一个辅助函数 ---
 static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize);
@@ -69,6 +71,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 
     // --- 创建和布局所有控制按钮 ---
     m_restartButton = new QPushButton("重新开始", this);
+    m_customSpeedButton = new QPushButton("自定义速度", this); // <-- 新增
     m_pauseButton = new QPushButton("暂停", this);
     m_slowDownButton = new QPushButton("减速 (-)", this);
     m_speedUpButton = new QPushButton("加速 (+)", this);
@@ -76,6 +79,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     // 设置按钮样式
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
     m_restartButton->setStyleSheet(buttonStyle);
+    m_customSpeedButton->setStyleSheet(buttonStyle); // <-- 新增
     m_pauseButton->setStyleSheet(buttonStyle);
     m_slowDownButton->setStyleSheet(buttonStyle);
     m_speedUpButton->setStyleSheet(buttonStyle);
@@ -84,9 +88,9 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     QGridLayout* controlsLayout = new QGridLayout();
     controlsLayout->setSpacing(5);
 
-    // 第一行：一个居中的重启按钮
-    // 我们将它放在第0行，第1列，它将自然地居中在下面三个按钮的中间按钮之上
-    controlsLayout->addWidget(m_restartButton, 0, 1); 
+    // 第一行：重启按钮和自定义速度按钮
+    controlsLayout->addWidget(m_restartButton,     0, 1); // 第0行，第1列
+    controlsLayout->addWidget(m_customSpeedButton, 0, 2); // 第0行，第2列 (重启按钮右边)
 
     // 第二行：三个控制按钮
     controlsLayout->addWidget(m_slowDownButton, 1, 0); // 第1行，第0列
@@ -95,17 +99,18 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 
     // 将整个控件组布局设置在主窗口的右下角
     QHBoxLayout* hLayout = new QHBoxLayout();
-    hLayout->addStretch(); // 左侧弹簧，将网格布局推到右边
+    hLayout->addStretch();
     hLayout->addLayout(controlsLayout);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->addStretch(); // 顶部弹簧，将所有东西推到底部
+    mainLayout->addStretch();
     mainLayout->addLayout(hLayout);
     mainLayout->setContentsMargins(10, 10, 10, 10);
     setLayout(mainLayout);
 
-    // --- 新增：连接新按钮的信号到槽函数 ---
+    // --- 连接信号和槽 ---
     connect(m_restartButton, &QPushButton::clicked, this, &Widget::onRestartClicked);
+    connect(m_customSpeedButton, &QPushButton::clicked, this, &Widget::onCustomSpeedClicked); // <-- 新增
     connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
     connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
     connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
@@ -502,9 +507,16 @@ void Widget::mouseMoveEvent(QMouseEvent *event)
     if (m_isDragging) {
         QPointF delta = event->localPos() - m_lastMousePos;
 
-        // 将屏幕上的像素偏移转换为世界坐标下的偏移
-        double worldDeltaX = (delta.x() / width()) * (m_currentData.world_width / m_zoomFactor);
-        double worldDeltaY = (delta.y() / height()) * (m_currentData.world_height / m_zoomFactor);
+        // --- 修改：实现等比缩放下的拖动计算 ---
+        // 1. 获取等比缩放后的可见世界尺寸
+        double visibleWorldWidth = m_currentData.world_width / m_zoomFactor;
+        double screenAspect = (double)width() / (double)height();
+        double visibleWorldHeight = visibleWorldWidth / screenAspect;
+
+        // 2. 根据可见尺寸计算世界坐标的偏移量
+        double worldDeltaX = (delta.x() / width()) * visibleWorldWidth;
+        double worldDeltaY = (delta.y() / height()) * visibleWorldHeight;
+        // --- 修改结束 ---
 
         // 视图中心向相反方向移动
         m_viewCenter -= QPointF(worldDeltaX, worldDeltaY);
@@ -576,9 +588,13 @@ QPointF Widget::toScreenCoords(const Position& pos) const
         return QPointF();
     }
 
-    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽高
+    // --- 修改：实现等比缩放下的坐标转换 ---
+    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽度
     double visibleWorldWidth = m_currentData.world_width / m_zoomFactor;
-    double visibleWorldHeight = m_currentData.world_height / m_zoomFactor;
+    // 修复：可见高度必须根据可见宽度和屏幕宽高比计算，以保持等比缩放
+    double screenAspect = (double)width() / (double)height();
+    double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    // --- 修改结束 ---
 
     // 2. 计算视图在世界坐标系中的左上角坐标
     double viewLeft = m_viewCenter.x() - visibleWorldWidth / 2.0;
@@ -607,8 +623,12 @@ static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& view
         return QPointF();
     }
 
+    // --- 修改：实现等比缩放下的逆向坐标转换 ---
     double visibleWorldWidth = worldSize.width() / zoomFactor;
-    double visibleWorldHeight = worldSize.height() / zoomFactor;
+    // 修复：逻辑必须与 toScreenCoords 保持一致
+    double screenAspect = (double)screenSize.width() / (double)screenSize.height();
+    double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    // --- 修改结束 ---
 
     double viewLeft = viewCenter.x() - visibleWorldWidth / 2.0;
     double viewTop = viewCenter.y() - visibleWorldHeight / 2.0;
@@ -701,5 +721,52 @@ void Widget::onSlowDownClicked()
     if (it != speedMap.end()) {
         m_controller->set_target_fps(it->second);
         qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+    }
+}
+
+// --- 新增：实现自定义速度按钮的槽函数 ---
+void Widget::onCustomSpeedClicked()
+{
+    if (!m_controller) return;
+
+    // 定义速度等级与FPS的映射关系，用于获取当前速度作为默认值
+    const std::map<int, int> speedMap = {
+        {0, 10}, {1, 20}, {2, 30}, {3, 40}, {4, 50}, 
+        {5, 60}, {6, 70}, {7, 80}, {8, 90}, {9, 100}
+    };
+    int currentFps = 30; // 默认值
+    auto it = speedMap.find(m_currentSpeedLevel);
+    if (it != speedMap.end()) {
+        currentFps = it->second;
+    }
+
+    bool ok;
+    int newFps = QInputDialog::getInt(this, "设置模拟速度",
+                                      "请输入目标 FPS (1-300):",
+                                      currentFps, // 对话框的默认值
+                                      1,          // 最小值
+                                      300,        // 最大值
+                                      1,          // 步长
+                                      &ok);
+
+    if (ok) {
+        // 用户点击了“确定”
+        m_controller->set_target_fps(newFps);
+        
+        // 可选：尝试反向更新速度等级，使UI状态同步
+        int closestLevel = -1;
+        int minDiff = std::numeric_limits<int>::max();
+        for(const auto& pair : speedMap) {
+            int diff = std::abs(pair.second - newFps);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestLevel = pair.first;
+            }
+        }
+        if (closestLevel != -1) {
+            m_currentSpeedLevel = closestLevel;
+        }
+
+        qDebug() << "自定义速度已设置为:" << newFps << "FPS";
     }
 }
