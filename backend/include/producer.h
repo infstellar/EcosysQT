@@ -7,6 +7,8 @@
 
 #include <random>
 #include <optional>
+#include <vector>
+#include <utility>
 #include "utils.h"
 #include "thing_base.h"
 
@@ -27,8 +29,8 @@ public:
     double min_growth_factor;
     double pending_growth{0.0};
 
-    // 构造函数
-    Producer(Position pos, const PlantParams& params);
+    // 构造函数（带 RNG，用于初始化随机 Tick 偏移）
+    Producer(Position pos, const PlantParams& params, std::mt19937& rng);
 
     // 通用更新流程
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
@@ -37,4 +39,17 @@ public:
     // 通用繁殖判断与实现（可被子类覆盖）
     bool can_reproduce() const override;
     std::unique_ptr<ThingBase> reproduce(const EcosystemState& ecosystem_state) override;
+
+protected:
+    // 每个实例的随机 Tick 偏移，用于与全局 Tick 解耦
+    int m_tick_offset{0};
+    // 生长逻辑：根据邻居密度计算 pending_growth
+    void compute_growth(const EcosystemState& ecosystem_state);
+    // 繁殖逻辑：根据条件尝试设置 pending_spawn_position 并提交请求
+    void attempt_reproduction(EcosystemState& ecosystem_state, std::mt19937& rng);
+    // 邻居偏移构建（Moore 邻域，8方向）
+    static std::vector<std::pair<int, int>> build_neighbor_offsets();
+    static constexpr int GROWTH_CHECK_INTERVAL = 1800;
+    static constexpr int REPRODUCTION_CHECK_INTERVAL = 3600;
+    static constexpr int MAX_INTERVAL = 3600;
 };

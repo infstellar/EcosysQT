@@ -67,9 +67,9 @@ static void scan_and_register_plants(const std::string& directory_path) {
     for (const QFileInfo& fi : files) {
         const std::string def_name = fi.baseName().toStdString();
 
-        g_thing_factory.register_species(def_name, [yaml_provider, def_name](Position pos, std::mt19937& /*rng*/) {
+        g_thing_factory.register_species(def_name, [yaml_provider, def_name](Position pos, std::mt19937& rng) {
             PlantParams params = yaml_provider->get_plant_params(def_name);
-            auto instance = std::make_unique<Producer>(pos, params);
+            auto instance = std::make_unique<Producer>(pos, params, rng);
             instance->species_name = def_name;
             return instance;
         });
