@@ -121,6 +121,8 @@ static void apply_yaml_fields_by_name(const YAML::Node& node, T& params) {
         try {
             if constexpr (std::is_same_v<Member, int>) {
                 (params.*ptr) = node[name].as<int>();
+            } else if constexpr (std::is_same_v<Member, bool>) {
+                (params.*ptr) = node[name].as<bool>();
             } else if constexpr (std::is_same_v<Member, double>) {
                 (params.*ptr) = node[name].as<double>();
             } else if constexpr (std::is_same_v<Member, std::vector<std::string>>) {

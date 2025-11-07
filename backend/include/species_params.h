@@ -15,6 +15,7 @@ struct SpeciesBaseParams {
 
 // 动物通用参数（继承基础物种）
 struct AnimalParams : SpeciesBaseParams {
+    bool use_bt = false;            // 是否启用行为树
     double movement_speed = 1.0;
     int energy_consumption = 1;
     double hunting_range = 5.0;
@@ -56,7 +57,7 @@ struct PlantParams : SpeciesBaseParams {
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius,mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
+    (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius,mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
     mating_desire_probability))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor))

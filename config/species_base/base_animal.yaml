@@ -16,6 +16,7 @@ animal:
   wandering_duration: 50
   wander_radius: 40.0
   energy_efficiency: 1.0
+  use_bt: false
   mating_duration: 5      
   pregnancy_duration: 100  
   mating_range: 5.0        
