@@ -224,11 +224,50 @@ void Widget::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     
-    // ========== 步骤1: 绘制背景 ==========
+    // ========== 步骤1: 绘制背景和时间遮罩 ==========
+    // 1.1 首先绘制基础背景图
     if (!m_backgroundImage.isNull()) {
         painter.drawPixmap(rect(), m_backgroundImage);
     } else {
-        painter.fillRect(rect(), QColor(34, 139, 34));
+        painter.fillRect(rect(), QColor(34, 139, 34)); // 回退方案
+    }
+
+    // 1.2 根据当前小时计算并绘制一个半透明的遮罩层
+    {
+        int alpha = 0; // 透明度 (0=完全透明, 255=完全不透明)
+        const int nightAlpha = 160; // 夜晚最暗时的透明度
+
+        // 定义一天中的四个阶段
+        const int dawnStart = 4;  // 黎明开始 (4:00)
+        const int dayStart = 8;   // 白天开始 (8:00)
+        const int duskStart = 18; // 黄昏开始 (18:00)
+        const int nightStart = 22; // 夜晚开始 (22:00)
+
+        if (m_currentHour >= nightStart || m_currentHour < dawnStart) {
+            // --- 夜晚 (22:00 - 03:59) ---
+            alpha = nightAlpha;
+        } else if (m_currentHour >= duskStart) {
+            // --- 黄昏 (18:00 - 21:59) ---
+            // 透明度从 0 (18:00) 线性增加到 nightAlpha (22:00)
+            double progress = static_cast<double>(m_currentHour - duskStart) / (nightStart - duskStart);
+            alpha = static_cast<int>(progress * nightAlpha);
+        } else if (m_currentHour >= dayStart) {
+            // --- 白天 (08:00 - 17:59) ---
+            alpha = 0; // 完全明亮，无遮罩
+        } else if (m_currentHour >= dawnStart) {
+            // --- 黎明 (04:00 - 07:59) ---
+            // 透明度从 nightAlpha (04:00) 线性减少到 0 (08:00)
+            double progress = static_cast<double>(m_currentHour - dawnStart) / (dayStart - dawnStart);
+            alpha = static_cast<int>((1.0 - progress) * nightAlpha);
+        }
+
+        // 限制 alpha 在有效范围内
+        alpha = std::clamp(alpha, 0, 255);
+
+        // 绘制遮罩
+        if (alpha > 0) {
+            painter.fillRect(rect(), QColor(0, 0, 30, alpha)); // 使用深蓝色调的遮罩，效果更自然
+        }
     }
     
     // ========== 步骤2: 收集、排序并绘制所有生物 ==========
