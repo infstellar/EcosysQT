@@ -67,32 +67,45 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         qDebug() << "警告: 草贴图加载失败";
     }
 
-    // --- 新增：创建和布局控制按钮 ---
+    // --- 创建和布局所有控制按钮 ---
+    m_restartButton = new QPushButton("重新开始", this);
     m_pauseButton = new QPushButton("暂停", this);
     m_slowDownButton = new QPushButton("减速 (-)", this);
     m_speedUpButton = new QPushButton("加速 (+)", this);
 
     // 设置按钮样式
-    QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+    QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+    m_restartButton->setStyleSheet(buttonStyle);
     m_pauseButton->setStyleSheet(buttonStyle);
     m_slowDownButton->setStyleSheet(buttonStyle);
     m_speedUpButton->setStyleSheet(buttonStyle);
 
-    // 使用水平布局管理器来放置按钮
-    QHBoxLayout* layout = new QHBoxLayout();
-    layout->addStretch(); // 添加一个弹簧，将按钮推到右边
-    layout->addWidget(m_slowDownButton);
-    layout->addWidget(m_pauseButton);
-    layout->addWidget(m_speedUpButton);
-    layout->setContentsMargins(0, 0, 10, 10); // 设置外边距
+    // --- 核心修改：使用网格布局 (Grid Layout) 实现新布局 ---
+    QGridLayout* controlsLayout = new QGridLayout();
+    controlsLayout->setSpacing(5);
 
-    // 将这个布局设置在主窗口的底部
+    // 第一行：一个居中的重启按钮
+    // 我们将它放在第0行，第1列，它将自然地居中在下面三个按钮的中间按钮之上
+    controlsLayout->addWidget(m_restartButton, 0, 1); 
+
+    // 第二行：三个控制按钮
+    controlsLayout->addWidget(m_slowDownButton, 1, 0); // 第1行，第0列
+    controlsLayout->addWidget(m_pauseButton,    1, 1); // 第1行，第1列
+    controlsLayout->addWidget(m_speedUpButton,  1, 2); // 第1行，第2列
+
+    // 将整个控件组布局设置在主窗口的右下角
+    QHBoxLayout* hLayout = new QHBoxLayout();
+    hLayout->addStretch(); // 左侧弹簧，将网格布局推到右边
+    hLayout->addLayout(controlsLayout);
+
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->addStretch();
-    mainLayout->addLayout(layout);
+    mainLayout->addStretch(); // 顶部弹簧，将所有东西推到底部
+    mainLayout->addLayout(hLayout);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
     setLayout(mainLayout);
 
-    // --- 新增：连接按钮信号到槽函数 ---
+    // --- 新增：连接新按钮的信号到槽函数 ---
+    connect(m_restartButton, &QPushButton::clicked, this, &Widget::onRestartClicked);
     connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
     connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
     connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
@@ -568,6 +581,38 @@ static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& view
 }
 
 // --- 新增：实现按钮的槽函数 ---
+
+void Widget::onRestartClicked()
+{
+    if (!m_controller) return;
+
+    qDebug() << "请求重新开始模拟...";
+
+    // 1. 创建一个新的、与 main.cpp 中相同的默认配置
+    EcosystemConfig newConfig(800, 600);
+    newConfig.initial_populations = {
+        {"grass", 800},
+        {"cow", 3},
+        {"tiger", 0},
+    };
+
+    // 2. 调用后端的 reset 方法
+    m_controller->reset(newConfig);
+
+    // 3. 重置前端UI状态
+    m_zoomFactor = 1.0; // 恢复默认缩放
+    m_viewCenter = QPointF(newConfig.world_width / 2.0, newConfig.world_height / 2.0); // 视图回到中心
+    m_currentSpeedLevel = 4; // 恢复默认速度等级
+    if (m_controller->is_paused()) {
+        m_pauseButton->setText("继续");
+    } else {
+        m_pauseButton->setText("暂停");
+    }
+
+
+    // 4. 立即获取一次新数据并刷新界面
+    updateFrame();
+}
 
 void Widget::onPauseResumeClicked()
 {

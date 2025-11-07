@@ -10,6 +10,7 @@
 #include "ecosystem.h"  // 用于 EcosystemStateData
 #include "utils.h"      // 用于 Position
 #include <QPushButton>
+#include <QVBoxLayout>
 
 class SimulationController;  // 前向声明
 
@@ -52,7 +53,7 @@ private slots:
     void onPauseResumeClicked();
     void onSpeedUpClicked();
     void onSlowDownClicked();
-
+    void onRestartClicked();
 private:
     // ========== 核心数据 ==========
     
@@ -114,6 +115,7 @@ private:
     QPushButton* m_pauseButton;
     QPushButton* m_speedUpButton;
     QPushButton* m_slowDownButton;
+    QPushButton* m_restartButton; 
 
     QTimer* m_updateTimer;
     // ========== 视图控制 ==========
