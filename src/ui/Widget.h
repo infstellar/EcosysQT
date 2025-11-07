@@ -100,8 +100,11 @@ private:
     // ========== UI 资源 ==========
     
     QPixmap m_backgroundImage;
+    QPixmap m_cowTexture;
+    QPixmap m_tigerTexture;
+    QPixmap m_grassTexture;
+
     QTimer* m_updateTimer;
-    
     // ========== 视图控制 ==========
     double m_zoomFactor;   // 缩放因子
     QPointF m_viewCenter;  // 视图中心点（世界坐标）
