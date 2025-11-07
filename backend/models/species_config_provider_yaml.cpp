@@ -199,16 +199,59 @@ YamlSpeciesConfigProvider::YamlSpeciesConfigProvider(std::string config_root_dir
     : root_dir(std::move(config_root_dir)) {}
 
 AnimalParams YamlSpeciesConfigProvider::get_animal_params(const std::string& name) const {
+    // 先尝试命中缓存
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto it = animal_cache.find(name);
+        if (it != animal_cache.end()) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Animal params cache hit for '{}'", name);
+            return it->second;
+        }
+    }
+
     AnimalParams params{}; // 使用结构体自身默认作为最终兜底
     load_params_recursive<AnimalParams>(name, params, root_dir);
     postprocess_params(params);
+
+    // 写入缓存（双检）
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto [it, inserted] = animal_cache.emplace(name, params);
+        if (!inserted) {
+            // 竞争条件下可能已有值，保持已有值即可
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Animal params cache already populated for '{}'", name);
+        } else {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Animal params cached for '{}'", name);
+        }
+    }
     return params;
 }
 
 PlantParams YamlSpeciesConfigProvider::get_plant_params(const std::string& name) const {
+    // 先尝试命中缓存
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto it = plant_cache.find(name);
+        if (it != plant_cache.end()) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Plant params cache hit for '{}'", name);
+            return it->second;
+        }
+    }
+
     PlantParams params{};
     load_params_recursive<PlantParams>(name, params, root_dir);
     postprocess_params(params);
+
+    // 写入缓存（双检）
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto [it, inserted] = plant_cache.emplace(name, params);
+        if (!inserted) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Plant params cache already populated for '{}'", name);
+        } else {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Plant params cached for '{}'", name);
+        }
+    }
     return params;
 }
 
