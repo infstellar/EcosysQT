@@ -5,7 +5,12 @@
 #include <QPainter>
 #include <QDebug>
 #include <algorithm>
+// --- 新增：包含鼠标事件头文件 ---
+#include <QWheelEvent>
+#include <QMouseEvent>
 
+// --- 新增：前向声明一个辅助函数 ---
+static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize);
 /**
  * 构造函数实现
  * 
@@ -30,6 +35,8 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_currentYear(1)   // 初始化新增变量
     , m_currentDay(1)    // 初始化新增变量
     , m_currentQuadrumName("Aprimay") // 初始化新增变量
+    , m_zoomFactor(1.0)
+    , m_isDragging(false)
 {
     m_backgroundImage.load(":/images/grass.png");
     if (m_backgroundImage.isNull()) {
@@ -43,6 +50,8 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     if (m_controller) {
         m_currentData = m_controller->get_data();
         updateStatistics();
+        // --- 新增：初始化视图中心为世界中心 ---
+        m_viewCenter = QPointF(m_currentData.world_width / 2.0, m_currentData.world_height / 2.0);
     }
 }
 
@@ -241,6 +250,126 @@ void Widget::paintEvent(QPaintEvent *event)
     painter.drawText(95, textY, QString::number(m_tigerCount));
 }
 
+// --- 新增：实现 wheelEvent 函数 ---
+/**
+ * 鼠标滚轮事件处理函数
+ * 
+ * @param event 滚轮事件对象
+ * 
+ * 逻辑：
+ * 1. 获取鼠标当前在屏幕上的位置。
+ * 2. 将该屏幕位置转换为缩放前的世界坐标。
+ * 3. 根据滚轮方向，计算新的缩放因子 m_zoomFactor。
+ * 4. 将该屏幕位置转换为缩放后的世界坐标。
+ * 5. 计算两次世界坐标的差值，并用这个差值来平移视图中心 m_viewCenter。
+ * 6. 触发界面重绘。
+ * 
+ * 效果：实现以鼠标指针为中心的缩放。
+ */
+void Widget::wheelEvent(QWheelEvent *event)
+{
+    const QPointF mousePos = event->position();
+    const QSize worldSize(m_currentData.world_width, m_currentData.world_height);
+
+    // 1. 记录缩放前的世界坐标
+    const QPointF worldPosBeforeZoom = screenToWorldCoords(mousePos, m_viewCenter, m_zoomFactor, size(), worldSize);
+
+    // 2. 计算新的缩放因子
+    const double zoomStep = 1.15;
+    if (event->angleDelta().y() > 0) {
+        m_zoomFactor *= zoomStep;
+    } else {
+        m_zoomFactor /= zoomStep;
+    }
+    m_zoomFactor = std::clamp(m_zoomFactor, 0.1, 20.0);
+
+    // 3. 记录缩放后的世界坐标
+    const QPointF worldPosAfterZoom = screenToWorldCoords(mousePos, m_viewCenter, m_zoomFactor, size(), worldSize);
+
+    // 4. 移动视图中心，以保持鼠标下的点位置不变
+    m_viewCenter += (worldPosBeforeZoom - worldPosAfterZoom);
+
+    update(); // 请求重绘
+}
+
+// --- 新增：实现鼠标按下事件 ---
+/**
+ * 鼠标按下事件处理函数
+ * 
+ * @param event 鼠标事件对象
+ * 
+ * 逻辑：
+ * 1. 检查是否是鼠标中键被按下。
+ * 2. 如果是，则将 m_isDragging 设为 true，并记录当前鼠标位置。
+ * 3. 设置鼠标光标为“抓手”形状，提供视觉反馈。
+ */
+void Widget::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::MiddleButton) {
+        m_isDragging = true;
+        m_lastMousePos = event->localPos();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+// --- 新增：实现鼠标移动事件 ---
+/**
+ * 鼠标移动事件处理函数
+ * 
+ * @param event 鼠标事件对象
+ * 
+ * 逻辑：
+ * 1. 检查 m_isDragging 是否为 true。
+ * 2. 如果是，则计算鼠标从上一次位置移动的偏移量（屏幕坐标）。
+ * 3. 将这个屏幕偏移量转换为世界坐标下的偏移量。
+ * 4. 从视图中心 m_viewCenter 中减去这个世界偏移量，实现视图的平移。
+ * 5. 更新上一次鼠标位置。
+ * 6. 触发重绘。
+ */
+void Widget::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_isDragging) {
+        QPointF delta = event->localPos() - m_lastMousePos;
+
+        // 将屏幕上的像素偏移转换为世界坐标下的偏移
+        double worldDeltaX = (delta.x() / width()) * (m_currentData.world_width / m_zoomFactor);
+        double worldDeltaY = (delta.y() / height()) * (m_currentData.world_height / m_zoomFactor);
+
+        // 视图中心向相反方向移动
+        m_viewCenter -= QPointF(worldDeltaX, worldDeltaY);
+
+        m_lastMousePos = event->localPos();
+        update();
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+// --- 新增：实现鼠标释放事件 ---
+/**
+ * 鼠标释放事件处理函数
+ * 
+ * @param event 鼠标事件对象
+ * 
+ * 逻辑：
+ * 1. 检查是否是鼠标中键被释放。
+ * 2. 如果是，则将 m_isDragging 设为 false，并恢复鼠标光标形状。
+ */
+void Widget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::MiddleButton) {
+        m_isDragging = false;
+        setCursor(Qt::ArrowCursor);
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
 QColor Widget::getColorForName(const std::string& name) const
 {
     if (name == "grass") {
@@ -275,11 +404,49 @@ QColor Widget::getColorForName(const std::string& name) const
  */
 QPointF Widget::toScreenCoords(const Position& pos) const
 {
-    double worldWidth = m_currentData.world_width;
-    double worldHeight = m_currentData.world_height;
-    
-    double screenX = (pos.x / worldWidth) * width();
-    double screenY = (pos.y / worldHeight) * height();
-    
+    if (m_currentData.world_width <= 0 || m_currentData.world_height <= 0) {
+        return QPointF();
+    }
+
+    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽高
+    double visibleWorldWidth = m_currentData.world_width / m_zoomFactor;
+    double visibleWorldHeight = m_currentData.world_height / m_zoomFactor;
+
+    // 2. 计算视图在世界坐标系中的左上角坐标
+    double viewLeft = m_viewCenter.x() - visibleWorldWidth / 2.0;
+    double viewTop = m_viewCenter.y() - visibleWorldHeight / 2.0;
+
+    // 3. 计算目标点相对于视图左上角的偏移
+    double relativeX = pos.x - viewLeft;
+    double relativeY = pos.y - viewTop;
+
+    // 4. 将相对偏移按比例映射到屏幕坐标
+    double screenX = (relativeX / visibleWorldWidth) * width();
+    double screenY = (relativeY / visibleWorldHeight) * height();
+
     return QPointF(screenX, screenY);
+}
+
+// --- 新增：实现屏幕到世界坐标的转换辅助函数 ---
+/**
+ * 将屏幕坐标转换为世界坐标
+ * 
+ * 这是 toScreenCoords 的逆运算
+ */
+static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize)
+{
+    if (worldSize.width() <= 0 || worldSize.height() <= 0) {
+        return QPointF();
+    }
+
+    double visibleWorldWidth = worldSize.width() / zoomFactor;
+    double visibleWorldHeight = worldSize.height() / zoomFactor;
+
+    double viewLeft = viewCenter.x() - visibleWorldWidth / 2.0;
+    double viewTop = viewCenter.y() - visibleWorldHeight / 2.0;
+
+    double relativeX = (screenPos.x() / screenSize.width()) * visibleWorldWidth;
+    double relativeY = (screenPos.y() / screenSize.height()) * visibleWorldHeight;
+
+    return QPointF(viewLeft + relativeX, viewTop + relativeY);
 }

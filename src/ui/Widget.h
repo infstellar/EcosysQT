@@ -38,6 +38,12 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    // 新增：声明鼠标滚轮和鼠标移动事件处理器
+    void wheelEvent(QWheelEvent *event) override;
+    // --- 新增：声明鼠标按下、移动和释放事件处理器 ---
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
 private slots:
     void updateFrame();  // 每秒更新一次
@@ -96,15 +102,21 @@ private:
     QPixmap m_backgroundImage;
     QTimer* m_updateTimer;
     
+    // ========== 视图控制 ==========
+    double m_zoomFactor;   // 缩放因子
+    QPointF m_viewCenter;  // 视图中心点（世界坐标）
+    bool m_isDragging;     // 是否正在拖动视图
+    QPointF m_lastMousePos; // 上一次鼠标的位置
+
     // ========== 统计数据缓存 ==========
     
     int m_grassCount;
     int m_cowCount;
     int m_tigerCount;
-    int m_timeStep;
-    int m_currentYear;          // 当前年份
-    int m_currentDay;           // 当前天数
-    std::string m_currentQuadrumName; // 当前季度名称
+    uint64_t m_timeStep;
+    int m_currentYear;
+    int m_currentDay;
+    std::string m_currentQuadrumName;
 
     // ========== 辅助函数 ==========
     
@@ -119,8 +131,6 @@ private:
      * 注意：参数类型是 Position，不是 PositionData
      */
     QPointF toScreenCoords(const Position& pos) const;
-    
-    
 };
 
 #endif // WIDGET_H
