@@ -4,14 +4,37 @@
 
 class ThingBase;
 
-enum class BiomeType {
+// 地形类型（原 BiomeType）
+enum class TerrainType {
     LAND,
-    WATER
+    WATER,
+    SHALLOW_RIVER,
+    DEEP_RIVER,
+    SHALLOW_OCEAN,
+    DEEP_OCEAN,
+    SAND,
+    INLAND_SAND,
+    HILLS,
+    MOUNTAIN
+};
+
+// 生物群系类型（原 ClimateZone）
+enum class BiomeType {
+    Temperate,
+    Tropical,
+    Frigid,
+    Polar
 };
 
 struct Tile {
-    BiomeType biome { BiomeType::LAND };
+    TerrainType terrain { TerrainType::LAND };
     double elevation {0.0};
     double moisture {0.0};
+    BiomeType biome { BiomeType::Temperate };
+    int fertility {0};
+    double longitude {0.0};
+    double latitude {0.0};
+    double temperature {0.0};
+    int local_hour {0};
     std::vector<ThingBase*> things;
 };

@@ -121,7 +121,7 @@ void EcosystemState::initialize_populations() {
                 int tile_x = dist_tile_x(rng);
                 int tile_y = dist_tile_y(rng);
                 Tile& tile = get_tile(tile_x, tile_y);
-                if (tile.biome != BiomeType::LAND || !tile.things.empty()) {
+                if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
                     continue;
                 }
 
