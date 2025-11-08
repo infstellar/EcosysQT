@@ -16,6 +16,7 @@
 // 前向声明
 class EcosystemState;
 struct AnimalParams;
+class ThingBase;
 
 // 动物饱食状态枚举
 enum class HungerState {
@@ -130,6 +131,15 @@ protected:
     // 交配意图锁定，防止与捕食来回切换
     int mating_intent_lock_ticks{0};
     int mating_intent_lock_duration{30};
+
+    // 觅食意图锁定，防止与交配来回切换
+    int forage_intent_lock_ticks{0};
+    int forage_intent_lock_duration{20};
+
+    // 本 tick 感知缓存（弱引用，避免循环与跨帧残留）
+    std::vector<std::weak_ptr<RaceBase>> cached_food_races;
+    std::vector<std::weak_ptr<ThingBase>> cached_food_things;
+    std::vector<std::weak_ptr<Animal>> cached_mates;
 
     // 饱食状态更新与属性调整
     void update_hunger_state();

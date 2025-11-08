@@ -36,6 +36,10 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
 
         // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
         self.skip_movement = false;
+        // 清理上一帧感知缓存
+        self.cached_food_races.clear();
+        self.cached_food_things.clear();
+        self.cached_mates.clear();
 
         // 注：skip_movement 仅由本 tick 的具体动作设置（交配、分娩、近场吃草/捕食），
         // 不再从黑板读取跨 tick 标记，避免装饰器未被执行时残留导致卡住。
@@ -43,13 +47,27 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
         self.update_hunger_state();
 
-        // 求偶意图锁定与释放
+        // 从黑板读取意图锁定时长（可由 YAML 配置覆盖）
+        if (ctx.blackboard) {
+            auto& bb = *ctx.blackboard;
+            if (bb.ints.find("mating_intent_lock_duration") != bb.ints.end()) {
+                self.mating_intent_lock_duration = std::max(0, bb.ints["mating_intent_lock_duration"]);
+            }
+            if (bb.ints.find("forage_intent_lock_duration") != bb.ints.end()) {
+                self.forage_intent_lock_duration = std::max(0, bb.ints["forage_intent_lock_duration"]);
+            }
+        }
+
+        // 求偶/觅食意图锁定推进与释放
         if (self.mating_intent_lock_ticks > 0) {
             self.mating_intent_lock_ticks -= 1;
         } else {
             if (self.mating_target.has_value() && self.hunger_state == HungerState::STARVING) {
                 self.mating_target.reset();
             }
+        }
+        if (self.forage_intent_lock_ticks > 0) {
+            self.forage_intent_lock_ticks -= 1;
         }
 
         // 进行中的交配计时器
@@ -151,6 +169,43 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                 base_speed_multiplier *= std::max(0.0, self.pregnancy_speed_penalty);
             }
             bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
+
+            // --- 缓存：探测范围内的食物/配偶列表 ---
+            // mates: 同种雌性，且可繁殖
+            {
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
+                for (const auto& r : nearby_races) {
+                    if (!r || !r->alive) continue;
+                    if (r.get() == &self) continue;
+                    if (r->species_name != self.species_name) continue;
+                    auto female = std::dynamic_pointer_cast<Animal>(r);
+                    if (!female) continue;
+                    if (female->sex != Sex::FEMALE || !female->can_reproduce()) continue;
+                    if (self.position.distance_to(female->position) > self.detection_range) continue;
+                    self.cached_mates.emplace_back(female);
+                }
+                bb.ints["perceived_mates_count"] = static_cast<int>(self.cached_mates.size());
+            }
+
+            // food: races 可食 + things 可食（依据 food_types 列表）
+            {
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
+                for (const auto& r : nearby_races) {
+                    if (!r || !r->alive) continue;
+                    if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
+                    if (self.position.distance_to(r->position) > self.detection_range) continue;
+                    self.cached_food_races.emplace_back(r);
+                }
+                const auto nearby_things = world->get_nearby_things_broad(self.position, self.detection_range);
+                for (const auto& t : nearby_things) {
+                    if (!t || !t->alive) continue;
+                    if (std::find(self.food_types.begin(), self.food_types.end(), t->species_name) == self.food_types.end()) continue;
+                    if (self.position.distance_to(t->position) > self.detection_range) continue;
+                    self.cached_food_things.emplace_back(t);
+                }
+                bb.ints["perceived_food_races_count"] = static_cast<int>(self.cached_food_races.size());
+                bb.ints["perceived_food_things_count"] = static_cast<int>(self.cached_food_things.size());
+            }
         }
 
         return Status::Success;
@@ -159,7 +214,8 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     // --- 交配序列：条件 -> 追配偶/提交交互 ---
     auto seq_mate = std::make_shared<Sequence>();
     seq_mate->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return self.sex == Sex::MALE && self.can_reproduce() && self.hunger_state != HungerState::STARVING;
+        // 交配条件：雄性、可繁殖、非极度饥饿，且未被觅食意图锁阻断
+        return self.sex == Sex::MALE && self.can_reproduce() && self.hunger_state != HungerState::STARVING && self.forage_intent_lock_ticks <= 0;
     }));
     seq_mate->add_child(std::make_shared<Action>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
@@ -173,11 +229,21 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             return Status::Failure; // 未命中意愿，交由后续分支
         }
 
-        auto mate_opt = self.find_available_mate(*world);
-        if (!mate_opt.has_value()) {
+        // 使用缓存的配偶列表选择最近者
+        std::shared_ptr<Animal> mate;
+        double min_d = std::numeric_limits<double>::max();
+        for (auto& wptr : self.cached_mates) {
+            auto cand = wptr.lock();
+            if (!cand || !cand->alive) continue;
+            const double d = self.position.distance_to(cand->position);
+            if (d < min_d) {
+                min_d = d;
+                mate = cand;
+            }
+        }
+        if (!mate) {
             return Status::Failure;
         }
-        auto mate = mate_opt.value();
         if (!mate || !mate->alive) {
             return Status::Failure;
         }
@@ -288,14 +354,15 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
         const double desire = self.get_hunting_desire();
         if (hunt_dist(rng_local) < self.hunting_success_rate * desire) {
-            auto nearby_races = world->get_nearby_races_broad(self.position, self.hunting_range);
-            for (const auto& race : nearby_races) {
+            for (auto& wptr : self.cached_food_races) {
+                auto race = wptr.lock();
                 if (!race || !race->alive) continue;
                 if (race.get() == &self) continue;
                 if (race->species_name != "cow") continue;
                 if (self.position.distance_to(race->position) > self.hunting_range) continue;
                 world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), race});
                 self.start_hunting_cooldown();
+                self.forage_intent_lock_ticks = self.forage_intent_lock_duration; // 近场捕食命中后短暂锁定觅食意图
                 self.skip_movement = true;
                 return Status::Running;
             }
@@ -307,29 +374,36 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     // 远处追食分支：选择目标并移动
     auto seq_chase_food = std::make_shared<Sequence>();
     seq_chase_food->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return !self.food_types.empty() && self.hunger_state != HungerState::SATISFIED;
+        // 觅食条件：有食物类型，非吃饱，且未被交配意图锁阻断
+        return !self.food_types.empty() && self.hunger_state != HungerState::SATISFIED && self.mating_intent_lock_ticks <= 0;
     }));
     seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
         if (self.skip_movement) return Status::Failure;
-        // 在探测范围内选择最近的可食目标
+        // 使用缓存选择最近的可食目标
         std::optional<Position> nearest_food;
         double min_distance = std::numeric_limits<double>::max();
-        const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
-        const auto nearby_things = world->get_nearby_things_broad(self.position, self.detection_range);
-
-        const auto consider_entity = [&](const auto& entity) {
-            if (!entity || !entity->alive) return;
-            if (std::find(self.food_types.begin(), self.food_types.end(), entity->species_name) == self.food_types.end()) return;
-            double distance = self.position.distance_to(entity->position);
+        for (auto& wptr : self.cached_food_races) {
+            auto race = wptr.lock();
+            if (!race || !race->alive) continue;
+            if (std::find(self.food_types.begin(), self.food_types.end(), race->species_name) == self.food_types.end()) continue;
+            double distance = self.position.distance_to(race->position);
             if (distance <= self.detection_range && distance < min_distance) {
                 min_distance = distance;
-                nearest_food = entity->position;
+                nearest_food = race->position;
             }
-        };
-        for (const auto& race : nearby_races) consider_entity(race);
-        for (const auto& thing : nearby_things) consider_entity(thing);
+        }
+        for (auto& wptr : self.cached_food_things) {
+            auto thing = wptr.lock();
+            if (!thing || !thing->alive) continue;
+            if (std::find(self.food_types.begin(), self.food_types.end(), thing->species_name) == self.food_types.end()) continue;
+            double distance = self.position.distance_to(thing->position);
+            if (distance <= self.detection_range && distance < min_distance) {
+                min_distance = distance;
+                nearest_food = thing->position;
+            }
+        }
 
         if (nearest_food.has_value()) {
             self.current_target = nearest_food.value();
@@ -340,6 +414,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             const double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_speed_multiplier")) ? ctx.blackboard->doubles["chase_speed_multiplier"] : 1.0;
             const double energy_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_energy_multiplier")) ? ctx.blackboard->doubles["chase_energy_multiplier"] : 1.0;
             self.perform_step_move_path(ww, wh, base_mul * speed_mul, energy_mul);
+            self.forage_intent_lock_ticks = self.forage_intent_lock_duration; // 追食过程中应用短锁避免立即切换到交配
             return Status::Running;
         } else {
             self.current_target.reset();

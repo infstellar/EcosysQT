@@ -16,6 +16,8 @@ animal:
   bt_params:
     ints:
       eat_grass_total_ticks: 20
+      mating_intent_lock_duration: 20
+      forage_intent_lock_duration: 15
     doubles:
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
