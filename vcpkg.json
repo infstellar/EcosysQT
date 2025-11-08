@@ -9,7 +9,7 @@
     "yaml-cpp",
     "boost-pfr",
     "boost-describe",
-    "boost-mp11",
-    "tracy"
-  ]
+    "boost-mp11"
+  ],
+  "builtin-baseline": "365f6444ab40ee87c73c947b475b3a267b3cb77c"
 }

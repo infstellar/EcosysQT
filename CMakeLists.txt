@@ -21,7 +21,27 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 查找我们需要的库 (通过vcpkg管理)
-find_package(Tracy REQUIRED CONFIG)
+# 改为使用本地子模块提供的 TracyClient，避免 vcpkg 上的 MinGW 构建问题
+add_subdirectory(external/tracy)
+
+# 针对 TracyClient 目标的 Windows API 修复
+# 允许在不同目录修改目标的链接库（CMP0079）
+if(POLICY CMP0079)
+    cmake_policy(SET CMP0079 NEW)
+endif()
+if(TARGET TracyClient)
+    # 现代 Windows API 声明，解决 WSAPoll / pollfd 等未声明问题
+    if(WIN32)
+        target_compile_definitions(TracyClient PRIVATE _WIN32_WINNT=0x0601)
+        target_link_libraries(TracyClient PRIVATE ws2_32 dbghelp advapi32 ole32)
+    endif()
+    # MinGW 需要显式开启 SSE 以修复 '__get_cpuid' 未声明
+    if(MINGW)
+        target_compile_options(TracyClient PRIVATE -msse)
+    endif()
+else()
+    message(WARNING "TracyClient 目标未找到，请确认 external/tracy 已正确加入并生成该目标")
+endif()
 find_package(Qt5 COMPONENTS 
     Core 
     Gui 
@@ -113,7 +133,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     yaml-cpp::yaml-cpp
-    Tracy::TracyClient # <--- 链接 tracy 客户端
+    TracyClient # <--- 链接本地 tracy 客户端
 )
 
 target_compile_definitions(${PROJECT_NAME}
