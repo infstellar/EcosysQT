@@ -59,18 +59,31 @@ public:
     void decide(EcosystemState& ecosystem_state, std::mt19937& rng) override;
     void apply(const EcosystemState& ecosystem_state) override;
 
-    // 寻找最近的食物来源
-    virtual std::optional<Position> find_nearest_food(const EcosystemState& ecosystem_state);
     // 向目标位置移动
     void move_towards_target(const Position& target_position, int world_width, int world_height);
-    // 智能移动：目标选择与移动执行
-    virtual void intelligent_move(const EcosystemState& ecosystem_state);
-    // 目标选择
-    virtual void select_target_point(const EcosystemState& ecosystem_state);
     // 路径规划（占位）
     virtual void plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target);
     // 执行向当前目标点移动
     void move_to_target_point(int world_width, int world_height);
+
+    // --- 能量与一步移动的统一封装（供行为树动作复用） ---
+    // 扣除能量并在耗尽时触发饥饿死亡；乘数用于在特殊状态（如逃离）叠加消耗
+    void consume_energy(double multiplier = 1.0);
+    // 执行“一步”朝任意目标点移动，并进行能量结算；可按乘数临时提高速度/消耗
+    void perform_step_move_to(const Position& target, int world_width, int world_height,
+                              double speed_multiplier = 1.0, double energy_multiplier = 1.0);
+    // 执行“一步”沿当前规划路径/目标移动，并进行能量结算；可按乘数临时提高速度/消耗
+    void perform_step_move_path(int world_width, int world_height,
+                                double speed_multiplier = 1.0, double energy_multiplier = 1.0);
+
+    // --- 统一移动接口（行为树高层友好） ---
+    // 设置移动目标；可选择是否使用路径规划（默认使用）
+    void set_movement_target(const Position& target, bool use_pathfinding = true);
+    // 清除当前移动目标与路径
+    void clear_movement_target();
+    // 执行一步移动（根据当前目标/路径），并进行能量结算
+    void execute_movement_step(int world_width, int world_height,
+                               double speed_multiplier = 1.0, double energy_multiplier = 1.0);
     // 开始狩猎冷却
     void start_hunting_cooldown();
     // 通用繁殖判断（含年龄门槛）
@@ -85,6 +98,9 @@ public:
     void become_pregnant();
     virtual std::optional<std::shared_ptr<Animal>> find_available_mate(const EcosystemState& ecosystem_state);
     virtual double get_hunting_desire() const;
+
+    // 将 YAML/编辑器提供的 bt_params 写入行为树黑板
+    void apply_bt_params_to_blackboard(const AnimalParams& params);
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式
@@ -109,8 +125,6 @@ protected:
     double starving_threshold;
     double base_movement_speed;
     double base_energy_consumption;
-    bool is_wandering;
-    int wandering_cooldown;
     double wander_radius;
     double step_distance_per_tick;
     double current_step_distance;
@@ -128,10 +142,6 @@ protected:
 
     // 饱食状态更新与属性调整
     void update_hunger_state();
-    void adjust_stats_by_state();
-
-    enum class PendingMoveMode { None, Wander, Path };
-    PendingMoveMode pending_move_mode{PendingMoveMode::None};
+    // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
     std::optional<Position> wander_target;
-    bool skip_movement{false};
 };

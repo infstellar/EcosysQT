@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 // 反射支持：用于自动从 YAML 键匹配到成员名
 #include <boost/describe.hpp>
 
@@ -20,7 +21,7 @@ struct AnimalParams : SpeciesBaseParams {
     int energy_consumption = 1;
     double hunting_range = 5.0;
     double hunting_success_rate = 0.5;
-    double detection_range = 500.0;
+    double detection_range = 300.0;
     std::vector<std::string> food_types = {};
     int hunting_cooldown_duration = 0;
     int min_reproduction_age = 0;
@@ -39,6 +40,11 @@ struct AnimalParams : SpeciesBaseParams {
     double pregnancy_speed_penalty = 0.5; // 怀孕期间速度惩罚系数 (例如0.5代表速度减半)
     // 每 tick 有多少概率会主动寻找配偶
     double mating_desire_probability = 0.5; // 默认 50%
+
+    // --- 行为树黑板参数：来自 YAML / 编辑器的键值，直接影响装饰器等 ---
+    std::unordered_map<std::string, int> bt_params_ints;      // 例如：eat_grass_total_ticks: 300
+    std::unordered_map<std::string, double> bt_params_doubles; // 例如：mate_total_ticks: 150.0
+    std::unordered_map<std::string, std::string> bt_params_strings; // 备用：字符串型
 };
 
 // 植物通用参数（继承基础物种）
@@ -57,7 +63,7 @@ struct PlantParams : SpeciesBaseParams {
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius,mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
-    mating_desire_probability))
+    (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius, mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
+    mating_desire_probability, bt_params_ints, bt_params_doubles, bt_params_strings))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor))

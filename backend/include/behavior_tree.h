@@ -213,11 +213,14 @@ public:
         }
         if (current < total) {
             bb.ints[current_key] = current + 1;
+            // 进度未完成：返回 Running，不在黑板写入 skip_movement，避免跨 tick 残留导致卡住
             return Status::Running;
         }
 
-        // 进度完成后执行子节点
-        return child ? child->tick(ctx) : Status::Success;
+        // 进度完成后执行子节点，并重置进度与移动标记
+        Status s = child ? child->tick(ctx) : Status::Success;
+        bb.ints[current_key] = 0;           // 下次重新计时
+        return s;
     }
 
     void reset() override {

@@ -3,6 +3,7 @@
 #include "high_resolution_timer.h"
 #include <chrono>
 #include <iostream>
+#include <mutex>
 
 // --- SimulationEngine Implementation ---
 
@@ -12,7 +13,7 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             thread_pool(std::make_unique<ThreadPool>(0)), // 初始化线程池，0代表自动根据硬件选择合适的线程数
             running(false),
             paused(false),
-            target_fps(40),
+            target_fps(30),
             stop_event(false) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
@@ -56,10 +57,12 @@ void SimulationEngine::stop() {
 void SimulationEngine::reset(const EcosystemConfig& new_config) {
     bool was_running = is_running();
     stop();
-    config = new_config;
-    ecosystem->reset(new_config);
-    // 发布重置后的快照，让前端立即看到初始状态。
-    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
+    {
+        std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+        config = new_config;
+        ecosystem->reset(new_config);
+        std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
+    }
     if (was_running) {
         start();
     }
@@ -69,26 +72,31 @@ void SimulationEngine::step() {
     if (running) {
         return; // Cannot step while simulation is running automatically
     }
+    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
     update_ecosystem();
-    // 单步模式下也需要发布最新数据。
-    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
 }
 
-EcosystemStateData SimulationEngine::get_data() const {
-    // 原子地获取可见快照指针，确保跨线程读取安全。
-    std::shared_ptr<EcosystemStateData> data_ptr = std::atomic_load(&m_visible_data);
-    if (!data_ptr) {
-        return EcosystemStateData{};
+std::shared_ptr<EcosystemStateData> SimulationEngine::get_data() {
+    std::shared_ptr<EcosystemStateData> new_data_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+        new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+        std::atomic_store(&m_visible_data, new_data_snapshot);
     }
-    return *data_ptr;
+    return new_data_snapshot;
 }
 
 void SimulationEngine::update_config(const EcosystemConfig& new_config) {
+    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
     config = new_config;
     // Note: This matches Python behavior, only updating the config object.
     // The ecosystem itself is not reset here.
 }
-
+// --- 新增：实现设置目标FPS的函数 ---
+void SimulationEngine::set_target_fps(int fps) {
+    // 限制FPS在合理范围内，例如 1 到 200
+    this->target_fps = std::clamp(fps, 1, 2000);
+}
 bool SimulationEngine::is_running() const {
     return running;
 }
@@ -109,13 +117,8 @@ void SimulationEngine::simulation_loop() {
         if (!paused) {
             {
                 ZoneScopedN("Update Frame");
+                std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
                 update_ecosystem();
-            }
-            {
-                ZoneScopedN("Sent frame to ui");
-                // 发布新的模拟帧数据供 GUI 线程读取。
-                auto new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
-                std::atomic_store(&m_visible_data, new_data_snapshot);
             }
         }
         {
@@ -128,10 +131,8 @@ void SimulationEngine::simulation_loop() {
             // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
             
             const auto sleep_duration = target_frame_duration - frame_elapsed;
-            if (sleep_duration.count() > 10) {
+            if (sleep_duration.count() > 15.6) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
-                // 打印 sleep 时间，单位是毫秒
-
                 std::this_thread::sleep_for(sleep_ns);
             }
         }
@@ -254,12 +255,17 @@ void SimulationController::step() {
     engine->step();
 }
 
-EcosystemStateData SimulationController::get_data() const {
+std::shared_ptr<EcosystemStateData> SimulationController::get_data() {
     return engine->get_data();
 }
 
 void SimulationController::update_config(const EcosystemConfig& config) {
     engine->update_config(config);
+}
+
+// --- 新增：实现控制器对外的接口 ---
+void SimulationController::set_target_fps(int fps) {
+    engine->set_target_fps(fps);
 }
 
 bool SimulationController::is_running() const {

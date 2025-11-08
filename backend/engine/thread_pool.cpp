@@ -1,10 +1,12 @@
 #include "thread_pool.h"
 #include "tracy/Tracy.hpp"
 
+#include <atomic>
 #include <cassert>
 #include <algorithm>
 #include <limits>
 #include <string>
+#include <utility>
 
 namespace {
 // 线程局部存储（TLS）变量，用于存储每个工作线程的唯一索引。
@@ -41,6 +43,27 @@ void ThreadPool::submit(std::function<void()> task) {
         ++outstanding_;
     }
     cv_task_.notify_one();
+}
+
+void ThreadPool::submit_bulk(std::vector<std::function<void()>> tasks) {
+    if (tasks.empty()) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) {
+            return;
+        }
+
+        outstanding_.fetch_add(tasks.size(), std::memory_order_relaxed);
+        for (auto& task : tasks) {
+            tasks_.push(std::move(task));
+        }
+    }
+
+    // 唤醒所有等待线程，以便快速开始处理批量任务
+    cv_task_.notify_all();
 }
 
 void ThreadPool::wait_for_completion() {

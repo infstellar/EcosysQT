@@ -4,6 +4,7 @@
 #include "ecosystem.h"
 #include "utils.h" // 包含 EcosystemStateData 的定义
 #include "thread_pool.h" // 线程池并发工具
+#include <mutex>
 #include <thread>
 #include <atomic>
 #include <memory>
@@ -24,9 +25,10 @@ public:
     void stop();
     void reset(const EcosystemConfig& new_config);
     void step();
-    EcosystemStateData get_data() const;
+    std::shared_ptr<EcosystemStateData> get_data();
     void update_config(const EcosystemConfig& new_config);
-
+    // --- 新增：设置目标FPS的接口 ---
+    void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
 
@@ -51,6 +53,7 @@ private:
 
     std::unique_ptr<std::thread> simulation_thread;
     std::atomic<bool> stop_event;
+    std::mutex m_ecosystem_mutex;
 };
 
 // --- SimulationController Class ---
@@ -64,9 +67,10 @@ public:
     void stop();
     void reset(const EcosystemConfig& config);
     void step();
-    EcosystemStateData get_data() const;
+    std::shared_ptr<EcosystemStateData> get_data();
     void update_config(const EcosystemConfig& config);
-
+    // --- 新增：设置目标FPS的接口 ---
+    void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
 

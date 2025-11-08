@@ -221,27 +221,27 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     }
 
     // 预计算草的位置和存活对象 (Eigen矩阵)
-    std::vector<Eigen::Vector2d> alive_grass_positions;
+    // std::vector<Eigen::Vector2d> alive_grass_positions;
 
-    auto grass_it = state.thing_lists.find("grass");
-    if (grass_it != state.thing_lists.end()) {
-        for (const auto& grass : grass_it->second) {
-            if (grass && grass->alive) {
-                state.alive_grass_objects.push_back(grass);
-                alive_grass_positions.emplace_back(grass->position.x, grass->position.y);
-            }
-        }
-    }
+    // auto grass_it = state.thing_lists.find("grass");
+    // if (grass_it != state.thing_lists.end()) {
+    //     for (const auto& grass : grass_it->second) {
+    //         if (grass && grass->alive) {
+    //             state.alive_grass_objects.push_back(grass);
+    //             alive_grass_positions.emplace_back(grass->position.x, grass->position.y);
+    //         }
+    //     }
+    // }
 
-    if (!alive_grass_positions.empty()) {
-        state.grass_positions_array = Eigen::MatrixXd(alive_grass_positions.size(), 2);
-        for (size_t i = 0; i < alive_grass_positions.size(); ++i) {
-            state.grass_positions_array(i, 0) = alive_grass_positions[i](0);
-            state.grass_positions_array(i, 1) = alive_grass_positions[i](1);
-        }
-    } else {
-        state.grass_positions_array = Eigen::MatrixXd(0, 2);
-    }
+    // if (!alive_grass_positions.empty()) {
+    //     state.grass_positions_array = Eigen::MatrixXd(alive_grass_positions.size(), 2);
+    //     for (size_t i = 0; i < alive_grass_positions.size(); ++i) {
+    //         state.grass_positions_array(i, 0) = alive_grass_positions[i](0);
+    //         state.grass_positions_array(i, 1) = alive_grass_positions[i](1);
+    //     }
+    // } else {
+    //     state.grass_positions_array = Eigen::MatrixXd(0, 2);
+    // }
     return state;
 }
 
@@ -362,109 +362,92 @@ void EcosystemState::prepare_for_update() {
  * @param pool 用于执行任务的线程池。
  */
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
-    // 标记当前阶段为决策阶段
     current_phase = UpdatePhase::Decision;
-    // 定义每个任务处理的个体数量。选择一个较大的值可以减少任务创建的开销，
-    // 但也可能导致负载不均。1024 是一个在开销和负载均衡之间的合理权衡。
-    constexpr std::size_t chunk_size = 1024;
 
-    // 确保 `worker_request_queues` 的大小与线程池的工作线程数一致。
-    // 如果不一致（例如，线程池大小在运行时发生变化），则重新分配队列。
+    constexpr std::size_t heavy_chunk_size = 3;
+    constexpr std::size_t light_chunk_size = 8192;
+
     const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());
     if (worker_request_queues.size() != worker_count) {
         worker_request_queues.assign(worker_count, {});
     }
-    // 在新一轮决策开始前，清空所有线程的请求队列。
     for (auto& queue : worker_request_queues) {
         queue.clear();
     }
 
-    // 定义一个 lambda 函数，用于将一部分个体（一个“块”）的决策任务提交到线程池。
-    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<RaceBase>>& list,
-                                            std::size_t begin,
-                                            std::size_t end) {
-        // 向线程池提交一个新任务。
-        pool.submit([this, &list, begin, end] {
-            // 获取当前工作线程的索引，以便找到对应的请求队列。
-            const auto worker_index = ThreadPool::current_worker_index();
-            std::vector<InteractionRequest>* active_queue = nullptr;
-            // 确保工作索引在有效范围内，然后获取该线程的请求队列指针。
-            if (worker_index < worker_request_queues.size()) {
-                active_queue = &worker_request_queues[worker_index];
-            }
-
-            // 激活当前线程的请求队列。`submit_interaction_request` 将把请求放入此队列。
-            // `activate_request_queue` 返回先前的队列，以便在任务结束时恢复。
-            auto* previous_queue = activate_request_queue(active_queue);
-            // 遍历分配给该任务的个体。
-            auto& rng = get_thread_local_rng();
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) {
-                    continue;
-                }
-                individual->decide(*this, rng);
-            }
-            // 任务完成，恢复之前的请求队列。这对于嵌套任务或单线程回退情况很重要。
-            restore_request_queue(previous_queue);
-        });
-    };
-
-    // 为植物(things)定义与动物相同的决策分派逻辑。
-    const auto submit_thing_chunk = [this, &pool](std::vector<std::shared_ptr<ThingBase>>& list,
-                                                  std::size_t begin,
-                                                  std::size_t end) {
-        pool.submit([this, &list, begin, end] {
-            const auto worker_index = ThreadPool::current_worker_index();
-            std::vector<InteractionRequest>* active_queue = nullptr;
-            if (worker_index < worker_request_queues.size()) {
-                active_queue = &worker_request_queues[worker_index];
-            }
-
-            auto* previous_queue = activate_request_queue(active_queue);
-            auto& rng = get_thread_local_rng();
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) {
-                    continue;
-                }
-                individual->decide(*this, rng);
-            }
-            restore_request_queue(previous_queue);
-        });
-    };
-
-    // 遍历所有已注册的物种，为它们分派决策任务。
+    std::vector<std::shared_ptr<RaceBase>> all_races_to_update;
     const auto species_names = races_registry.get_all_species_names();
+    std::size_t total_races = 0;
+    for (const auto& name : species_names) {
+        total_races += races_registry.get_species_list(name).size();
+    }
+    all_races_to_update.reserve(total_races);
     for (const auto& name : species_names) {
         auto& list = races_registry.get_species_list(name);
-        if (list.empty()) {
-            continue;
-        }
+        all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
+    }
+    auto races_agg = std::make_shared<std::vector<std::shared_ptr<RaceBase>>>(std::move(all_races_to_update));
 
-        // 如果个体数量小于或等于块大小，则直接提交一个任务。
-        if (list.size() <= chunk_size) {
-            submit_chunk(list, 0, list.size());
-            continue;
-        }
+    std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
-        // 如果个体数量大于块大小，则分块提交任务。
-        for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, list.size());
-            submit_chunk(list, begin, end);
+    std::vector<std::function<void()>> master_task_list;
+    master_task_list.reserve(
+        (races_agg->size() / heavy_chunk_size) +
+        (all_things_to_update.size() / light_chunk_size) + 2
+    );
+
+    if (!races_agg->empty()) {
+        for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
+            const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
+            master_task_list.push_back([this, races_agg, begin, end] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                std::vector<InteractionRequest>* active_queue = nullptr;
+                if (worker_index < worker_request_queues.size()) {
+                    active_queue = &worker_request_queues[worker_index];
+                }
+                auto* previous_queue = activate_request_queue(active_queue);
+                auto& rng = get_thread_local_rng();
+
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = (*races_agg)[i];
+                    if (individual) {
+                        individual->decide(*this, rng);
+                    }
+                }
+
+                restore_request_queue(previous_queue);
+            });
         }
     }
 
-    if (!m_all_things.empty()) {
-        if (m_all_things.size() <= chunk_size) {
-            submit_thing_chunk(m_all_things, 0, m_all_things.size());
-        } else {
-            for (std::size_t begin = 0; begin < m_all_things.size(); begin += chunk_size) {
-                const std::size_t end = std::min(begin + chunk_size, m_all_things.size());
-                submit_thing_chunk(m_all_things, begin, end);
-            }
+    if (!all_things_to_update.empty()) {
+        for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
+            const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
+            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+                const auto worker_index = ThreadPool::current_worker_index();
+                std::vector<InteractionRequest>* active_queue = nullptr;
+                if (worker_index < worker_request_queues.size()) {
+                    active_queue = &worker_request_queues[worker_index];
+                }
+                auto* previous_queue = activate_request_queue(active_queue);
+                auto& rng = get_thread_local_rng();
+
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = all_things_to_update[i];
+                    if (individual) {
+                        individual->decide(*this, rng);
+                    }
+                }
+
+                restore_request_queue(previous_queue);
+            });
         }
     }
+
+    auto& rng = get_thread_local_rng();
+    std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
+
+    pool.submit_bulk(std::move(master_task_list));
 }
 
 /**
@@ -570,66 +553,65 @@ void EcosystemState::resolve_interactions() {
  * @param pool 要使用的线程池。
  */
 void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
-    // 标记当前阶段为应用阶段
     current_phase = UpdatePhase::Apply;
-    constexpr std::size_t chunk_size = 1024;
 
-    const auto submit_chunk = [this, &pool](std::vector<std::shared_ptr<RaceBase>>& list,
-                                            std::size_t begin,
-                                            std::size_t end) {
-        pool.submit([this, &list, begin, end] {
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) {
-                    continue;
-                }
-                individual->apply(*this);
-            }
-        });
-    };
+    constexpr std::size_t heavy_chunk_size = 64;
+    constexpr std::size_t light_chunk_size = 4096;
 
-    const auto submit_thing_chunk = [this, &pool](std::vector<std::shared_ptr<ThingBase>>& list,
-                                                  std::size_t begin,
-                                                  std::size_t end) {
-        pool.submit([this, &list, begin, end] {
-            for (std::size_t i = begin; i < end; ++i) {
-                auto& individual = list[i];
-                if (!individual) {
-                    continue;
-                }
-                individual->apply(*this);
-            }
-        });
-    };
-
+    std::vector<std::shared_ptr<RaceBase>> all_races_to_update;
     const auto species_names = races_registry.get_all_species_names();
+    std::size_t total_races = 0;
+    for (const auto& name : species_names) {
+        total_races += races_registry.get_species_list(name).size();
+    }
+    all_races_to_update.reserve(total_races);
     for (const auto& name : species_names) {
         auto& list = races_registry.get_species_list(name);
-        if (list.empty()) {
-            continue;
-        }
+        all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
+    }
+    auto races_agg = std::make_shared<std::vector<std::shared_ptr<RaceBase>>>(std::move(all_races_to_update));
 
-        if (list.size() <= chunk_size) {
-            submit_chunk(list, 0, list.size());
-            continue;
-        }
+    std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
-        for (std::size_t begin = 0; begin < list.size(); begin += chunk_size) {
-            const std::size_t end = std::min(begin + chunk_size, list.size());
-            submit_chunk(list, begin, end);
+    std::vector<std::function<void()>> master_task_list;
+    master_task_list.reserve(
+        (races_agg->size() / heavy_chunk_size) +
+        (all_things_to_update.size() / light_chunk_size) + 2
+    );
+
+    if (!races_agg->empty()) {
+        for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
+            const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
+            master_task_list.push_back([this, races_agg, begin, end] {
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = (*races_agg)[i];
+                    if (individual) {
+                        individual->apply(*this);
+                    }
+                }
+            });
         }
     }
 
-    if (!m_all_things.empty()) {
-        if (m_all_things.size() <= chunk_size) {
-            submit_thing_chunk(m_all_things, 0, m_all_things.size());
-        } else {
-            for (std::size_t begin = 0; begin < m_all_things.size(); begin += chunk_size) {
-                const std::size_t end = std::min(begin + chunk_size, m_all_things.size());
-                submit_thing_chunk(m_all_things, begin, end);
-            }
+    if (!all_things_to_update.empty()) {
+        for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
+            const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
+            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+                for (std::size_t i = begin; i < end; ++i) {
+                    auto& individual = all_things_to_update[i];
+                    if (individual) {
+                        individual->apply(*this);
+                    }
+                }
+            });
         }
     }
+
+    if (!master_task_list.empty()) {
+        std::shuffle(master_task_list.begin(), master_task_list.end(), get_thread_local_rng());
+    }
+
+    pool.submit_bulk(std::move(master_task_list));
 }
 
 /**
@@ -985,20 +967,31 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
     const Position& center,
     double radius) const {
     std::vector<std::shared_ptr<ThingBase>> nearby;
-    if (radius < 0.0) {
+    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
         return nearby;
     }
 
     const double radius_sq = radius * radius;
-    nearby.reserve(m_all_things.size());
-    for (const auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        const double dx = thing->position.x - center.x;
-        const double dy = thing->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            nearby.push_back(thing);
+
+    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
+    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
+    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
+    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
+
+    for (int y = min_y; y <= max_y; ++y) {
+        for (int x = min_x; x <= max_x; ++x) {
+            const Tile& tile = get_tile(x, y);
+            for (ThingBase* thing_ptr : tile.things) {
+                if (!thing_ptr || !thing_ptr->alive) {
+                    continue;
+                }
+
+                const double dx = thing_ptr->position.x - center.x;
+                const double dy = thing_ptr->position.y - center.y;
+                if ((dx * dx + dy * dy) <= radius_sq) {
+                    nearby.push_back(thing_ptr->shared_from_this());
+                }
+            }
         }
     }
 
@@ -1036,20 +1029,34 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     const Position& center,
     double radius) const {
     std::vector<std::shared_ptr<ThingBase>> result;
-    const double radius_sq = radius * radius;
-    result.reserve(m_all_things.size());
+    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
+        return result;
+    }
 
-    for (const auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        if (thing->species_name != species_name) {
-            continue;
-        }
-        const double dx = thing->position.x - center.x;
-        const double dy = thing->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            result.push_back(thing);
+    const double radius_sq = radius * radius;
+
+    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
+    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
+    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
+    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
+
+    for (int y = min_y; y <= max_y; ++y) {
+        for (int x = min_x; x <= max_x; ++x) {
+            const Tile& tile = get_tile(x, y);
+            for (ThingBase* thing_ptr : tile.things) {
+                if (!thing_ptr || !thing_ptr->alive) {
+                    continue;
+                }
+                if (thing_ptr->species_name != species_name) {
+                    continue;
+                }
+
+                const double dx = thing_ptr->position.x - center.x;
+                const double dy = thing_ptr->position.y - center.y;
+                if ((dx * dx + dy * dy) <= radius_sq) {
+                    result.push_back(thing_ptr->shared_from_this());
+                }
+            }
         }
     }
 
