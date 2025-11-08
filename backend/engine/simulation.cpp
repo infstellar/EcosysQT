@@ -131,10 +131,8 @@ void SimulationEngine::simulation_loop() {
             // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
             
             const auto sleep_duration = target_frame_duration - frame_elapsed;
-            if (sleep_duration.count() > 0) {
+            if (sleep_duration.count() > 15.6) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
-                // 打印 sleep 时间，单位是毫秒
-
                 std::this_thread::sleep_for(sleep_ns);
             }
         }

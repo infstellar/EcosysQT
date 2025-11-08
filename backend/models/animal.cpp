@@ -77,7 +77,7 @@ void Animal::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     }
 
     auto self = shared_from_this();
-
+    
     // 行为树路径：将状态更新、计时器推进与副作用统一在 BT 的通用 Action 中
     if (use_bt && behavior_tree) {
         bt::TickContext ctx;
