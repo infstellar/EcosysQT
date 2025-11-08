@@ -11,8 +11,12 @@
 #include "utils.h"      // 用于 Position
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <variant>
 
 class SimulationController;  // 前向声明
+// --- 新增：定义一个可以持有任何可选中生物的类型 ---
+using SelectableEntity = std::variant<std::shared_ptr<RaceBase>, std::shared_ptr<ThingBase>>;
+
 
 /**
  * Widget 类 - 生态系统可视化界面
@@ -55,6 +59,7 @@ private slots:
     void onSlowDownClicked();
     void onRestartClicked();
     void onCustomSpeedClicked(); // <-- 新增：自定义速度按钮的槽函数
+    void onInspectButtonClicked(); // <-- 新增：查看属性按钮的槽函数
 
 private:
     // ========== 核心数据 ==========
@@ -81,7 +86,12 @@ private:
     QPixmap m_tigerTexture;
     QPixmap m_grassTexture;
 
+    // --- 新增：用于高亮和选择的状态变量 ---
+    std::optional<SelectableEntity> m_hoveredEntity;
+    std::optional<SelectableEntity> m_selectedEntity;
+
     // --- 新增：UI控制按钮 ---
+    QPushButton* m_inspectButton; // <-- 新增：查看属性按钮
     QPushButton* m_pauseButton;
     QPushButton* m_speedUpButton;
     QPushButton* m_slowDownButton;
@@ -109,6 +119,9 @@ private:
     // --- 新增：用于跟踪当前速度状态的成员 ---
     int m_currentSpeedLevel;
 
+    // --- 新增：用于控制查看模式的状态 ---
+    bool m_isInspectMode;
+
     // ========== 辅助函数 ==========
     
     void updateStatistics();
@@ -122,6 +135,9 @@ private:
      * 注意：参数类型是 Position，不是 PositionData
      */
     QPointF toScreenCoords(const Position& pos) const;
+    // --- 新增：新的辅助函数 ---
+    std::optional<SelectableEntity> findEntityAtScreenPos(const QPointF& screenPos);
+    void drawSelectionInfo(QPainter& painter, const SelectableEntity& entity);
 };
 
 #endif // WIDGET_H
