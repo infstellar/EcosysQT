@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <vector>
 #include <string>
@@ -54,6 +55,11 @@ private:
     std::unique_ptr<std::thread> simulation_thread;
     std::atomic<bool> stop_event;
     std::mutex m_ecosystem_mutex;
+
+    // --- TPS 统计成员 ---
+    std::atomic<double> m_current_tps{0.0};
+    int m_tps_frame_counter{0};
+    std::chrono::steady_clock::time_point m_tps_last_update_time{};
 };
 
 // --- SimulationController Class ---

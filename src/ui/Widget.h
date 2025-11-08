@@ -127,6 +127,9 @@ private:
     // --- 新增：用于控制查看模式的状态 ---
     bool m_isInspectMode;
 
+    // --- 新增：TPS 缓存 ---
+    double m_current_tps;
+
     // ========== 辅助函数 ==========
     
     void updateStatistics();

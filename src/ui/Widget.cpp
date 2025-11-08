@@ -44,6 +44,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_isDragging(false)
     , m_currentSpeedLevel(2)
     , m_isInspectMode(false)
+    , m_current_tps(0.0)
 {
     // --- 新增：加载背景和生物贴图 ---
     m_backgroundImage.load(":/images/background.png");
@@ -212,6 +213,8 @@ void Widget::updateStatistics()
     m_currentQuadrumName = data->current_quadrum_name;
     m_currentHour = data->current_hour;
     m_currentMinute = data->current_minute;
+    // 获取 TPS
+    m_current_tps = data->current_tps;
     // 汇总 races 数量
     for (const auto& [name, individuals] : data->race_lists) {
         int alive_count = 0;
@@ -430,7 +433,7 @@ void Widget::paintEvent(QPaintEvent *event)
      * │ 老虎: █ 5                  │
      * └────────────────────────────┘
      */
-    QRectF infoRect(10, 10, 280, 184);
+    QRectF infoRect(10, 10, 280, 208);
     painter.setBrush(QColor(0, 0, 0, 180));
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(infoRect, 5, 5);
@@ -449,6 +452,9 @@ void Widget::paintEvent(QPaintEvent *event)
     textY += lineHeight;
     
     painter.drawText(20, textY, QString("时间步: %1").arg(m_timeStep));
+    textY += lineHeight;
+    // 模拟 TPS
+    painter.drawText(20, textY, QString("模拟 TPS: %1").arg(QString::number(m_current_tps, 'f', 1)));
     textY += lineHeight;
     
     int totalCount = m_grassCount + m_cowCount + m_tigerCount;

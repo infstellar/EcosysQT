@@ -14,7 +14,11 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             running(false),
             paused(false),
             target_fps(30),
-            stop_event(false) {
+            stop_event(false),
+            // 初始化 TPS 统计成员
+            m_current_tps(0.0),
+            m_tps_frame_counter(0),
+            m_tps_last_update_time(std::chrono::steady_clock::now()) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
     std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
 }
@@ -81,6 +85,8 @@ std::shared_ptr<EcosystemStateData> SimulationEngine::get_data() {
     {
         std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
         new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+        // 从原子变量读取TPS并存入快照
+        new_data_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
         std::atomic_store(&m_visible_data, new_data_snapshot);
     }
     return new_data_snapshot;
@@ -134,6 +140,19 @@ void SimulationEngine::simulation_loop() {
             if (sleep_duration.count() > 15.6) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
                 std::this_thread::sleep_for(sleep_ns);
+            }
+        }
+        // TPS 计算逻辑：每秒更新一次当前TPS
+        {
+            ZoneScopedN("TPS Calculation");
+            m_tps_frame_counter++;
+            const auto tps_now = std::chrono::steady_clock::now();
+            const auto tps_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tps_now - m_tps_last_update_time).count();
+            if (tps_elapsed_ms >= 1000) {
+                const double tps = static_cast<double>(m_tps_frame_counter) / (static_cast<double>(tps_elapsed_ms) / 1000.0);
+                m_current_tps.store(tps, std::memory_order_relaxed);
+                m_tps_last_update_time = tps_now;
+                m_tps_frame_counter = 0;
             }
         }
         

@@ -41,6 +41,8 @@ struct EcosystemStateData {
     std::string current_quadrum_name;
     Eigen::MatrixXd grass_positions_array; // 对应Python中的numpy数组
     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;
+    // 新增：后端模拟TPS（每秒tick数）
+    double current_tps;
 };
 
 #endif // UTILS_H
