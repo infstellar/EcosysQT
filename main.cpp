@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
         config.initial_populations = {
             {"grass", 1000},
             {"cow", 20},
-            {"tiger", 5},
+            {"tiger", 0},
         };
         
         // ========== 步骤 3: 创建模拟控制器 ==========
