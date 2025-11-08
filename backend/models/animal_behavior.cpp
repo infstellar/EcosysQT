@@ -34,6 +34,9 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
 
+        // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
+        self.skip_movement = false;
+
         // 注：skip_movement 仅由本 tick 的具体动作设置（交配、分娩、近场吃草/捕食），
         // 不再从黑板读取跨 tick 标记，避免装饰器未被执行时残留导致卡住。
 
@@ -141,6 +144,13 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             bb.doubles["threat_distance"] = std::isfinite(threat_dist) ? threat_dist : (threat_threshold + 1.0);
             bb.doubles["threat_pos_x"] = threat_pos.x;
             bb.doubles["threat_pos_y"] = threat_pos.y;
+
+            // 集中怀孕速度惩罚：本 tick 的基础速度倍率
+            double base_speed_multiplier = 1.0;
+            if (self.is_pregnant) {
+                base_speed_multiplier *= std::max(0.0, self.pregnancy_speed_penalty);
+            }
+            bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
         }
 
         return Status::Success;
@@ -262,88 +272,83 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         sel_forage_inner->add_child(grass_only_seq);
     }
 
-    // 远处移动/捕食与兜底逻辑
-    auto action_hunt_or_move = std::make_shared<Action>([&self](TickContext& ctx){
+    // 近场捕食分支：职责单一
+    auto seq_hunt_near = std::make_shared<Sequence>();
+    seq_hunt_near->add_child(std::make_shared<Condition>([&self](TickContext&){
+        if (self.food_types.empty()) return false;
+        const std::string& primary_food = self.food_types.front();
+        if (primary_food != std::string("cow")) return false;
+        return self.hunting_range > 0.0 && self.hunting_cooldown <= 0 && self.get_hunting_desire() > 0.0;
+    }));
+    seq_hunt_near->add_child(std::make_shared<Action>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
         if (self.skip_movement) return Status::Failure;
-
-        if (self.food_types.empty() || self.hunger_state == HungerState::SATISFIED) {
-            return Status::Failure;
-        }
-        const std::string& primary_food = self.food_types.front();
-
-        // 捕食：对牛的狩猎（与现有逻辑一致）
-        if (primary_food == std::string("cow") && self.hunting_range > 0.0 && self.hunting_cooldown <= 0) {
-            const double desire = self.get_hunting_desire();
-            if (desire > 0.0) {
-                auto& rng_local = world->get_thread_local_rng();
-                std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
-                if (hunt_dist(rng_local) < self.hunting_success_rate * desire) {
-                    auto nearby_races = world->get_nearby_races_broad(self.position, self.hunting_range);
-                    for (const auto& race : nearby_races) {
-                        if (!race || !race->alive) continue;
-                        if (race.get() == &self) continue;
-                        if (race->species_name != "cow") continue;
-                        if (self.position.distance_to(race->position) > self.hunting_range) continue;
-                        world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), race});
-                        self.start_hunting_cooldown();
-                        self.skip_movement = true; // 近场捕食本 tick 不移动
-                        break; // 单次狩猎
-                    }
-                }
+        auto& rng_local = world->get_thread_local_rng();
+        std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
+        const double desire = self.get_hunting_desire();
+        if (hunt_dist(rng_local) < self.hunting_success_rate * desire) {
+            auto nearby_races = world->get_nearby_races_broad(self.position, self.hunting_range);
+            for (const auto& race : nearby_races) {
+                if (!race || !race->alive) continue;
+                if (race.get() == &self) continue;
+                if (race->species_name != "cow") continue;
+                if (self.position.distance_to(race->position) > self.hunting_range) continue;
+                world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), race});
+                self.start_hunting_cooldown();
+                self.skip_movement = true;
+                return Status::Running;
             }
         }
+        return Status::Failure; // 未命中或无猎物
+    }));
+    sel_forage_inner->add_child(seq_hunt_near);
 
-        // 远处食物：选择最近食物为目标并前往；若无目标，交由游荡分支
-        // 在探测范围内选择最近的可食目标（行为内联实现，替代 Animal::select_target_point）
-        if (!self.food_types.empty() && self.hunger_state != HungerState::SATISFIED) {
-            std::optional<Position> nearest_food;
-            double min_distance = std::numeric_limits<double>::max();
-            const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
-            const auto nearby_things = world->get_nearby_things_broad(self.position, self.detection_range);
+    // 远处追食分支：选择目标并移动
+    auto seq_chase_food = std::make_shared<Sequence>();
+    seq_chase_food->add_child(std::make_shared<Condition>([&self](TickContext&){
+        return !self.food_types.empty() && self.hunger_state != HungerState::SATISFIED;
+    }));
+    seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
+        auto* world = static_cast<EcosystemState*>(ctx.world);
+        if (!world || !self.alive) return Status::Failure;
+        if (self.skip_movement) return Status::Failure;
+        // 在探测范围内选择最近的可食目标
+        std::optional<Position> nearest_food;
+        double min_distance = std::numeric_limits<double>::max();
+        const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
+        const auto nearby_things = world->get_nearby_things_broad(self.position, self.detection_range);
 
-            const auto consider_entity = [&](const auto& entity) {
-                if (!entity || !entity->alive) return;
-                // 仅考虑食物类型匹配的实体
-                if (std::find(self.food_types.begin(), self.food_types.end(), entity->species_name) == self.food_types.end()) return;
-                double distance = self.position.distance_to(entity->position);
-                if (distance <= self.detection_range && distance < min_distance) {
-                    min_distance = distance;
-                    nearest_food = entity->position;
-                }
-            };
-            for (const auto& race : nearby_races) consider_entity(race);
-            for (const auto& thing : nearby_things) consider_entity(thing);
-
-            if (nearest_food.has_value()) {
-                self.current_target = nearest_food.value();
-            } else {
-                self.current_target.reset();
-                self.planned_path.clear();
-                self.planned_path_index = 0;
+        const auto consider_entity = [&](const auto& entity) {
+            if (!entity || !entity->alive) return;
+            if (std::find(self.food_types.begin(), self.food_types.end(), entity->species_name) == self.food_types.end()) return;
+            double distance = self.position.distance_to(entity->position);
+            if (distance <= self.detection_range && distance < min_distance) {
+                min_distance = distance;
+                nearest_food = entity->position;
             }
-        }
+        };
+        for (const auto& race : nearby_races) consider_entity(race);
+        for (const auto& thing : nearby_things) consider_entity(thing);
 
-        if (self.current_target.has_value()) {
+        if (nearest_food.has_value()) {
+            self.current_target = nearest_food.value();
             self.plan_path_to_target(*world, self.current_target);
             const int ww = world->config.world_width;
             const int wh = world->config.world_height;
-            // 远处移动默认倍率，可通过黑板覆盖（如 chase_*_multiplier）
+            const double base_mul = (ctx.blackboard && ctx.blackboard->doubles.count("current_speed_multiplier")) ? ctx.blackboard->doubles["current_speed_multiplier"] : 1.0;
             const double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_speed_multiplier")) ? ctx.blackboard->doubles["chase_speed_multiplier"] : 1.0;
             const double energy_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_energy_multiplier")) ? ctx.blackboard->doubles["chase_energy_multiplier"] : 1.0;
-            double speed_effective = speed_mul;
-            if (self.is_pregnant) {
-                speed_effective *= std::max(0.0, self.pregnancy_speed_penalty);
-            }
-            self.perform_step_move_path(ww, wh, speed_effective, energy_mul);
+            self.perform_step_move_path(ww, wh, base_mul * speed_mul, energy_mul);
             return Status::Running;
+        } else {
+            self.current_target.reset();
+            self.planned_path.clear();
+            self.planned_path_index = 0;
         }
-
-        // 无目标：返回 Failure，让 Selector 切到游荡
         return Status::Failure;
-    });
-    sel_forage_inner->add_child(action_hunt_or_move);
+    }));
+    sel_forage_inner->add_child(seq_chase_food);
 
     // 将内层 Selector 作为觅食序列的第二个子节点
     seq_forage->add_child(sel_forage_inner);
@@ -384,13 +389,11 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         bb.doubles["target_pos_x"] = safe_spot.x;
         bb.doubles["target_pos_y"] = safe_spot.y;
 
-        // 逃离状态：提高移速与能量消耗（可由黑板配置）
-        double speed_mul = (bb.doubles.find("flee_speed_multiplier") != bb.doubles.end()) ? bb.doubles["flee_speed_multiplier"] : 1.5;
+        // 逃离状态：提高移速与能量消耗（可由黑板配置），乘以基础速度倍率
+        const double base_mul = (bb.doubles.find("current_speed_multiplier") != bb.doubles.end()) ? bb.doubles["current_speed_multiplier"] : 1.0;
+        const double speed_mul = (bb.doubles.find("flee_speed_multiplier") != bb.doubles.end()) ? bb.doubles["flee_speed_multiplier"] : 1.5;
         const double energy_mul = (bb.doubles.find("flee_energy_multiplier") != bb.doubles.end()) ? bb.doubles["flee_energy_multiplier"] : 1.5;
-        if (self.is_pregnant) {
-            speed_mul *= std::max(0.0, self.pregnancy_speed_penalty);
-        }
-        self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, speed_mul, energy_mul);
+        self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
 
         // 清理繁殖上下文（黑板与临时目标）
         self.current_target.reset();
@@ -420,13 +423,11 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             const int ww = world->config.world_width;
             const int wh = world->config.world_height;
             const Position target = self.wander_target.value();
-            // 游荡倍率：可在黑板配置，默认较低速度与能耗
-            double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("wander_speed_multiplier")) ? ctx.blackboard->doubles["wander_speed_multiplier"] : 0.8;
+            // 游荡倍率：基础速度乘以游荡倍率；能耗可配置
+            const double base_mul = (ctx.blackboard && ctx.blackboard->doubles.count("current_speed_multiplier")) ? ctx.blackboard->doubles["current_speed_multiplier"] : 1.0;
+            const double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("wander_speed_multiplier")) ? ctx.blackboard->doubles["wander_speed_multiplier"] : 0.8;
             const double energy_mul = (ctx.blackboard && ctx.blackboard->doubles.count("wander_energy_multiplier")) ? ctx.blackboard->doubles["wander_energy_multiplier"] : 0.6;
-            if (self.is_pregnant) {
-                speed_mul *= std::max(0.0, self.pregnancy_speed_penalty);
-            }
-            self.perform_step_move_to(target, ww, wh, speed_mul, energy_mul);
+            self.perform_step_move_to(target, ww, wh, base_mul * speed_mul, energy_mul);
             // 满足状态下步长较小，降低到达阈值，避免“未动就判定到达”
             const double arrival_threshold = std::max(0.2, self.current_step_distance * 0.5);
             if (self.position.distance_to(target) <= arrival_threshold) {
