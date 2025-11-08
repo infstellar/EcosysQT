@@ -9,6 +9,7 @@
     "yaml-cpp",
     "boost-pfr",
     "boost-describe",
-    "boost-mp11"
+    "boost-mp11",
+    "tracy"
   ]
 }

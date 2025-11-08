@@ -119,7 +119,7 @@ void Producer::attempt_reproduction(EcosystemState& ecosystem_state, std::mt1993
                 }
                 const Tile& tile = ecosystem_state.get_tile(nx, ny); // 获取对应的地块
                 // 检查地块是否为陆地
-                if (tile.biome != BiomeType::LAND) {
+                if (tile.terrain != TerrainType::LAND) {
                     continue;
                 }
                 // 检查地块是否被占用

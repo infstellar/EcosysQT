@@ -6,12 +6,10 @@
 #include <QPainter>
 #include <QDebug>
 #include <algorithm>
-// --- 新增：包含鼠标事件头文件 ---
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QInputDialog> // <-- 新增：包含输入对话框头文件
-#include <QGridLayout>  // 确保包含了 QGridLayout
 
 // --- 新增：前向声明一个辅助函数 ---
 static QPointF screenToWorldCoords(const QPointF& screenPos, const QPointF& viewCenter, double zoomFactor, const QSize& screenSize, const QSize& worldSize);
@@ -37,27 +35,26 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_cowCount(0)
     , m_tigerCount(0)
     , m_timeStep(0)
-    , m_currentYear(1)   // 初始化新增变量
-    , m_currentDay(1)    // 初始化新增变量
-    , m_currentQuadrumName("Aprimay") // 初始化新增变量
+    , m_currentYear(1)
+    , m_currentDay(1)
+    , m_currentQuadrumName("Aprimay")
     , m_currentHour(0)
     , m_currentMinute(0)
     , m_zoomFactor(1.0)
     , m_isDragging(false)
     , m_currentSpeedLevel(2)
-    , m_isInspectMode(false) // <-- 新增：默认关闭查看模式
+    , m_isInspectMode(false)
 {
+    // --- 新增：加载背景和生物贴图 ---
     m_backgroundImage.load(":/images/background.png");
     if (m_backgroundImage.isNull()) {
         qDebug() << "警告: 背景图加载失败，使用纯色背景";
     }
     
-    // --- 新增：加载牛、老虎、草的贴图 ---
     m_cowTexture.load(":/images/cow.png");
     if (m_cowTexture.isNull()) {
         qDebug() << "警告: 牛贴图加载失败";
     }
-    // --- 新增：加载公牛贴图 ---
     m_bullTexture.load(":/images/bull.png");
     if (m_bullTexture.isNull()) {
         qDebug() << "警告: 牛(公)贴图加载失败";
@@ -71,36 +68,51 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         qDebug() << "警告: 草贴图加载失败";
     }
 
-    // --- 创建和布局所有控制按钮 ---
-    m_inspectButton = new QPushButton("查看属性", this); // <-- 新增
+    // --- 创建所有控制按钮 ---
+    m_exitButton = new QPushButton("退出模拟", this);
+    m_inspectButton = new QPushButton("查看属性", this);
     m_restartButton = new QPushButton("重新开始", this);
     m_customSpeedButton = new QPushButton("自定义速度", this);
     m_pauseButton = new QPushButton("暂停", this);
     m_slowDownButton = new QPushButton("减速 (-)", this);
     m_speedUpButton = new QPushButton("加速 (+)", this);
 
-    // 设置按钮样式
+    // --- 设置按钮样式 ---
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
-    m_inspectButton->setStyleSheet(buttonStyle); // <-- 新增
+    m_exitButton->setStyleSheet(buttonStyle);
+    m_inspectButton->setStyleSheet(buttonStyle);
     m_restartButton->setStyleSheet(buttonStyle);
-    m_customSpeedButton->setStyleSheet(buttonStyle); // <-- 新增
+    m_customSpeedButton->setStyleSheet(buttonStyle);
     m_pauseButton->setStyleSheet(buttonStyle);
     m_slowDownButton->setStyleSheet(buttonStyle);
     m_speedUpButton->setStyleSheet(buttonStyle);
 
-    // --- 核心修改：使用网格布局 (Grid Layout) 实现新布局 ---
-    QGridLayout* controlsLayout = new QGridLayout();
-    controlsLayout->setSpacing(5);
+    // --- 核心修改：调整布局，将按钮分为两行 ---
+    
+    // 第一行按钮布局
+    QHBoxLayout* topRowLayout = new QHBoxLayout();
+    topRowLayout->addWidget(m_inspectButton);
+    topRowLayout->addWidget(m_restartButton);
+    topRowLayout->addWidget(m_exitButton); // 将退出按钮放在这里
 
-    // 第一行：新按钮和另外两个按钮
-    controlsLayout->addWidget(m_inspectButton,     0, 0); // 第0行，第0列
-    controlsLayout->addWidget(m_restartButton,     0, 1); // 第0行，第1列
-    controlsLayout->addWidget(m_customSpeedButton, 0, 2); // 第0行，第2列
+    // 第二行按钮布局
+    QHBoxLayout* bottomRowLayout = new QHBoxLayout();
+    bottomRowLayout->addWidget(m_slowDownButton);
+    bottomRowLayout->addWidget(m_pauseButton);
+    bottomRowLayout->addWidget(m_speedUpButton);
+    
+    // 第三行按钮布局 (自定义速度单独一行，居中)
+    QHBoxLayout* customSpeedLayout = new QHBoxLayout();
+    customSpeedLayout->addStretch();
+    customSpeedLayout->addWidget(m_customSpeedButton);
+    customSpeedLayout->addStretch();
 
-    // 第二行：三个控制按钮
-    controlsLayout->addWidget(m_slowDownButton, 1, 0); // 第1行，第0列
-    controlsLayout->addWidget(m_pauseButton,    1, 1); // 第1行，第1列
-    controlsLayout->addWidget(m_speedUpButton,  1, 2); // 第1行，第2列
+
+    // 将所有行垂直组合
+    QVBoxLayout* controlsLayout = new QVBoxLayout();
+    controlsLayout->addLayout(topRowLayout);
+    controlsLayout->addLayout(bottomRowLayout);
+    controlsLayout->addLayout(customSpeedLayout);
 
     // 将整个控件组布局设置在主窗口的右下角
     QHBoxLayout* hLayout = new QHBoxLayout();
@@ -114,15 +126,15 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     setLayout(mainLayout);
 
     // --- 连接信号和槽 ---
-    connect(m_inspectButton, &QPushButton::clicked, this, &Widget::onInspectButtonClicked); // <-- 新增
+    connect(m_exitButton, &QPushButton::clicked, this, &Widget::onExitToStartScreenClicked);
+    connect(m_inspectButton, &QPushButton::clicked, this, &Widget::onInspectButtonClicked);
     connect(m_restartButton, &QPushButton::clicked, this, &Widget::onRestartClicked);
-    connect(m_customSpeedButton, &QPushButton::clicked, this, &Widget::onCustomSpeedClicked); // <-- 新增
+    connect(m_customSpeedButton, &QPushButton::clicked, this, &Widget::onCustomSpeedClicked);
     connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
     connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
     connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
-
-    
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
+    
     m_updateTimer->start(16);
     
     if (m_controller) {
@@ -344,10 +356,21 @@ void Widget::paintEvent(QPaintEvent *event)
     for (const auto& [name, individuals] : data->thing_lists) {
         if (name == "grass") {
             if (m_grassTexture.isNull()) continue;
+            
+            // --- 修改：计算 1×1 格子在屏幕上的大小 ---
+            // 注意：一个格子 = 100 世界单位 (在 ecosystem.cpp 中定义)
+            // 1. 计算可见世界宽度
+            double visibleWorldWidth = data->world_width / m_zoomFactor;
+            // 2. 计算 1 个世界单位对应的屏幕像素数
+            double pixelsPerWorldUnit = width() / visibleWorldWidth;
+            // 3. 草的大小为 1×1 格子 = 100 世界单位
+            const double grassWorldSize = 100.0;  // 一个完整的网格格子
+            const double size = grassWorldSize * pixelsPerWorldUnit;
+            // --- 修改结束 ---
+            
             for (const auto& individual : individuals) {
                 if (!individual || !individual->alive) continue;
                 QPointF screenPos = toScreenCoords(individual->position);
-                const double size = 20.0;
                 QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
                 entitiesToDraw.push_back({&m_grassTexture, targetRectF.toRect(), individual->position.y});
             }
@@ -961,4 +984,10 @@ void Widget::onInspectButtonClicked()
         // 立即重绘以移除所有圈圈和信息框
         update();
     }
+}
+
+// --- 新增：实现退出按钮的槽函数 ---
+void Widget::onExitToStartScreenClicked()
+{
+    emit exitToStartScreen(); // 发出信号，通知 MainWindow 切换回开始界面
 }

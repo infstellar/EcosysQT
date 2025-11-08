@@ -21,6 +21,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 查找我们需要的库 (通过vcpkg管理)
+find_package(Tracy REQUIRED CONFIG)
 find_package(Qt5 COMPONENTS 
     Core 
     Gui 
@@ -44,7 +45,7 @@ if(MINGW)
 endif()
 # ---!! 修复块结束 !! ---
 
-add_subdirectory(external/tracy)
+#add_subdirectory(external/tracy)
 
 # ---!! 在这里添加新的修复块 !! ---
 #
@@ -55,19 +56,16 @@ add_subdirectory(external/tracy)
 if(MINGW)
     # 1. 修复 pollfd, WSAPoll, RelationProcessorDie, TraceSetInformation 等
     #    通过定义 _WIN32_WINNT=0x0601 (Windows 7) 来解决未声明的错误
-    set_property(TARGET TracyClient APPEND PROPERTY
-        INTERFACE_COMPILE_DEFINITIONS "$<$<BOOL:${MINGW}>:-D_WIN32_WINNT=0x0601>"
-    )
+    #set_property(TARGET TracyClient APPEND PROPERTY
+        ##)
 
     # 2. 修复 '__get_cpuid' 未声明的错误 (MinGW 8.1 需要手动开启 -msse)
-    set_property(TARGET TracyClient APPEND PROPERTY
-        INTERFACE_COMPILE_OPTIONS "$<$<BOOL:${MINGW}>:-msse>"
-    )
+    ##
 
     # 3. 链接 TracyClient 目标自身需要的 Windows 库 (ws2_32, dbghelp 等)
-    set_property(TARGET TracyClient APPEND PROPERTY
-        INTERFACE_LINK_LIBRARIES "$<$<BOOL:${MINGW}>:ws2_32;dbghelp;advapi32;ole32>"
-    )
+    #set_property(TARGET TracyClient APPEND PROPERTY
+        #INTERFACE_LINK_LIBRARIES "$<$<BOOL:${MINGW}>:ws2_32;dbghelp;advapi32;ole32>"
+    #)#
 endif()
 # ---!! 修复块结束 !! ---
 
@@ -97,6 +95,10 @@ add_executable(MyQtApp
   # 前端 UI 模块
   src/ui/Widget.cpp
   src/ui/Widget.h
+  src/ui/MainWindow.h
+  src/ui/MainWindow.cpp
+  src/ui/StartScreenWidget.h
+  src/ui/StartScreenWidget.cpp
   # 资源文件（AUTORCC）
   
   resources/app.qrc)
