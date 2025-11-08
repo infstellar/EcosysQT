@@ -45,6 +45,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_zoomFactor(1.0)
     , m_isDragging(false)
     , m_currentSpeedLevel(2)
+    , m_isInspectMode(false) // <-- 新增：默认关闭查看模式
 {
     m_backgroundImage.load(":/images/background.png");
     if (m_backgroundImage.isNull()) {
@@ -71,14 +72,16 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     }
 
     // --- 创建和布局所有控制按钮 ---
+    m_inspectButton = new QPushButton("查看属性", this); // <-- 新增
     m_restartButton = new QPushButton("重新开始", this);
-    m_customSpeedButton = new QPushButton("自定义速度", this); // <-- 新增
+    m_customSpeedButton = new QPushButton("自定义速度", this);
     m_pauseButton = new QPushButton("暂停", this);
     m_slowDownButton = new QPushButton("减速 (-)", this);
     m_speedUpButton = new QPushButton("加速 (+)", this);
 
     // 设置按钮样式
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+    m_inspectButton->setStyleSheet(buttonStyle); // <-- 新增
     m_restartButton->setStyleSheet(buttonStyle);
     m_customSpeedButton->setStyleSheet(buttonStyle); // <-- 新增
     m_pauseButton->setStyleSheet(buttonStyle);
@@ -89,9 +92,10 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     QGridLayout* controlsLayout = new QGridLayout();
     controlsLayout->setSpacing(5);
 
-    // 第一行：重启按钮和自定义速度按钮
+    // 第一行：新按钮和另外两个按钮
+    controlsLayout->addWidget(m_inspectButton,     0, 0); // 第0行，第0列
     controlsLayout->addWidget(m_restartButton,     0, 1); // 第0行，第1列
-    controlsLayout->addWidget(m_customSpeedButton, 0, 2); // 第0行，第2列 (重启按钮右边)
+    controlsLayout->addWidget(m_customSpeedButton, 0, 2); // 第0行，第2列
 
     // 第二行：三个控制按钮
     controlsLayout->addWidget(m_slowDownButton, 1, 0); // 第1行，第0列
@@ -110,6 +114,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     setLayout(mainLayout);
 
     // --- 连接信号和槽 ---
+    connect(m_inspectButton, &QPushButton::clicked, this, &Widget::onInspectButtonClicked); // <-- 新增
     connect(m_restartButton, &QPushButton::clicked, this, &Widget::onRestartClicked);
     connect(m_customSpeedButton, &QPushButton::clicked, this, &Widget::onCustomSpeedClicked); // <-- 新增
     connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
@@ -358,6 +363,36 @@ void Widget::paintEvent(QPaintEvent *event)
     for (const auto& entity : entitiesToDraw) {
         painter.drawPixmap(entity.targetRect, *entity.texture);
     }
+
+    // --- 新增：绘制高亮和选中效果 ---
+    if (m_isInspectMode) {
+        painter.setRenderHint(QPainter::Antialiasing, true);
+
+        // 绘制悬停高亮
+        if (m_hoveredEntity.has_value()) {
+            std::visit([this, &painter](auto&& arg) {
+                QPointF screenPos = toScreenCoords(arg->position);
+                painter.setPen(QPen(QColor(255, 255, 0, 200), 3)); // 黄色光圈
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(screenPos, 35, 35);
+            }, m_hoveredEntity.value());
+        }
+
+        // 绘制选中效果和信息框
+        if (m_selectedEntity.has_value()) {
+            // 绘制选中标记
+            std::visit([this, &painter](auto&& arg) {
+                QPointF screenPos = toScreenCoords(arg->position);
+                painter.setPen(QPen(QColor(0, 255, 255, 220), 4)); // 青色光圈
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(screenPos, 40, 40);
+            }, m_selectedEntity.value());
+
+            // 绘制信息框
+            drawSelectionInfo(painter, m_selectedEntity.value());
+        }
+    }
+
     // ========== 步骤3: 绘制信息面板 ==========
     /**
      * 信息面板布局：
@@ -499,7 +534,20 @@ void Widget::wheelEvent(QWheelEvent *event)
  */
 void Widget::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::MiddleButton) {
+    if (event->button() == Qt::LeftButton) {
+        // --- 修改：只有在查看模式下才处理左键点击选择 ---
+        if (m_isInspectMode) {
+            if (m_hoveredEntity.has_value()) {
+                m_selectedEntity = m_hoveredEntity;
+            } else {
+                m_selectedEntity.reset();
+            }
+            update();
+            event->accept();
+        } else {
+            event->ignore(); // 非查看模式下，忽略左键点击
+        }
+    } else if (event->button() == Qt::MiddleButton) {
         m_isDragging = true;
         m_lastMousePos = event->localPos();
         setCursor(Qt::ClosedHandCursor);
@@ -552,6 +600,18 @@ void Widget::mouseMoveEvent(QMouseEvent *event)
         update();
         event->accept();
     } else {
+        // --- 修改：只有在查看模式下才处理悬停逻辑 ---
+        if (m_isInspectMode) {
+            auto previouslyHovered = m_hoveredEntity;
+            m_hoveredEntity = findEntityAtScreenPos(event->localPos());
+
+            if (previouslyHovered.has_value() != m_hoveredEntity.has_value() ||
+               (previouslyHovered.has_value() && m_hoveredEntity.has_value() &&
+                std::visit([](auto&& arg1){ return (void*)arg1.get(); }, previouslyHovered.value()) !=
+                std::visit([](auto&& arg2){ return (void*)arg2.get(); }, m_hoveredEntity.value()))) {
+                update();
+            }
+        }
         event->ignore();
     }
 }
@@ -796,5 +856,109 @@ void Widget::onCustomSpeedClicked()
         }
 
         qDebug() << "自定义速度已设置为:" << newFps << "FPS";
+    }
+}
+
+// --- 新增：实现新的辅助函数 ---
+
+// 在屏幕上查找生物
+std::optional<SelectableEntity> Widget::findEntityAtScreenPos(const QPointF& screenPos)
+{
+    const auto data = m_currentData;
+    if (!data) return std::nullopt;
+
+    double closestDistSq = 30.0 * 30.0; // 30像素的点击半径
+    std::optional<SelectableEntity> foundEntity = std::nullopt;
+
+    auto checkList = [&](const auto& list) {
+        for (const auto& individual : list) {
+            if (!individual || !individual->alive) continue;
+            QPointF individualScreenPos = toScreenCoords(individual->position);
+            double distSq = QLineF(screenPos, individualScreenPos).length() * QLineF(screenPos, individualScreenPos).length();
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                foundEntity = individual;
+            }
+        }
+    };
+
+    // 从后往前检查，优先选中绘制在上面的生物
+    for (auto it = data->race_lists.rbegin(); it != data->race_lists.rend(); ++it) {
+        checkList(it->second);
+    }
+    for (auto it = data->thing_lists.rbegin(); it != data->thing_lists.rend(); ++it) {
+        checkList(it->second);
+    }
+
+    return foundEntity;
+}
+
+// 绘制选中生物的信息框
+void Widget::drawSelectionInfo(QPainter& painter, const SelectableEntity& entity)
+{
+    QString infoText;
+    QPointF screenPos;
+
+    // 使用 std::visit 从 variant 中提取信息
+    std::visit([&](auto&& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        screenPos = toScreenCoords(arg->position);
+
+        infoText += QString("物种: %1\n").arg(QString::fromStdString(arg->species_name));
+        infoText += QString("年龄: %1\n").arg(arg->age);
+        infoText += QString("能量: %1 / %2").arg(QString::number(arg->energy, 'f', 1)).arg(arg->max_energy);
+
+        if constexpr (std::is_same_v<T, std::shared_ptr<Animal>>) {
+            infoText += QString("\n性别: %1").arg(arg->sex == Sex::MALE ? "雄性" : "雌性");
+        }
+    }, entity);
+
+    // 计算绘制位置
+    QFont font("Arial", 10);
+    QFontMetrics fm(font);
+    QRect textRect = fm.boundingRect(QRect(), Qt::AlignLeft, infoText);
+    textRect.adjust(-10, -10, 10, 10); // 添加内边距
+    textRect.moveTo(screenPos.x() + 40, screenPos.y() - textRect.height() / 2); // 移动到目标右侧
+
+    // 确保不超出屏幕边界
+    if (textRect.right() > width()) textRect.moveRight(width() - 10);
+    if (textRect.left() < 0) textRect.moveLeft(10);
+    if (textRect.bottom() > height()) textRect.moveBottom(height() - 10);
+    if (textRect.top() < 0) textRect.moveTop(10);
+
+    // 绘制半透明背景和文本
+    painter.setBrush(QColor(0, 0, 0, 190));
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(textRect, 5, 5);
+
+    painter.setPen(Qt::white);
+    painter.setFont(font);
+    painter.drawText(textRect, Qt::AlignCenter, infoText);
+}
+
+// --- 新增：实现查看属性按钮的槽函数 ---
+void Widget::onInspectButtonClicked()
+{
+    // 切换查看模式
+    m_isInspectMode = !m_isInspectMode;
+
+    if (m_isInspectMode) {
+        // 进入查看模式
+        m_inspectButton->setText("退出查看");
+        // 可以添加一些视觉提示，比如改变按钮颜色
+        m_inspectButton->setStyleSheet("QPushButton { background-color: #007ACC; color: white; border: 1px solid #005A9E; padding: 5px; border-radius: 3px; min-width: 80px; }");
+    } else {
+        // 退出查看模式
+        m_inspectButton->setText("查看属性");
+        // 恢复原来的样式
+        QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+        m_inspectButton->setStyleSheet(buttonStyle);
+
+        // 清理所有悬停和选中状态
+        m_hoveredEntity.reset();
+        m_selectedEntity.reset();
+        
+        // 立即重绘以移除所有圈圈和信息框
+        update();
     }
 }
