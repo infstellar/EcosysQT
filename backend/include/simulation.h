@@ -26,7 +26,7 @@ public:
     void stop();
     void reset(const EcosystemConfig& new_config);
     void step();
-    std::shared_ptr<EcosystemStateData> get_data();
+    std::shared_ptr<EcosystemStateData> get_data() const;
     void update_config(const EcosystemConfig& new_config);
     // --- 新增：设置目标FPS的接口 ---
     void set_target_fps(int fps);

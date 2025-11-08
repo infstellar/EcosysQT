@@ -16,11 +16,13 @@ SimulationEngine::SimulationEngine(const EcosystemConfig& config)
             target_fps(30),
             stop_event(false),
             // 初始化 TPS 统计成员
-            m_current_tps(0.0),
-            m_tps_frame_counter(0),
-            m_tps_last_update_time(std::chrono::steady_clock::now()) {
+        m_current_tps(0.0),
+        m_tps_frame_counter(0),
+        m_tps_last_update_time(std::chrono::steady_clock::now()) {
     // 创建一个初始快照，确保 GUI 在线程启动前也能安全读取数据。
-    std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
+    auto initial_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+    initial_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+    std::atomic_store(&m_visible_data, initial_snapshot);
 }
 
 SimulationEngine::~SimulationEngine() {
@@ -62,10 +64,12 @@ void SimulationEngine::reset(const EcosystemConfig& new_config) {
     bool was_running = is_running();
     stop();
     {
-        std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
-        config = new_config;
-        ecosystem->reset(new_config);
-        std::atomic_store(&m_visible_data, std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state()));
+    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+    config = new_config;
+    ecosystem->reset(new_config);
+    auto new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+    new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+    std::atomic_store(&m_visible_data, new_snapshot);
     }
     if (was_running) {
         start();
@@ -76,20 +80,18 @@ void SimulationEngine::step() {
     if (running) {
         return; // Cannot step while simulation is running automatically
     }
-    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
-    update_ecosystem();
-}
-
-std::shared_ptr<EcosystemStateData> SimulationEngine::get_data() {
-    std::shared_ptr<EcosystemStateData> new_data_snapshot;
+    std::shared_ptr<EcosystemStateData> new_snapshot;
     {
         std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
-        new_data_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
-        // 从原子变量读取TPS并存入快照
-        new_data_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
-        std::atomic_store(&m_visible_data, new_data_snapshot);
+        update_ecosystem();
+        new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+        new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
     }
-    return new_data_snapshot;
+    std::atomic_store(&m_visible_data, new_snapshot);
+}
+
+std::shared_ptr<EcosystemStateData> SimulationEngine::get_data() const {
+    return std::atomic_load(&m_visible_data);
 }
 
 void SimulationEngine::update_config(const EcosystemConfig& new_config) {
@@ -121,11 +123,16 @@ void SimulationEngine::simulation_loop() {
         ZoneScoped;
         const auto frame_start = std::chrono::steady_clock::now();
         if (!paused) {
+            std::shared_ptr<EcosystemStateData> new_snapshot;
             {
                 ZoneScopedN("Update Frame");
                 std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+
                 update_ecosystem();
+                new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+                new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
             }
+            std::atomic_store(&m_visible_data, new_snapshot);
         }
         {
             ZoneScopedN("Sleep");
