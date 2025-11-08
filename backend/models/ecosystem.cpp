@@ -364,8 +364,8 @@ void EcosystemState::prepare_for_update() {
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     current_phase = UpdatePhase::Decision;
 
-    constexpr std::size_t heavy_chunk_size = 64;
-    constexpr std::size_t light_chunk_size = 4096;
+    constexpr std::size_t heavy_chunk_size = 3;
+    constexpr std::size_t light_chunk_size = 8192;
 
     const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());
     if (worker_request_queues.size() != worker_count) {
@@ -967,20 +967,31 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
     const Position& center,
     double radius) const {
     std::vector<std::shared_ptr<ThingBase>> nearby;
-    if (radius < 0.0) {
+    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
         return nearby;
     }
 
     const double radius_sq = radius * radius;
-    nearby.reserve(m_all_things.size());
-    for (const auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        const double dx = thing->position.x - center.x;
-        const double dy = thing->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            nearby.push_back(thing);
+
+    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
+    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
+    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
+    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
+
+    for (int y = min_y; y <= max_y; ++y) {
+        for (int x = min_x; x <= max_x; ++x) {
+            const Tile& tile = get_tile(x, y);
+            for (ThingBase* thing_ptr : tile.things) {
+                if (!thing_ptr || !thing_ptr->alive) {
+                    continue;
+                }
+
+                const double dx = thing_ptr->position.x - center.x;
+                const double dy = thing_ptr->position.y - center.y;
+                if ((dx * dx + dy * dy) <= radius_sq) {
+                    nearby.push_back(thing_ptr->shared_from_this());
+                }
+            }
         }
     }
 
@@ -1018,20 +1029,34 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     const Position& center,
     double radius) const {
     std::vector<std::shared_ptr<ThingBase>> result;
-    const double radius_sq = radius * radius;
-    result.reserve(m_all_things.size());
+    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
+        return result;
+    }
 
-    for (const auto& thing : m_all_things) {
-        if (!thing || !thing->alive) {
-            continue;
-        }
-        if (thing->species_name != species_name) {
-            continue;
-        }
-        const double dx = thing->position.x - center.x;
-        const double dy = thing->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            result.push_back(thing);
+    const double radius_sq = radius * radius;
+
+    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
+    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
+    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
+    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
+
+    for (int y = min_y; y <= max_y; ++y) {
+        for (int x = min_x; x <= max_x; ++x) {
+            const Tile& tile = get_tile(x, y);
+            for (ThingBase* thing_ptr : tile.things) {
+                if (!thing_ptr || !thing_ptr->alive) {
+                    continue;
+                }
+                if (thing_ptr->species_name != species_name) {
+                    continue;
+                }
+
+                const double dx = thing_ptr->position.x - center.x;
+                const double dy = thing_ptr->position.y - center.y;
+                if ((dx * dx + dy * dy) <= radius_sq) {
+                    result.push_back(thing_ptr->shared_from_this());
+                }
+            }
         }
     }
 

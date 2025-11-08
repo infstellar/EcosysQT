@@ -21,7 +21,7 @@ struct AnimalParams : SpeciesBaseParams {
     int energy_consumption = 1;
     double hunting_range = 5.0;
     double hunting_success_rate = 0.5;
-    double detection_range = 500.0;
+    double detection_range = 300.0;
     std::vector<std::string> food_types = {};
     int hunting_cooldown_duration = 0;
     int min_reproduction_age = 0;

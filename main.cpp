@@ -165,9 +165,9 @@ int main(int argc, char *argv[])
          */
         EcosystemConfig config(800, 600);
         config.initial_populations = {
-            {"grass", 800},
-            {"cow", 30},
-            {"tiger", 2},
+            {"grass", 1000},
+            {"cow", 20},
+            {"tiger", 5},
         };
         
         // ========== 步骤 3: 创建模拟控制器 ==========
