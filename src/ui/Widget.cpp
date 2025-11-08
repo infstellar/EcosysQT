@@ -344,10 +344,21 @@ void Widget::paintEvent(QPaintEvent *event)
     for (const auto& [name, individuals] : data->thing_lists) {
         if (name == "grass") {
             if (m_grassTexture.isNull()) continue;
+            
+            // --- 修改：计算 1×1 格子在屏幕上的大小 ---
+            // 注意：一个格子 = 100 世界单位 (在 ecosystem.cpp 中定义)
+            // 1. 计算可见世界宽度
+            double visibleWorldWidth = data->world_width / m_zoomFactor;
+            // 2. 计算 1 个世界单位对应的屏幕像素数
+            double pixelsPerWorldUnit = width() / visibleWorldWidth;
+            // 3. 草的大小为 1×1 格子 = 100 世界单位
+            const double grassWorldSize = 100.0;  // 一个完整的网格格子
+            const double size = grassWorldSize * pixelsPerWorldUnit;
+            // --- 修改结束 ---
+            
             for (const auto& individual : individuals) {
                 if (!individual || !individual->alive) continue;
                 QPointF screenPos = toScreenCoords(individual->position);
-                const double size = 20.0;
                 QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
                 entitiesToDraw.push_back({&m_grassTexture, targetRectF.toRect(), individual->position.y});
             }
