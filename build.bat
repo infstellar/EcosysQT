@@ -1,6 +1,15 @@
 ﻿@echo off
 echo Building EcosysQT project...
 
+REM check conda
+if defined CONDA_DEFAULT_ENV (
+    echo Warning: CONDA ENV DETECTED: %CONDA_DEFAULT_ENV%
+    echo TO AVOID POTENTIAL CONFLICTS, PLEASE DEACTIVATE THE ENVIRONMENT BEFORE RUNNING THIS SCRIPT
+    pause
+    exit /b 1
+)
+
+
 REM Check if VCPKG_ROOT is set
 if not defined VCPKG_ROOT (
     echo Error: VCPKG_ROOT environment variable is not set
