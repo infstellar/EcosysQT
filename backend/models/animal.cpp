@@ -272,6 +272,15 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     for (const auto& kv : params.bt_params_strings) {
         bb.strings[kv.first] = kv.second;
     }
+
+    // 注入游荡总时长到黑板，供进度装饰器读取（若 YAML 未提供则使用 species_params 默认值）
+    if (params.wandering_duration > 0) {
+        bb.ints["wander_total_ticks"] = params.wandering_duration;
+    }
+    // 初始化游荡当前进度为 0，确保首次可见且不受之前残留影响
+    if (bb.ints.find("wander_current_ticks") == bb.ints.end()) {
+        bb.ints["wander_current_ticks"] = 0;
+    }
 }
 
 // --- 统一能量与一步移动封装（供行为树动作复用） ---

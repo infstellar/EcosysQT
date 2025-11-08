@@ -229,6 +229,65 @@ public:
     }
 };
 
+// 循环进度装饰器：在累计到 total_ticks 之前，每 tick 执行子节点并返回 Running；
+// 当达到 total_ticks 时，执行子节点并返回 Success，同时将 current_ticks 重置为 0。
+// 适用于“游荡”等需要持续执行子动作且希望外层观察到进度的场景。
+class ProgressLoopDecorator : public Decorator {
+    std::string total_key;
+    std::string current_key;
+    int default_total_ticks{1};
+public:
+    ProgressLoopDecorator(std::shared_ptr<Node> c,
+                          std::string totalKey,
+                          std::string currentKey,
+                          int defaultTotalTicks)
+        : Decorator(std::move(c)),
+          total_key(std::move(totalKey)),
+          current_key(std::move(currentKey)),
+          default_total_ticks(defaultTotalTicks) {}
+
+    Status tick(TickContext& ctx) override {
+        if (!ctx.blackboard) {
+            // 无黑板则直接执行子节点
+            return child ? child->tick(ctx) : Status::Failure;
+        }
+        auto& bb = *ctx.blackboard;
+        // 初始化 total_ticks
+        int total = default_total_ticks;
+        if (auto it = bb.ints.find(total_key); it != bb.ints.end() && it->second > 0) {
+            total = it->second;
+        } else {
+            bb.ints[total_key] = default_total_ticks;
+        }
+
+        // 推进 current_ticks
+        int current = 0;
+        if (auto it2 = bb.ints.find(current_key); it2 != bb.ints.end()) {
+            current = it2->second;
+        }
+
+        // 预增并执行子节点
+        const int next = current + 1;
+        bb.ints[current_key] = next;
+
+        if (next < total) {
+            // 未到达总时长：执行子节点并维持 Running
+            (void)(child ? child->tick(ctx) : Status::Success);
+            return Status::Running;
+        }
+
+        // 达到总时长：重置进度，执行子节点并返回 Success
+        bb.ints[current_key] = 0;
+        Status s = child ? child->tick(ctx) : Status::Success;
+        (void)s; // 成功执行子节点后，进度到达，外层看到 Success
+        return Status::Success;
+    }
+
+    void reset() override {
+        if (child) child->reset();
+    }
+};
+
 class BehaviorTree {
     std::shared_ptr<Node> root;
     Blackboard blackboard_;

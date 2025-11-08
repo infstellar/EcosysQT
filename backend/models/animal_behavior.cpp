@@ -551,11 +551,22 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         return Status::Running;
     });
 
+    // 为游荡行为添加“循环进度装饰器”：在累计到指定时长前，每 tick 执行游荡并返回 Running；
+    // 达到时长后返回 Success，同时重置进度。总时长从黑板键 `wander_total_ticks` 读取，
+    // 若未设置则使用默认值（建议与 YAML 的 `wandering_duration` 对齐）。
+    const int default_wander_ticks = 50; // 与 base_animal.yaml / species_params 默认值一致
+    auto wander_with_progress = std::make_shared<ProgressLoopDecorator>(
+        act_wander,
+        "wander_total_ticks",
+        "wander_current_ticks",
+        default_wander_ticks
+    );
+
     // 优先级：逃逸 > 繁殖 > 觅食/捕猎 > 游荡
     root_selector->add_child(seq_flee);
     root_selector->add_child(seq_mate);
     root_selector->add_child(seq_forage);
-    root_selector->add_child(act_wander);
+    root_selector->add_child(wander_with_progress);
 
     // --- 通用：FinalizeTick ---
     auto act_finalize = std::make_shared<Action>([&self](TickContext& ctx){

@@ -503,7 +503,14 @@ void EcosystemState::resolve_interactions() {
                 if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
 
                 race_marked_for_death.insert(target.get());
-                race_energy_changes[initiator.get()] += target->energy;
+                {
+                    // 引入能量利用率：捕食获得能量按 initiator.energy_efficiency 比例计算
+                    double efficiency = 1.0;
+                    if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
+                        efficiency = std::max(0.0, a->energy_efficiency);
+                    }
+                    race_energy_changes[initiator.get()] += (target->energy * efficiency);
+                }
                 target->die_from_predation(initiator->species_name);
             } else if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
                 auto& initiator = req.initiator;
@@ -514,7 +521,14 @@ void EcosystemState::resolve_interactions() {
                 if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
 
                 thing_marked_for_death.insert(target.get());
-                race_energy_changes[initiator.get()] += target->energy;
+                {
+                    // 引入能量利用率：吃草获得能量按 initiator.energy_efficiency 比例计算
+                    double efficiency = 1.0;
+                    if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
+                        efficiency = std::max(0.0, a->energy_efficiency);
+                    }
+                    race_energy_changes[initiator.get()] += (target->energy * efficiency);
+                }
                 target->die_from_predation(initiator->species_name);
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
                 if (req.parent && req.parent->alive) {
