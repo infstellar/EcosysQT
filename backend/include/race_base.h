@@ -35,6 +35,13 @@ public:
              int max_age = 100,
              double reproduction_energy_cost = 50);
 
+    // 新增构造函数：允许在构造时指定物种名，便于下游按物种加载配置/YAML
+    RaceBase(Position pos,
+             const std::string& species_name_,
+             double energy,
+             int max_age,
+             double reproduction_energy_cost);
+
     virtual ~RaceBase() = default;
 
     // 决策阶段

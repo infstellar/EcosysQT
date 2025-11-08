@@ -4,6 +4,23 @@ BehaviorTreeDef:
   root:
     type: PrioritySelector
     children:
+      # ========== 逃跑（高优先级） ==========
+      - type: Sequence
+        name: Flee
+        children:
+          - type: Condition
+            cond: should_flee              # danger_nearby 或 threat_distance<=threshold
+            # params:
+            #   danger_param: danger_nearby
+            #   distance_param: threat_distance
+            #   threshold_param: threat_threshold
+          - type: Action
+            action: flee_from_threat       # 反方向一步并清理繁殖上下文
+            # params:
+            #   pos_x_param: threat_pos_x
+            #   pos_y_param: threat_pos_y
+            #   speed_multiplier_param: flee_speed_multiplier
+            #   energy_multiplier_param: flee_energy_multiplier
       # ========== 交配（雄性） ==========
       - type: Sequence
         name: Mate
@@ -14,14 +31,12 @@ BehaviorTreeDef:
             cond: can_reproduce
           - type: Condition
             cond: desire_below_param
-            params:
-              probability_param: mating_desire_probability
+            probability_param: mating_desire_probability
           - type: Action
             action: find_available_mate
           - type: Action
             action: approach_or_mate
-            params:
-              mating_range_param: mating_range
+            mating_range_param: mating_range
 
       # ========== 捕食（牛） ==========
       - type: Sequence
@@ -31,10 +46,9 @@ BehaviorTreeDef:
             cond: is_hungry
           - type: Action
             action: hunt_nearby_race          # 就近捕食 AttemptToEatRaceRequest + 冷却
-            params:
-              kind: cow
-              range_param: hunting_range
-              success_rate_param: hunting_success_rate
+            kind: cow
+            range_param: hunting_range
+            success_rate_param: hunting_success_rate
           - type: Action
             action: select_target_point       # 远处猎物搜索与目标选择
           - type: Action
@@ -44,6 +58,5 @@ BehaviorTreeDef:
       - type: Action
         name: Wander
         action: wander_anywhere
-        params:
-          radius_param: wander_radius
-          duration_param: wandering_duration
+        radius_param: wander_radius
+        duration_param: wandering_duration

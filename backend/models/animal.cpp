@@ -18,8 +18,13 @@
 
 // --- Animal ---
 // 动物基类 - 继承自Species并添加智能移动
+// 兼容构造：未提供物种名时，默认使用 "RaceBase"（将回退到代码版行为树）
 Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
-        : RaceBase(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+        : Animal(pos, std::string("RaceBase"), params, rng) {}
+
+// 主构造：在构造时设置物种名，便于立即加载 YAML 行为树
+Animal::Animal(Position pos, const std::string& species_name, const AnimalParams& params, std::mt19937& rng)
+        : RaceBase(pos, species_name, params.energy, params.max_age, params.reproduction_energy_cost),
             base_movement_speed(params.movement_speed),
             movement_speed(params.movement_speed),
             base_energy_consumption(params.energy_consumption),
@@ -62,7 +67,7 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
     mating_intent_lock_ticks = 0;
     mating_intent_lock_duration = 30;
 
-    // 行为树脚手架构建（默认关闭）
+    // 行为树脚手架构建（默认关闭，若 species_name 有对应 YAML 则加载并使用）
     use_bt = params.use_bt;
     build_behavior_tree();
 }
@@ -117,6 +122,48 @@ void Animal::update_hunger_state() {
         hunger_state = HungerState::NORMAL;
     }
 }
+
+// ---- 新增：公共访问接口实现（供行为树使用） ----
+HungerState Animal::get_hunger_state() const { return hunger_state; }
+void Animal::refresh_hunger_state() { update_hunger_state(); }
+double Animal::get_mating_range() const { return mating_range; }
+double Animal::get_wander_radius() const { return wander_radius; }
+double Animal::get_mating_desire_probability() const { return mating_desire_probability; }
+double Animal::get_detection_range() const { return detection_range; }
+double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
+bool Animal::get_skip_movement() const { return skip_movement; }
+void Animal::set_skip_movement(bool v) { skip_movement = v; }
+int Animal::get_mating_intent_lock_ticks() const { return mating_intent_lock_ticks; }
+void Animal::set_mating_intent_lock_ticks(int v) { mating_intent_lock_ticks = v; }
+int Animal::get_mating_intent_lock_duration() const { return mating_intent_lock_duration; }
+void Animal::set_mating_intent_lock_duration(int v) { mating_intent_lock_duration = v; }
+int Animal::get_forage_intent_lock_ticks() const { return forage_intent_lock_ticks; }
+void Animal::set_forage_intent_lock_ticks(int v) { forage_intent_lock_ticks = v; }
+int Animal::get_forage_intent_lock_duration() const { return forage_intent_lock_duration; }
+void Animal::set_forage_intent_lock_duration(int v) { forage_intent_lock_duration = v; }
+void Animal::clear_sensor_caches() {
+    cached_food_races.clear();
+    cached_food_things.clear();
+    cached_mates.clear();
+}
+void Animal::cache_mate(const std::shared_ptr<Animal>& mate) { cached_mates.emplace_back(mate); }
+void Animal::cache_food_race(const std::shared_ptr<RaceBase>& race) { cached_food_races.emplace_back(race); }
+void Animal::cache_food_thing(const std::shared_ptr<ThingBase>& thing) { cached_food_things.emplace_back(thing); }
+std::vector<std::weak_ptr<Animal>> Animal::get_cached_mates_snapshot() const { return cached_mates; }
+std::vector<std::weak_ptr<RaceBase>> Animal::get_cached_food_races_snapshot() const { return cached_food_races; }
+std::vector<std::weak_ptr<ThingBase>> Animal::get_cached_food_things_snapshot() const { return cached_food_things; }
+void Animal::set_current_target(const std::optional<Position>& p) { current_target = p; }
+std::optional<Position> Animal::get_current_target() const { return current_target; }
+void Animal::clear_current_target() { current_target.reset(); }
+void Animal::set_mating_target(const std::optional<Position>& p) { mating_target = p; }
+std::optional<Position> Animal::get_mating_target() const { return mating_target; }
+void Animal::clear_mating_target() { mating_target.reset(); }
+void Animal::set_wander_target(const std::optional<Position>& p) { wander_target = p; }
+std::optional<Position> Animal::get_wander_target() const { return wander_target; }
+void Animal::clear_wander_target() { wander_target.reset(); }
+void Animal::clear_path() { planned_path.clear(); planned_path_index = 0; }
+double Animal::get_current_step_distance() const { return current_step_distance; }
+double Animal::get_step_distance_per_tick() const { return step_distance_per_tick; }
 
 
 double Animal::get_hunting_desire() const {
@@ -255,6 +302,13 @@ std::optional<std::shared_ptr<Animal>> Animal::find_available_mate(const Ecosyst
 void Animal::build_behavior_tree() {
     // 通过独立模块构建行为树，保持 Animal 仅承载数据与生命周期
     behavior_tree = behavior::build_tree_for_animal(*this);
+    if (behavior_tree) {
+        auto& bb = behavior_tree->blackboard();
+        const std::string source = (bb.strings.find("bt_source") != bb.strings.end()) ? bb.strings.at("bt_source") : std::string("unknown");
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", species_name, source);
+    } else {
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT] Failed to build behavior tree for '{}'", species_name);
+    }
 }
 
 void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {

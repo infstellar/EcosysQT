@@ -69,8 +69,8 @@ static void scan_and_register_animals(const std::string& directory_path) {
 
         g_race_factory.register_species(def_name, [yaml_provider, def_name](Position pos, std::mt19937& rng) {
             AnimalParams params = yaml_provider->get_animal_params(def_name);
-            auto instance = std::make_unique<Animal>(pos, params, rng);
-            instance->species_name = def_name;
+            // 在构造时传入物种名，确保构造中即可加载 YAML 行为树
+            auto instance = std::make_unique<Animal>(pos, def_name, params, rng);
             // 将 YAML 的 bt_params 注入行为树黑板，支持编辑器/配置驱动的时长参数
             instance->apply_bt_params_to_blackboard(params);
             return instance;

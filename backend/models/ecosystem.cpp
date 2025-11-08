@@ -542,15 +542,35 @@ void EcosystemState::resolve_interactions() {
                 auto& female = req.female;
                 auto& male = req.male;
 
-                if (female && male && female->alive && male->alive &&
-                    female->can_reproduce() && male->mating_timer <= 0)
-                {
+                const bool female_alive = (female && female->alive);
+                const bool male_alive = (male && male->alive);
+                const bool female_can = (female && female->can_reproduce());
+                const bool male_can = (male && male->can_reproduce());
+                const double dist = (female && male)
+                    ? female->position.distance_to(male->position)
+                    : std::numeric_limits<double>::quiet_NaN();
+
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                    "AttemptToMateRequest: female_alive={}, male_alive={}, female_can={}, male_can={}, dist={:.2f}",
+                    female_alive, male_alive, female_can, male_can, dist);
+
+                if (female_alive && male_alive && female_can && male_can) {
                     female->begin_mating_with(male);
                     male->begin_mating_with(female);
                     female->become_pregnant();
                     male->start_reproduction_cooldown();
                     female->energy -= female->reproduction_energy_cost;
                     male->energy -= male->reproduction_energy_cost;
+
+                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                        "Mating accepted: male(age={},energy={:.1f}) female(age={},energy={:.1f}) dist={:.2f}",
+                        male ? male->age : -1, male ? male->energy : 0.0,
+                        female ? female->age : -1, female ? female->energy : 0.0,
+                        dist);
+                } else {
+                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                        "Mating rejected: conditions not met (female_alive={}, male_alive={}, female_can={}, male_can={})",
+                        female_alive, male_alive, female_can, male_can);
                 }
             }
         }, request);

@@ -52,8 +52,10 @@ public:
     double eating_range;
     double energy_efficiency;
 
-    // 构造函数
+    // 构造函数（默认物种名为 "RaceBase"）
     Animal(Position pos, const AnimalParams& params, std::mt19937& rng);
+    // 新增构造函数：允许在构造时传入物种名，便于加载 YAML 行为树
+    Animal(Position pos, const std::string& species_name, const AnimalParams& params, std::mt19937& rng);
     virtual ~Animal();
 
     // 更新流程
@@ -93,6 +95,51 @@ public:
 
     // 将 YAML/编辑器提供的 bt_params 写入行为树黑板
     void apply_bt_params_to_blackboard(const AnimalParams& params);
+
+    // ---- 公共访问接口（供行为树使用，替代对 protected 成员的直接访问） ----
+    // 饥饿状态
+    HungerState get_hunger_state() const;
+    void refresh_hunger_state();
+    // 参数读取
+    double get_mating_range() const;
+    double get_wander_radius() const;
+    double get_mating_desire_probability() const;
+    double get_detection_range() const;
+    double get_pregnancy_speed_penalty() const;
+    // 移动控制
+    bool get_skip_movement() const;
+    void set_skip_movement(bool v);
+    // 意图锁定
+    int get_mating_intent_lock_ticks() const;
+    void set_mating_intent_lock_ticks(int v);
+    int get_mating_intent_lock_duration() const;
+    void set_mating_intent_lock_duration(int v);
+    int get_forage_intent_lock_ticks() const;
+    void set_forage_intent_lock_ticks(int v);
+    int get_forage_intent_lock_duration() const;
+    void set_forage_intent_lock_duration(int v);
+    // 感知缓存操作
+    void clear_sensor_caches();
+    void cache_mate(const std::shared_ptr<Animal>& mate);
+    void cache_food_race(const std::shared_ptr<RaceBase>& race);
+    void cache_food_thing(const std::shared_ptr<ThingBase>& thing);
+    std::vector<std::weak_ptr<Animal>> get_cached_mates_snapshot() const;
+    std::vector<std::weak_ptr<RaceBase>> get_cached_food_races_snapshot() const;
+    std::vector<std::weak_ptr<ThingBase>> get_cached_food_things_snapshot() const;
+    // 目标/路径管理
+    void set_current_target(const std::optional<Position>& p);
+    std::optional<Position> get_current_target() const;
+    void clear_current_target();
+    void set_mating_target(const std::optional<Position>& p);
+    std::optional<Position> get_mating_target() const;
+    void clear_mating_target();
+    void set_wander_target(const std::optional<Position>& p);
+    std::optional<Position> get_wander_target() const;
+    void clear_wander_target();
+    void clear_path();
+    // 步长
+    double get_current_step_distance() const;
+    double get_step_distance_per_tick() const;
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式

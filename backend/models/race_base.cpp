@@ -23,6 +23,23 @@ RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproducti
       reproduction_energy_cost(reproduction_energy_cost_),
       pending_spawn_position(std::nullopt) {}
 
+RaceBase::RaceBase(Position pos,
+                   const std::string& species_name_,
+                   double energy_,
+                   int max_age_,
+                   double reproduction_energy_cost_)
+    : position(pos),
+      energy(energy_),
+      max_energy(energy_ * 4),
+      age(0),
+      max_age(max_age_),
+      alive(true),
+      reproduction_cooldown(0),
+      death_reason(""),
+      species_name(species_name_),
+      reproduction_energy_cost(reproduction_energy_cost_),
+      pending_spawn_position(std::nullopt) {}
+
 void RaceBase::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     (void)ecosystem_state;
     (void)rng;

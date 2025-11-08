@@ -4,6 +4,23 @@ BehaviorTreeDef:
   root:
     type: PrioritySelector
     children:
+      # ========== 逃跑（高优先级） ==========
+      - type: Sequence
+        name: Flee
+        children:
+          - type: Condition
+            cond: should_flee              # danger_nearby 或 threat_distance<=threshold
+            # params:
+            #   danger_param: danger_nearby
+            #   distance_param: threat_distance
+            #   threshold_param: threat_threshold
+          - type: Action
+            action: flee_from_threat       # 反方向一步并清理繁殖上下文
+            # params:
+            #   pos_x_param: threat_pos_x
+            #   pos_y_param: threat_pos_y
+            #   speed_multiplier_param: flee_speed_multiplier
+            #   energy_multiplier_param: flee_energy_multiplier
       # ========== 交配（雄性） ==========
       - type: Sequence
         name: Mate
@@ -14,14 +31,12 @@ BehaviorTreeDef:
             cond: can_reproduce              # Animal::can_reproduce()
           - type: Condition
             cond: desire_below_param         # 随机数 < mating_desire_probability
-            params:
-              probability_param: mating_desire_probability
+            probability_param: mating_desire_probability
           - type: Action
             action: find_available_mate      # Animal::find_available_mate(world)
           - type: Action
             action: approach_or_mate         # 近则提交 AttemptToMateRequest；远则设定 mating_target
-            params:
-              mating_range_param: mating_range
+            mating_range_param: mating_range
 
       # ========== 觅食（草） ==========
       - type: Sequence
@@ -31,20 +46,22 @@ BehaviorTreeDef:
             cond: is_hungry                  # hunger_state != SATISFIED
           - type: Condition
             cond: has_food_types             # !food_types.empty()
-          - type: Action
-            action: eat_nearby_thing         # 就近吃草 AttemptToEatThingRequest
-            params:
-              kind: grass
-              range_param: eating_range
-          - type: Action
-            action: select_target_point      # 远处食物目标选择（保留现有实现）
-          - type: Action
-            action: plan_path_to_target      # 路径规划至 current_target
+          - type: PrioritySelector           # New PrioritySelector
+            children:
+              - type: Action
+                action: eat_nearby_thing         # 就近吃草 AttemptToEatThingRequest
+                kind: grass
+                range_param: eating_range
+              - type: Sequence               # If no nearby grass, try to find distant food
+                children:
+                  - type: Action
+                    action: select_target_point      # 远处食物目标选择（保留现有实现）
+                  - type: Action
+                    action: plan_path_to_target      # 路径规划至 current_target
 
       # ========== 游荡 ==========
       - type: Action
         name: Wander
         action: wander_anywhere
-        params:
-          radius_param: wander_radius
-          duration_param: wandering_duration
+        radius_param: wander_radius
+        duration_param: wandering_duration

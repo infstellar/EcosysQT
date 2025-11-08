@@ -15,14 +15,415 @@
 #include "thing_base.h"
 #include <random>
 #include <cmath>
+// YAML 解析与路径访问
+#include <yaml-cpp/yaml.h>
+#include <spdlog/spdlog.h>
+#include "race_factory.h"
+#include "species_config_provider.h"
+// 新的可复用行为动作封装
+#include "bt_actions.h"
+// 注册表所需容器
+#include <unordered_map>
+#include <functional>
 
 namespace behavior {
 
 using namespace bt;
 
+// --- YAML 构建辅助：从黑板/Animal 成员读取参数 ---
+static double read_double_param(Animal& self, Blackboard* bb, const std::string& name, double fallback) {
+    if (bb) {
+        auto it = bb->doubles.find(name);
+        if (it != bb->doubles.end()) return it->second;
+    }
+    if (name == "hunting_range") return self.hunting_range;
+    if (name == "hunting_success_rate") return self.hunting_success_rate;
+    if (name == "eating_range") return self.eating_range;
+    if (name == "mating_range") return self.get_mating_range();
+    if (name == "wander_radius") return self.get_wander_radius();
+    if (name == "mating_desire_probability") return self.get_mating_desire_probability();
+    if (name == "detection_range") return self.get_detection_range();
+    return fallback;
+}
+
+static int read_int_param(Animal& self, Blackboard* bb, const std::string& name, int fallback) {
+    if (bb) {
+        auto it = bb->ints.find(name);
+        if (it != bb->ints.end()) return it->second;
+    }
+    return fallback;
+}
+
+// --- 条件工厂注册表 ---
+static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>(const YAML::Node&, Animal&)>> kConditionFactories = {
+    {
+        "sex_is_male",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Condition>([&self](TickContext&){ return self.sex == Sex::MALE; });
+        }
+    },
+    {
+        "can_reproduce",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Condition>([&self](TickContext&){ return self.can_reproduce(); });
+        }
+    },
+    {
+        "desire_below_param",
+        [](const YAML::Node& params, Animal& self){
+            const std::string key = params["probability_param"] ? params["probability_param"].as<std::string>() : std::string("mating_desire_probability");
+            return std::make_shared<Condition>([&self, key](TickContext& ctx){
+                auto* world = static_cast<EcosystemState*>(ctx.world);
+                if (!world || !self.alive) return false;
+                auto& rng_local = world->get_thread_local_rng();
+                std::uniform_real_distribution<> dist(0.0, 1.0);
+                const double p = read_double_param(self, ctx.blackboard, key, self.get_mating_desire_probability());
+                return dist(rng_local) < std::max(0.0, std::min(1.0, p));
+            });
+        }
+    },
+    {
+        "is_hungry",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Condition>([&self](TickContext&){ return self.get_hunger_state() != HungerState::SATISFIED; });
+        }
+    },
+    {
+        "has_food_types",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Condition>([&self](TickContext&){ return !self.food_types.empty(); });
+        }
+    },
+    {
+        "should_flee",
+        [](const YAML::Node& params, Animal&){
+            const std::string danger_key = params["danger_param"] ? params["danger_param"].as<std::string>() : std::string("danger_nearby");
+            const std::string dist_key = params["distance_param"] ? params["distance_param"].as<std::string>() : std::string("threat_distance");
+            const std::string th_key = params["threshold_param"] ? params["threshold_param"].as<std::string>() : std::string("threat_threshold");
+            return std::make_shared<Condition>([danger_key, dist_key, th_key](TickContext& ctx){
+                if (!ctx.blackboard) return false;
+                auto& bb = *ctx.blackboard;
+                const bool danger = (bb.ints.find(danger_key) != bb.ints.end() && bb.ints[danger_key] != 0);
+                const double dist = (bb.doubles.find(dist_key) != bb.doubles.end()) ? bb.doubles[dist_key] : std::numeric_limits<double>::max();
+                const double threshold = (bb.doubles.find(th_key) != bb.doubles.end()) ? bb.doubles[th_key] : 0.0;
+                return danger || (threshold > 0.0 && dist <= threshold);
+            });
+        }
+    }
+};
+
+// --- 动作工厂注册表 ---
+static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>(const YAML::Node&, Animal&)>> kActionFactories = {
+    {
+        "find_available_mate",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Action>([&self](TickContext& ctx){
+                auto* world = static_cast<EcosystemState*>(ctx.world);
+                if (!world || !self.alive) return Status::Failure;
+                auto mate = self.find_available_mate(*world);
+                if (mate.has_value()) {
+                    self.set_mating_target(mate.value()->position);
+                    if (ctx.blackboard) {
+                        ctx.blackboard->doubles["mate_target_pos_x"] = self.get_mating_target()->x;
+                        ctx.blackboard->doubles["mate_target_pos_y"] = self.get_mating_target()->y;
+                    }
+                    return Status::Success;
+                }
+                return Status::Failure;
+            });
+        }
+    },
+    {
+        "approach_or_mate",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params; // 捕获参数以支持自定义键
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::ApproachOrMate(self, ctx, p);
+            });
+        }
+    },
+    {
+        "eat_nearby_thing",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::EatNearbyThing(self, ctx, p);
+            });
+        }
+    },
+    {
+        "hunt_nearby_race",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::HuntNearbyRace(self, ctx, p);
+            });
+        }
+    },
+    {
+        "select_target_point",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::SelectTargetPoint(self, ctx, p);
+            });
+        }
+    },
+    {
+        "plan_path_to_target",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::PlanPathToTarget(self, ctx, p);
+            });
+        }
+    },
+    {
+        "flee_from_threat",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::FleeFromThreat(self, ctx, p);
+            });
+        }
+    },
+    {
+        "wander_anywhere",
+        [](const YAML::Node& params, Animal& self) -> std::shared_ptr<Node> {
+            YAML::Node p = params;
+            auto act = std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::WanderAnywhere(self, ctx, p);
+            });
+            if (p["duration_param"]) {
+                auto decorator = std::make_shared<ProgressLoopDecorator>(act, "wander_total_ticks", "wander_current_ticks", 50);
+                return std::static_pointer_cast<Node>(decorator);
+            }
+            return std::static_pointer_cast<Node>(act);
+        }
+    }
+};
+
+// --- 条件与动作工厂：根据 YAML 名字生成节点 ---
+static std::shared_ptr<Node> make_condition_node(const std::string& name, const YAML::Node& params, Animal& self) {
+    auto it = kConditionFactories.find(name);
+    if (it != kConditionFactories.end()) {
+        return it->second(params, self);
+    }
+    return std::make_shared<Condition>([](TickContext&){ return false; });
+}
+
+static std::shared_ptr<Node> make_action_node(const std::string& name, const YAML::Node& params, Animal& self) {
+    auto it = kActionFactories.find(name);
+    if (it != kActionFactories.end()) {
+        return it->second(params, self);
+    }
+    return std::make_shared<Action>([](TickContext&){ return Status::Failure; });
+}
+
+// 递归解析 YAML 节点并实例化为可执行节点（不绑定到具体上下文之外）
+static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& self) {
+    if (!n || !n["type"]) return nullptr;
+    const std::string type = n["type"].as<std::string>();
+    if (type == "PrioritySelector") {
+        auto s = std::make_shared<PrioritySelector>();
+        const YAML::Node children = n["children"];
+        if (children && children.IsSequence()) {
+            for (const auto& ch : children) {
+                auto node = parse_bt_yaml_node(ch, self);
+                if (node) s->add_child(node);
+            }
+        }
+        return s;
+    }
+    if (type == "Selector") {
+        auto s = std::make_shared<Selector>();
+        const YAML::Node children = n["children"];
+        if (children && children.IsSequence()) {
+            for (const auto& ch : children) {
+                auto node = parse_bt_yaml_node(ch, self);
+                if (node) s->add_child(node);
+            }
+        }
+        return s;
+    }
+    if (type == "Sequence") {
+        auto s = std::make_shared<Sequence>();
+        const YAML::Node children = n["children"];
+        if (children && children.IsSequence()) {
+            for (const auto& ch : children) {
+                auto node = parse_bt_yaml_node(ch, self);
+                if (node) s->add_child(node);
+            }
+        }
+        return s;
+    }
+    if (type == "Condition") {
+        const std::string cond_name = n["cond"] ? n["cond"].as<std::string>() : std::string();
+        // 兼容两种参数写法：
+        // 1) 传统：将所有键放在 params 映射下
+        // 2) 扁平：将参数键与 type/cond 同级
+        YAML::Node p = (n["params"] && n["params"].IsMap()) ? n["params"] : YAML::Node(YAML::NodeType::Map);
+        // 合并同级的参数键（排除保留字段）
+        if (n.IsMap()) {
+            for (auto it : n) {
+                const std::string k = it.first.as<std::string>();
+                if (k == "type" || k == "children" || k == "name" || k == "cond" || k == "action" || k == "params") {
+                    continue;
+                }
+                p[k] = it.second;
+            }
+        }
+        return make_condition_node(cond_name, p, self);
+    }
+    if (type == "Action") {
+        const std::string action_name = n["action"] ? n["action"].as<std::string>() : std::string();
+        // 同 Condition：支持 params 映射和同级扁平参数
+        YAML::Node p = (n["params"] && n["params"].IsMap()) ? n["params"] : YAML::Node(YAML::NodeType::Map);
+        if (n.IsMap()) {
+            for (auto it : n) {
+                const std::string k = it.first.as<std::string>();
+                if (k == "type" || k == "children" || k == "name" || k == "cond" || k == "action" || k == "params") {
+                    continue;
+                }
+                p[k] = it.second;
+            }
+        }
+        return make_action_node(action_name, p, self);
+    }
+    return nullptr;
+}
+
+// 若存在 bt/<species>_bt.yaml 则构建 YAML 行为树，否则返回空指针以回退到代码版
+static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& self) {
+    try {
+        if (self.species_name.empty()) return nullptr;
+        auto provider = g_race_factory.get_config_provider();
+        const std::string root_dir = provider ? provider->get_config_root_dir() : std::string(".");
+        const std::string path = root_dir + "/config/species/animals/bt/" + self.species_name + "_bt.yaml";
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Try load '{}': {}", self.species_name, path);
+        YAML::Node doc = YAML::LoadFile(path);
+        if (!doc) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Empty YAML doc for '{}'", self.species_name);
+            return nullptr;
+        }
+        const YAML::Node def = doc["BehaviorTreeDef"];
+        if (!def) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'BehaviorTreeDef' for '{}'", self.species_name);
+            return nullptr;
+        }
+        const YAML::Node root = def["root"];
+        if (!root) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'root' node for '{}'", self.species_name);
+            return nullptr;
+        }
+
+        // 包裹统一的 Update -> Succeeder(用户定义根) -> Finalize 序列
+        auto root_seq = std::make_shared<Sequence>();
+        auto user_root = parse_bt_yaml_node(root, self);
+        if (!user_root) return nullptr;
+
+        // 通用 Update（复用代码版语义）
+        auto act_update = std::make_shared<Action>([&self](TickContext& ctx){
+            auto* world = static_cast<EcosystemState*>(ctx.world);
+            if (!world || !self.alive) return Status::Failure;
+
+            self.set_skip_movement(false);
+            self.clear_sensor_caches();
+            self.refresh_hunger_state();
+            if (ctx.blackboard) {
+                auto& bb = *ctx.blackboard;
+                // 读取意图锁时长（若黑板提供）
+                if (auto it = bb.ints.find("mating_intent_lock_duration"); it != bb.ints.end()) self.set_mating_intent_lock_duration(it->second);
+                if (auto it2 = bb.ints.find("forage_intent_lock_duration"); it2 != bb.ints.end()) self.set_forage_intent_lock_duration(it2->second);
+            }
+            Blackboard dummy;
+            auto& bb = ctx.blackboard ? *ctx.blackboard : dummy;
+            // 感知：附近同种雌性
+            {
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
+                for (const auto& r : nearby_races) {
+                    if (!r || !r->alive) continue;
+                    if (r.get() == &self) continue;
+                    if (r->species_name != self.species_name) continue;
+                    auto female = std::dynamic_pointer_cast<Animal>(r);
+                    if (!female) continue;
+                    if (female->sex != Sex::FEMALE || !female->can_reproduce()) continue;
+                    if (self.position.distance_to(female->position) > self.get_detection_range()) continue;
+                    self.cache_mate(female);
+                }
+                bb.ints["perceived_mates_count"] = static_cast<int>(self.get_cached_mates_snapshot().size());
+            }
+            // 感知：附近食物（race/things）
+            {
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
+                for (const auto& r : nearby_races) {
+                    if (!r || !r->alive) continue;
+                    if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
+                    if (self.position.distance_to(r->position) > self.get_detection_range()) continue;
+                    self.cache_food_race(r);
+                }
+                for (const auto& k : self.food_types) {
+                    auto nearby_things = world->get_things_in_range(k, self.position, self.get_detection_range());
+                    for (const auto& t : nearby_things) {
+                        if (!t || !t->alive) continue;
+                        self.cache_food_thing(t);
+                    }
+                }
+                bb.ints["perceived_food_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size() + self.get_cached_food_things_snapshot().size());
+            }
+            return Status::Success;
+        });
+
+        auto selector_succeeder = std::make_shared<Succeeder>(user_root);
+
+        // Finalize（复用代码版语义）
+        auto act_finalize = std::make_shared<Action>([&self](TickContext& ctx){
+            auto* world = static_cast<EcosystemState*>(ctx.world);
+            (void)world;
+            if (!self.alive) return Status::Failure;
+            if (self.get_skip_movement()) {
+                self.clear_current_target();
+                self.clear_path();
+                self.clear_wander_target();
+                self.clear_mating_target();
+                if (ctx.blackboard) {
+                    auto& bb = *ctx.blackboard;
+                    bb.ints.erase("mate_target_id");
+                    bb.doubles.erase("mate_target_pos_x");
+                    bb.doubles.erase("mate_target_pos_y");
+                    bb.ints.erase("mating_timer_ticks");
+                    bb.doubles.erase("target_pos_x");
+                    bb.doubles.erase("target_pos_y");
+                }
+            }
+            self.set_skip_movement(false);
+            return Status::Success;
+        });
+
+        root_seq->add_child(act_update);
+        root_seq->add_child(selector_succeeder);
+        root_seq->add_child(act_finalize);
+        auto tree = std::make_unique<BehaviorTree>(root_seq);
+        // 在黑板标记来源，便于 UI/调试观察
+        tree->blackboard().strings["bt_source"] = std::string("yaml:") + self.species_name;
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT YAML] Built YAML tree for '{}'", self.species_name);
+        return tree;
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to build YAML tree for '{}': {}. Falling back to code tree.", self.species_name, e.what());
+        return nullptr;
+    }
+}
+
 // 主节点：吃草动作（内联 Action），在近场范围内提交吃草交互
 
 std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
+    // 优先使用 YAML 蓝图构建，失败则回退到代码版
+    if (!self.species_name.empty()) {
+        if (auto yaml_tree = build_tree_from_yaml_if_available(self)) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Using YAML tree for '{}'", self.species_name);
+            return yaml_tree;
+        }
+    }
     // 根：序列(UpdateState -> Succeeder(PrioritySelector(交配/觅食/游荡)) -> Finalize)
     // 使用 Succeeder 包裹优先选择器，确保无论其返回 Running/Success 都继续执行 Finalize，
     // 避免 Running 阻断导致 skip_movement 等临时标记无法在本 tick 清理。
@@ -35,45 +436,42 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         if (!world || !self.alive) return Status::Failure;
 
         // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
-        self.skip_movement = false;
-        // 清理上一帧感知缓存
-        self.cached_food_races.clear();
-        self.cached_food_things.clear();
-        self.cached_mates.clear();
+        self.set_skip_movement(false);
+        self.clear_sensor_caches();
 
         // 注：skip_movement 仅由本 tick 的具体动作设置（交配、分娩、近场吃草/捕食），
         // 不再从黑板读取跨 tick 标记，避免装饰器未被执行时残留导致卡住。
 
         // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
-        self.update_hunger_state();
+        self.refresh_hunger_state();
 
         // 从黑板读取意图锁定时长（可由 YAML 配置覆盖）
         if (ctx.blackboard) {
             auto& bb = *ctx.blackboard;
             if (bb.ints.find("mating_intent_lock_duration") != bb.ints.end()) {
-                self.mating_intent_lock_duration = std::max(0, bb.ints["mating_intent_lock_duration"]);
+                self.set_mating_intent_lock_duration(std::max(0, bb.ints["mating_intent_lock_duration"]));
             }
             if (bb.ints.find("forage_intent_lock_duration") != bb.ints.end()) {
-                self.forage_intent_lock_duration = std::max(0, bb.ints["forage_intent_lock_duration"]);
+                self.set_forage_intent_lock_duration(std::max(0, bb.ints["forage_intent_lock_duration"]));
             }
         }
 
         // 求偶/觅食意图锁定推进与释放
-        if (self.mating_intent_lock_ticks > 0) {
-            self.mating_intent_lock_ticks -= 1;
+        if (self.get_mating_intent_lock_ticks() > 0) {
+            self.set_mating_intent_lock_ticks(self.get_mating_intent_lock_ticks() - 1);
         } else {
-            if (self.mating_target.has_value() && self.hunger_state == HungerState::STARVING) {
-                self.mating_target.reset();
+            if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
+                self.clear_mating_target();
             }
         }
-        if (self.forage_intent_lock_ticks > 0) {
-            self.forage_intent_lock_ticks -= 1;
+        if (self.get_forage_intent_lock_ticks() > 0) {
+            self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_ticks() - 1);
         }
 
         // 进行中的交配计时器
         if (self.mating_timer > 0) {
             self.mating_timer -= 1;
-            self.skip_movement = true; // 交配中本 tick 不移动
+            self.set_skip_movement(true); // 交配中本 tick 不移动
         }
 
         // 怀孕推进与分娩提交
@@ -95,7 +493,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                 // 提交分娩请求并进入产后冷却
                 world->submit_interaction_request(AttemptToReproduceRaceRequest{self.shared_from_this()});
                 self.start_reproduction_cooldown();
-                self.skip_movement = true; // 分娩本 tick 不移动
+                self.set_skip_movement(true); // 分娩本 tick 不移动
             }
         }
 
@@ -109,7 +507,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             auto& bb = *ctx.blackboard;
             // 饥饿状态（枚举以 int 存储：0=SATISFIED,1=NORMAL,2=STARVING）
             int hunger_code = 1;
-            switch (self.hunger_state) {
+            switch (self.get_hunger_state()) {
                 case HungerState::SATISFIED: hunger_code = 0; break;
                 case HungerState::NORMAL: hunger_code = 1; break;
                 case HungerState::STARVING: hunger_code = 2; break;
@@ -127,8 +525,8 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
 
             // 逃逸阈值：按物种设置。默认=探测范围；牛用较小比例（不影响其他用途的探测范围）
             const double default_threat_threshold = (self.species_name == std::string("cow"))
-                ? std::max(0.0, self.detection_range * 0.1)
-                : self.detection_range;
+                ? std::max(0.0, self.get_detection_range() * 0.1)
+                : self.get_detection_range();
             if (bb.doubles.find("threat_threshold") == bb.doubles.end()) {
                 bb.doubles["threat_threshold"] = default_threat_threshold;
             }
@@ -166,14 +564,14 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             // 集中怀孕速度惩罚：本 tick 的基础速度倍率
             double base_speed_multiplier = 1.0;
             if (self.is_pregnant) {
-                base_speed_multiplier *= std::max(0.0, self.pregnancy_speed_penalty);
+                base_speed_multiplier *= std::max(0.0, self.get_pregnancy_speed_penalty());
             }
             bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
 
             // --- 缓存：探测范围内的食物/配偶列表 ---
             // mates: 同种雌性，且可繁殖
             {
-                const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
                 for (const auto& r : nearby_races) {
                     if (!r || !r->alive) continue;
                     if (r.get() == &self) continue;
@@ -181,30 +579,30 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                     auto female = std::dynamic_pointer_cast<Animal>(r);
                     if (!female) continue;
                     if (female->sex != Sex::FEMALE || !female->can_reproduce()) continue;
-                    if (self.position.distance_to(female->position) > self.detection_range) continue;
-                    self.cached_mates.emplace_back(female);
+                    if (self.position.distance_to(female->position) > self.get_detection_range()) continue;
+                    self.cache_mate(female);
                 }
-                bb.ints["perceived_mates_count"] = static_cast<int>(self.cached_mates.size());
+                bb.ints["perceived_mates_count"] = static_cast<int>(self.get_cached_mates_snapshot().size());
             }
 
             // food: races 可食 + things 可食（依据 food_types 列表）
             {
-                const auto nearby_races = world->get_nearby_races_broad(self.position, self.detection_range);
+                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
                 for (const auto& r : nearby_races) {
                     if (!r || !r->alive) continue;
                     if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
-                    if (self.position.distance_to(r->position) > self.detection_range) continue;
-                    self.cached_food_races.emplace_back(r);
+                    if (self.position.distance_to(r->position) > self.get_detection_range()) continue;
+                    self.cache_food_race(r);
                 }
-                const auto nearby_things = world->get_nearby_things_broad(self.position, self.detection_range);
+                const auto nearby_things = world->get_nearby_things_broad(self.position, self.get_detection_range());
                 for (const auto& t : nearby_things) {
                     if (!t || !t->alive) continue;
                     if (std::find(self.food_types.begin(), self.food_types.end(), t->species_name) == self.food_types.end()) continue;
-                    if (self.position.distance_to(t->position) > self.detection_range) continue;
-                    self.cached_food_things.emplace_back(t);
+                    if (self.position.distance_to(t->position) > self.get_detection_range()) continue;
+                    self.cache_food_thing(t);
                 }
-                bb.ints["perceived_food_races_count"] = static_cast<int>(self.cached_food_races.size());
-                bb.ints["perceived_food_things_count"] = static_cast<int>(self.cached_food_things.size());
+                bb.ints["perceived_food_races_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size());
+                bb.ints["perceived_food_things_count"] = static_cast<int>(self.get_cached_food_things_snapshot().size());
             }
         }
 
@@ -215,75 +613,26 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     auto seq_mate = std::make_shared<Sequence>();
     seq_mate->add_child(std::make_shared<Condition>([&self](TickContext&){
         // 交配条件：雄性、可繁殖、非极度饥饿，且未被觅食意图锁阻断
-        return self.sex == Sex::MALE && self.can_reproduce() && self.hunger_state != HungerState::STARVING && self.forage_intent_lock_ticks <= 0;
+        return self.sex == Sex::MALE && self.can_reproduce() && self.get_hunger_state() != HungerState::STARVING && self.get_forage_intent_lock_ticks() <= 0;
     }));
-    seq_mate->add_child(std::make_shared<Action>([&self](TickContext& ctx){
+    // 额外条件：基于求偶意愿概率的抽样（与 YAML 中的 desire_below_param 对齐）
+    seq_mate->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return Status::Failure;
-        if (self.skip_movement) return Status::Failure;
-
-        // 求偶意愿概率
+        if (!world || !self.alive) return false;
         auto& rng_local = world->get_thread_local_rng();
         std::uniform_real_distribution<> desire_dist(0.0, 1.0);
-        if (desire_dist(rng_local) >= self.mating_desire_probability) {
-            return Status::Failure; // 未命中意愿，交由后续分支
-        }
-
-        // 使用缓存的配偶列表选择最近者
-        std::shared_ptr<Animal> mate;
-        double min_d = std::numeric_limits<double>::max();
-        for (auto& wptr : self.cached_mates) {
-            auto cand = wptr.lock();
-            if (!cand || !cand->alive) continue;
-            const double d = self.position.distance_to(cand->position);
-            if (d < min_d) {
-                min_d = d;
-                mate = cand;
-            }
-        }
-        if (!mate) {
-            return Status::Failure;
-        }
-        if (!mate || !mate->alive) {
-            return Status::Failure;
-        }
-
-        // 将当前拟定伴侣位置写入黑板，便于后续接近与调试
-        if (ctx.blackboard) {
-            auto& bb = *ctx.blackboard;
-            bb.doubles["mate_target_pos_x"] = mate->position.x;
-            bb.doubles["mate_target_pos_y"] = mate->position.y;
-        }
-
-        if (self.position.distance_to(mate->position) <= self.mating_range) {
-            // 在范围内，提交交配请求并跳过移动
-            world->submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(self.shared_from_this())});
-            self.skip_movement = true;
-            return Status::Running;
-        } else {
-            // 未到范围内：锁定交配意图并前往配偶位置
-            self.mating_target = mate->position;
-            self.mating_intent_lock_ticks = self.mating_intent_lock_duration;
-            self.current_target = self.mating_target;
-            self.plan_path_to_target(*world, self.current_target);
-            // 将当前移动目标写入黑板，保持一致的调试显示
-            if (ctx.blackboard) {
-                auto& bb = *ctx.blackboard;
-                bb.doubles["target_pos_x"] = self.current_target->x;
-                bb.doubles["target_pos_y"] = self.current_target->y;
-            }
-            // 直接执行一步移动并结算能量（统一封装）
-            const int ww = world->config.world_width;
-            const int wh = world->config.world_height;
-            self.perform_step_move_path(ww, wh);
-            return Status::Running;
-        }
+        return desire_dist(rng_local) < self.get_mating_desire_probability();
+    }));
+    // 行为：复用封装的 ApproachOrMate
+    seq_mate->add_child(std::make_shared<Action>([&self](TickContext& ctx){
+        YAML::Node p; // 默认为使用黑板键 'mating_range'
+        return behavior::actions::ApproachOrMate(self, ctx, p);
     }));
 
     // --- 觅食/捕食序列：条件 -> 近场吃草(进度) -> 远处目标与移动/捕食 ---
     auto seq_forage = std::make_shared<Sequence>();
     seq_forage->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return self.hunger_state != HungerState::SATISFIED && !self.food_types.empty();
+        return self.get_hunger_state() != HungerState::SATISFIED && !self.food_types.empty();
     }));
     // 近场吃草：由进度装饰器控制持续时间（仅当主食为 grass 时）
     // 并通过 Selector 保障非草食动物（如老虎）不会被该动作阻塞
@@ -293,8 +642,8 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         auto eat_action = std::make_shared<Action>([&self](TickContext& ctx){
             auto* world = static_cast<EcosystemState*>(ctx.world);
             if (!world || !self.alive) return Status::Failure;
-            if (self.skip_movement) return Status::Failure;
-            if (self.food_types.empty() || self.hunger_state == HungerState::SATISFIED) {
+            if (self.get_skip_movement()) return Status::Failure;
+            if (self.food_types.empty() || self.get_hunger_state() == HungerState::SATISFIED) {
                 return Status::Failure;
             }
             const std::string& primary_food = self.food_types.front();
@@ -308,7 +657,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             for (const auto& thing_ptr : nearby_things) {
                 if (!thing_ptr || !thing_ptr->alive) continue;
                 world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), thing_ptr});
-                self.skip_movement = true; // 本 tick 不移动
+                self.set_skip_movement(true); // 本 tick 不移动
                 // 进度相关：若存在黑板，保持 current/total 用于显示
                 (void)ctx.blackboard;
                 return Status::Success;
@@ -347,27 +696,8 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         return self.hunting_range > 0.0 && self.hunting_cooldown <= 0 && self.get_hunting_desire() > 0.0;
     }));
     seq_hunt_near->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return Status::Failure;
-        if (self.skip_movement) return Status::Failure;
-        auto& rng_local = world->get_thread_local_rng();
-        std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
-        const double desire = self.get_hunting_desire();
-        if (hunt_dist(rng_local) < self.hunting_success_rate * desire) {
-            for (auto& wptr : self.cached_food_races) {
-                auto race = wptr.lock();
-                if (!race || !race->alive) continue;
-                if (race.get() == &self) continue;
-                if (race->species_name != "cow") continue;
-                if (self.position.distance_to(race->position) > self.hunting_range) continue;
-                world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), race});
-                self.start_hunting_cooldown();
-                self.forage_intent_lock_ticks = self.forage_intent_lock_duration; // 近场捕食命中后短暂锁定觅食意图
-                self.skip_movement = true;
-                return Status::Running;
-            }
-        }
-        return Status::Failure; // 未命中或无猎物
+        YAML::Node p; p["race"] = "cow"; p["range_param"] = "hunting_range"; p["success_rate_param"] = "hunting_success_rate";
+        return behavior::actions::HuntNearbyRace(self, ctx, p);
     }));
     sel_forage_inner->add_child(seq_hunt_near);
 
@@ -375,53 +705,16 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     auto seq_chase_food = std::make_shared<Sequence>();
     seq_chase_food->add_child(std::make_shared<Condition>([&self](TickContext&){
         // 觅食条件：有食物类型，非吃饱，且未被交配意图锁阻断
-        return !self.food_types.empty() && self.hunger_state != HungerState::SATISFIED && self.mating_intent_lock_ticks <= 0;
+        return !self.food_types.empty() && self.get_hunger_state() != HungerState::SATISFIED && self.get_mating_intent_lock_ticks() <= 0;
+    }));
+    // 选择最近可食目标并移动，改为调用封装函数
+    seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
+        YAML::Node p; // 默认选择范围内最近食物并写入黑板 target_pos
+        return behavior::actions::SelectTargetPoint(self, ctx, p);
     }));
     seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return Status::Failure;
-        if (self.skip_movement) return Status::Failure;
-        // 使用缓存选择最近的可食目标
-        std::optional<Position> nearest_food;
-        double min_distance = std::numeric_limits<double>::max();
-        for (auto& wptr : self.cached_food_races) {
-            auto race = wptr.lock();
-            if (!race || !race->alive) continue;
-            if (std::find(self.food_types.begin(), self.food_types.end(), race->species_name) == self.food_types.end()) continue;
-            double distance = self.position.distance_to(race->position);
-            if (distance <= self.detection_range && distance < min_distance) {
-                min_distance = distance;
-                nearest_food = race->position;
-            }
-        }
-        for (auto& wptr : self.cached_food_things) {
-            auto thing = wptr.lock();
-            if (!thing || !thing->alive) continue;
-            if (std::find(self.food_types.begin(), self.food_types.end(), thing->species_name) == self.food_types.end()) continue;
-            double distance = self.position.distance_to(thing->position);
-            if (distance <= self.detection_range && distance < min_distance) {
-                min_distance = distance;
-                nearest_food = thing->position;
-            }
-        }
-
-        if (nearest_food.has_value()) {
-            self.current_target = nearest_food.value();
-            self.plan_path_to_target(*world, self.current_target);
-            const int ww = world->config.world_width;
-            const int wh = world->config.world_height;
-            const double base_mul = (ctx.blackboard && ctx.blackboard->doubles.count("current_speed_multiplier")) ? ctx.blackboard->doubles["current_speed_multiplier"] : 1.0;
-            const double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_speed_multiplier")) ? ctx.blackboard->doubles["chase_speed_multiplier"] : 1.0;
-            const double energy_mul = (ctx.blackboard && ctx.blackboard->doubles.count("chase_energy_multiplier")) ? ctx.blackboard->doubles["chase_energy_multiplier"] : 1.0;
-            self.perform_step_move_path(ww, wh, base_mul * speed_mul, energy_mul);
-            self.forage_intent_lock_ticks = self.forage_intent_lock_duration; // 追食过程中应用短锁避免立即切换到交配
-            return Status::Running;
-        } else {
-            self.current_target.reset();
-            self.planned_path.clear();
-            self.planned_path_index = 0;
-        }
-        return Status::Failure;
+        YAML::Node p; p["speed_multiplier_key"] = "chase_speed_multiplier"; p["energy_multiplier_key"] = "chase_energy_multiplier";
+        return behavior::actions::PlanPathToTarget(self, ctx, p);
     }));
     sel_forage_inner->add_child(seq_chase_food);
 
@@ -439,116 +732,15 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         const double threshold = (bb.doubles.find("threat_threshold") != bb.doubles.end()) ? bb.doubles["threat_threshold"] : 0.0;
         return danger || (threshold > 0.0 && dist <= threshold);
     }));
-    // 行为：计算安全点并移动；清理繁殖相关黑板键
+    // 行为：调用封装的 FleeFromThreat
     seq_flee->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return Status::Failure;
-        if (self.skip_movement) return Status::Failure;
-        if (!ctx.blackboard) return Status::Failure;
-        auto& bb = *ctx.blackboard;
-
-        // 从黑板获取威胁位置，沿反方向采样安全点
-        const double tx = (bb.doubles.find("threat_pos_x") != bb.doubles.end()) ? bb.doubles["threat_pos_x"] : self.position.x;
-        const double ty = (bb.doubles.find("threat_pos_y") != bb.doubles.end()) ? bb.doubles["threat_pos_y"] : self.position.y;
-        Position threat{tx, ty};
-        Position dir{ self.position.x - threat.x, self.position.y - threat.y };
-        const double inv_len = 1.0 / std::max(1e-9, std::sqrt(dir.x*dir.x + dir.y*dir.y));
-        dir.x *= inv_len;
-        dir.y *= inv_len;
-        const double flee_step = std::max(self.step_distance_per_tick, self.movement_speed);
-        Position safe_spot{
-            std::max(0.0, std::min(static_cast<double>(world->config.world_width), self.position.x + dir.x * flee_step)),
-            std::max(0.0, std::min(static_cast<double>(world->config.world_height), self.position.y + dir.y * flee_step))
-        };
-        // 将目标写入黑板（便于 UI/调试）
-        bb.doubles["target_pos_x"] = safe_spot.x;
-        bb.doubles["target_pos_y"] = safe_spot.y;
-
-        // 逃离状态：提高移速与能量消耗（可由黑板配置），乘以基础速度倍率
-        const double base_mul = (bb.doubles.find("current_speed_multiplier") != bb.doubles.end()) ? bb.doubles["current_speed_multiplier"] : 1.0;
-        const double speed_mul = (bb.doubles.find("flee_speed_multiplier") != bb.doubles.end()) ? bb.doubles["flee_speed_multiplier"] : 1.5;
-        const double energy_mul = (bb.doubles.find("flee_energy_multiplier") != bb.doubles.end()) ? bb.doubles["flee_energy_multiplier"] : 1.5;
-        self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
-
-        // 清理繁殖上下文（黑板与临时目标）
-        self.current_target.reset();
-        self.planned_path.clear();
-        self.planned_path_index = 0;
-        self.wander_target.reset();
-        self.mating_target.reset();
-        bb.ints.erase("mate_target_id");
-        bb.doubles.erase("mate_target_pos_x");
-        bb.doubles.erase("mate_target_pos_y");
-        bb.ints.erase("mating_timer_ticks");
-
-        return Status::Running;
+        YAML::Node p; p["pos_x_param"] = "threat_pos_x"; p["pos_y_param"] = "threat_pos_y"; p["speed_multiplier_param"] = "flee_speed_multiplier"; p["energy_multiplier_param"] = "flee_energy_multiplier";
+        return behavior::actions::FleeFromThreat(self, ctx, p);
     }));
 
-    // --- 游荡行为：无条件行动 ---
+    // --- 游荡行为：复用封装函数 ---
     auto act_wander = std::make_shared<Action>([&self](TickContext& ctx){
-        auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return Status::Failure;
-        if (self.skip_movement) return Status::Failure; // 本 tick 不应移动
-
-        const int world_width = world->config.world_width;
-        const int world_height = world->config.world_height;
-
-        // 若已有游荡目标，直接推进一步
-        if (self.wander_target.has_value()) {
-            const int ww = world->config.world_width;
-            const int wh = world->config.world_height;
-            const Position target = self.wander_target.value();
-            // 游荡倍率：基础速度乘以游荡倍率；能耗可配置
-            const double base_mul = (ctx.blackboard && ctx.blackboard->doubles.count("current_speed_multiplier")) ? ctx.blackboard->doubles["current_speed_multiplier"] : 1.0;
-            const double speed_mul = (ctx.blackboard && ctx.blackboard->doubles.count("wander_speed_multiplier")) ? ctx.blackboard->doubles["wander_speed_multiplier"] : 0.8;
-            const double energy_mul = (ctx.blackboard && ctx.blackboard->doubles.count("wander_energy_multiplier")) ? ctx.blackboard->doubles["wander_energy_multiplier"] : 0.6;
-            self.perform_step_move_to(target, ww, wh, base_mul * speed_mul, energy_mul);
-            // 满足状态下步长较小，降低到达阈值，避免“未动就判定到达”
-            const double arrival_threshold = std::max(0.2, self.current_step_distance * 0.5);
-            if (self.position.distance_to(target) <= arrival_threshold) {
-                self.wander_target.reset();
-            }
-            return Status::Running;
-        }
-
-        // 采样新游荡目标（与现有 decide 中一致）
-        auto& rng_local = world->get_thread_local_rng();
-        std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
-        std::uniform_real_distribution<> unit01(0.0, 1.0);
-
-        for (int tries = 0; tries < 6 && !self.wander_target.has_value(); ++tries) {
-            const double angle = angle_dist(rng_local);
-            const double r = std::max(self.movement_speed, std::sqrt(unit01(rng_local)) * self.wander_radius);
-            Position candidate{
-                self.position.x + std::cos(angle) * r,
-                self.position.y + std::sin(angle) * r
-            };
-            candidate.x = std::max(0.0, std::min(static_cast<double>(world_width), candidate.x));
-            candidate.y = std::max(0.0, std::min(static_cast<double>(world_height), candidate.y));
-            if (self.position.distance_to(candidate) < 1e-6) continue;
-            self.wander_target = candidate;
-        }
-        if (!self.wander_target.has_value()) {
-            // 兜底：若未选中合法目标，执行一次小幅随机移动
-            std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
-            const double a2 = angle2(rng_local);
-            Position fallback{
-                std::max(0.0, std::min(static_cast<double>(world_width), self.position.x + std::cos(a2) * self.movement_speed)),
-                std::max(0.0, std::min(static_cast<double>(world_height), self.position.y + std::sin(a2) * self.movement_speed))
-            };
-            self.wander_target = fallback;
-        }
-
-        // 推进一步并结算能量（统一封装）
-        const int ww2 = world->config.world_width;
-        const int wh2 = world->config.world_height;
-        const Position target2 = self.wander_target.value();
-        self.perform_step_move_to(target2, ww2, wh2);
-        const double arrival_threshold2 = std::max(0.2, self.current_step_distance * 0.5);
-        if (self.position.distance_to(target2) <= arrival_threshold2) {
-            self.wander_target.reset();
-        }
-        return Status::Running;
+        YAML::Node p; return behavior::actions::WanderAnywhere(self, ctx, p);
     });
 
     // 为游荡行为添加“循环进度装饰器”：在累计到指定时长前，每 tick 执行游荡并返回 Running；
@@ -575,12 +767,11 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         if (!self.alive) return Status::Failure;
 
         // 统一清理：当本 tick 被请求占用或交配/分娩进行时，清理临时目标与路径
-        if (self.skip_movement) {
-            self.current_target.reset();
-            self.planned_path.clear();
-            self.planned_path_index = 0;
-            self.wander_target.reset();
-            self.mating_target.reset();
+        if (self.get_skip_movement()) {
+            self.clear_current_target();
+            self.clear_path();
+            self.clear_wander_target();
+            self.clear_mating_target();
             // 清理繁殖相关黑板键（避免残留）
             if (ctx.blackboard) {
                 auto& bb = *ctx.blackboard;
@@ -593,7 +784,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             }
         }
         // 本 tick 结束，重置仅当 tick 内使用的标记
-        self.skip_movement = false;
+        self.set_skip_movement(false);
         return Status::Success;
     });
 
@@ -604,7 +795,10 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     root_seq->add_child(selector_succeeder);
     root_seq->add_child(act_finalize);
 
-    return std::make_unique<BehaviorTree>(root_seq);
+    auto tree = std::make_unique<BehaviorTree>(root_seq);
+    tree->blackboard().strings["bt_source"] = std::string("code:") + self.species_name;
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Built code tree for '{}' (YAML not found or failed)", self.species_name);
+    return tree;
 }
 
 } // namespace behavior
