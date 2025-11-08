@@ -8,7 +8,7 @@ animal:
   movement_speed: 3.0
   energy_consumption: 2
   hunting_success_rate: 1.0
-  detection_range: 800.0
+  detection_range: 300.0
   food_types:
     - grass
   use_bt: true
@@ -16,14 +16,17 @@ animal:
   bt_params:
     ints:
       eat_grass_total_ticks: 20
+    doubles:
+      flee_speed_multiplier: 1.5
+      flee_energy_multiplier: 1.5
   min_reproduction_age: 200        # 提高性成熟年龄，降低早期繁殖
   reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
-  eating_range: 8.0
+  eating_range: 4.0
   satisfied_threshold_ratio: 0.9
   starving_threshold_ratio: 0.3
   wandering_duration: 150
   energy_efficiency: 0.5
   pregnancy_duration: 300         # 延长妊娠时间
-  mating_range: 5.0        
+  mating_range: 3.0        
   pregnancy_speed_penalty: 0.8 
-  mating_desire_probability: 0.2  # 降低交配意愿概率
+  mating_desire_probability: 0.3  # 降低交配意愿概率

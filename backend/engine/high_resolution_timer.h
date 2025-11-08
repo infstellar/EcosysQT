@@ -3,7 +3,9 @@
 
 #ifdef _WIN32
 #include <Windows.h>
-#include <timeapi.h>
+// MinGW/Windows SDK: timeBeginPeriod/timeEndPeriod 位于 mmsystem.h
+// MSVC 也兼容包含 mmsystem.h。
+#include <mmsystem.h>
 
 // RAII wrapper that raises system timer resolution while in scope.
 // Use with care: higher resolution increases power consumption.

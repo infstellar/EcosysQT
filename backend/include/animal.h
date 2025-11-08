@@ -61,12 +61,20 @@ public:
 
     // 向目标位置移动
     void move_towards_target(const Position& target_position, int world_width, int world_height);
-    // 目标选择
-    virtual void select_target_point(const EcosystemState& ecosystem_state);
     // 路径规划（占位）
     virtual void plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target);
     // 执行向当前目标点移动
     void move_to_target_point(int world_width, int world_height);
+
+    // --- 能量与一步移动的统一封装（供行为树动作复用） ---
+    // 扣除能量并在耗尽时触发饥饿死亡；乘数用于在特殊状态（如逃离）叠加消耗
+    void consume_energy(double multiplier = 1.0);
+    // 执行“一步”朝任意目标点移动，并进行能量结算；可按乘数临时提高速度/消耗
+    void perform_step_move_to(const Position& target, int world_width, int world_height,
+                              double speed_multiplier = 1.0, double energy_multiplier = 1.0);
+    // 执行“一步”沿当前规划路径/目标移动，并进行能量结算；可按乘数临时提高速度/消耗
+    void perform_step_move_path(int world_width, int world_height,
+                                double speed_multiplier = 1.0, double energy_multiplier = 1.0);
     // 开始狩猎冷却
     void start_hunting_cooldown();
     // 通用繁殖判断（含年龄门槛）
@@ -108,8 +116,6 @@ protected:
     double starving_threshold;
     double base_movement_speed;
     double base_energy_consumption;
-    bool is_wandering;
-    int wandering_cooldown;
     double wander_radius;
     double step_distance_per_tick;
     double current_step_distance;
@@ -127,10 +133,7 @@ protected:
 
     // 饱食状态更新与属性调整
     void update_hunger_state();
-    void adjust_stats_by_state();
-
-    enum class PendingMoveMode { None, Wander, Path };
-    PendingMoveMode pending_move_mode{PendingMoveMode::None};
+    // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
     std::optional<Position> wander_target;
     bool skip_movement{false};
 };
