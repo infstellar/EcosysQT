@@ -296,31 +296,3 @@ void Animal::perform_step_move_path(int world_width, int world_height,
     move_to_target_point(world_width, world_height);
     consume_energy(energy_multiplier);
 }
-
-// --- 统一移动接口（行为树高层友好） ---
-void Animal::set_movement_target(const Position& target, bool use_pathfinding) {
-    current_target = target;
-    if (use_pathfinding) {
-        // 现阶段路径规划为占位：以目标点作为单段路径
-        planned_path.clear();
-        planned_path.push_back(target);
-        planned_path_index = 0;
-    } else {
-        // 直接移动：清空路径，仅以 current_target 进行一步移动
-        planned_path.clear();
-        planned_path_index = 0;
-    }
-}
-
-void Animal::clear_movement_target() {
-    current_target.reset();
-    planned_path.clear();
-    planned_path_index = 0;
-}
-
-void Animal::execute_movement_step(int world_width, int world_height,
-                                   double speed_multiplier, double energy_multiplier) {
-    current_step_distance = step_distance_per_tick * std::max(0.0, speed_multiplier);
-    move_to_target_point(world_width, world_height);
-    consume_energy(energy_multiplier);
-}

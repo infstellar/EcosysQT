@@ -121,7 +121,7 @@ void EcosystemState::initialize_populations() {
                 int tile_x = dist_tile_x(rng);
                 int tile_y = dist_tile_y(rng);
                 Tile& tile = get_tile(tile_x, tile_y);
-                if (tile.biome != BiomeType::LAND || !tile.things.empty()) {
+                if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
                     continue;
                 }
 
@@ -153,7 +153,7 @@ void EcosystemState::initialize_populations() {
 使用getter函数算出时间
 */
 int EcosystemState::get_current_day() const {
-    return (time_step / 30000) + 1;
+    return (time_step / 3000) + 1;
 }
 
 int EcosystemState::get_current_year() const {
@@ -166,14 +166,14 @@ int EcosystemState::get_current_quadrum() const {
 }
 int EcosystemState::get_current_hour() const {
     // 获取当天已经过的步数
-    const int ticks_in_day = time_step % 30000;
-    return ticks_in_day / 1250;
+    const int ticks_in_day = time_step % 3000;
+    return ticks_in_day / 125;
 }
 int EcosystemState::get_current_minute() const {
     // 获取当前小时已经过的步数
-    const int ticks_in_hour = (time_step % 30000) % 1250;
+    const int ticks_in_hour = (time_step % 3000) % 125;
     // 将小时内的步数比例映射到 0-59 分钟
-    return static_cast<int>((static_cast<double>(ticks_in_hour) / 1250.0) * 60.0);
+    return static_cast<int>((static_cast<double>(ticks_in_hour) / 125.0) * 60.0);
 }
 
 std::string EcosystemState::get_current_quadrum_name() const {

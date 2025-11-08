@@ -75,15 +75,6 @@ public:
     // 执行“一步”沿当前规划路径/目标移动，并进行能量结算；可按乘数临时提高速度/消耗
     void perform_step_move_path(int world_width, int world_height,
                                 double speed_multiplier = 1.0, double energy_multiplier = 1.0);
-
-    // --- 统一移动接口（行为树高层友好） ---
-    // 设置移动目标；可选择是否使用路径规划（默认使用）
-    void set_movement_target(const Position& target, bool use_pathfinding = true);
-    // 清除当前移动目标与路径
-    void clear_movement_target();
-    // 执行一步移动（根据当前目标/路径），并进行能量结算
-    void execute_movement_step(int world_width, int world_height,
-                               double speed_multiplier = 1.0, double energy_multiplier = 1.0);
     // 开始狩猎冷却
     void start_hunting_cooldown();
     // 通用繁殖判断（含年龄门槛）
@@ -144,4 +135,5 @@ protected:
     void update_hunger_state();
     // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
     std::optional<Position> wander_target;
+    bool skip_movement{false};
 };

@@ -95,6 +95,10 @@ add_executable(MyQtApp
   # 前端 UI 模块
   src/ui/Widget.cpp
   src/ui/Widget.h
+  src/ui/MainWindow.h
+  src/ui/MainWindow.cpp
+  src/ui/StartScreenWidget.h
+  src/ui/StartScreenWidget.cpp
   # 资源文件（AUTORCC）
   
   resources/app.qrc)

@@ -42,6 +42,9 @@ public:
     explicit Widget(SimulationController* controller, QWidget *parent = nullptr);
     ~Widget();
 
+signals:
+    void exitToStartScreen(); // <-- 新增：用于通知主窗口返回开始界面的信号
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     // 新增：声明鼠标滚轮和鼠标移动事件处理器
@@ -60,6 +63,7 @@ private slots:
     void onRestartClicked();
     void onCustomSpeedClicked(); // <-- 新增：自定义速度按钮的槽函数
     void onInspectButtonClicked(); // <-- 新增：查看属性按钮的槽函数
+    void onExitToStartScreenClicked(); // <-- 新增：退出按钮的槽函数
 
 private:
     // ========== 核心数据 ==========
@@ -91,6 +95,7 @@ private:
     std::optional<SelectableEntity> m_selectedEntity;
 
     // --- 新增：UI控制按钮 ---
+    QPushButton* m_exitButton; // <-- 新增：退出到开始界面的按钮
     QPushButton* m_inspectButton; // <-- 新增：查看属性按钮
     QPushButton* m_pauseButton;
     QPushButton* m_speedUpButton;
