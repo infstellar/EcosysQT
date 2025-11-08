@@ -534,9 +534,16 @@ void Widget::mouseMoveEvent(QMouseEvent *event)
 
         QPointF delta = event->localPos() - m_lastMousePos;
 
-        // 将屏幕上的像素偏移转换为世界坐标下的偏移
-        double worldDeltaX = (delta.x() / width()) * (data->world_width / m_zoomFactor);
-        double worldDeltaY = (delta.y() / height()) * (data->world_height / m_zoomFactor);
+        // --- 修改：实现等比缩放下的拖动计算 ---
+        // 1. 获取等比缩放后的可见世界尺寸
+        double visibleWorldWidth = data->world_width / m_zoomFactor;
+        double screenAspect = (double)width() / (double)height();
+        double visibleWorldHeight = visibleWorldWidth / screenAspect;
+
+        // 2. 根据可见尺寸计算世界坐标的偏移量
+        double worldDeltaX = (delta.x() / width()) * visibleWorldWidth;
+        double worldDeltaY = (delta.y() / height()) * visibleWorldHeight;
+        // --- 修改结束 ---
 
         // 视图中心向相反方向移动
         m_viewCenter -= QPointF(worldDeltaX, worldDeltaY);
@@ -609,9 +616,13 @@ QPointF Widget::toScreenCoords(const Position& pos) const
         return QPointF();
     }
 
-    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽高
+    // --- 修改：实现等比缩放下的坐标转换 ---
+    // 1. 计算当前缩放级别下，视图在世界坐标系中的可见宽度
     double visibleWorldWidth = data->world_width / m_zoomFactor;
-    double visibleWorldHeight = data->world_height / m_zoomFactor;
+    // 修复：可见高度必须根据可见宽度和屏幕宽高比计算，以保持等比缩放
+    double screenAspect = (double)width() / (double)height();
+    double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    // --- 修改结束 ---
 
     // 2. 计算视图在世界坐标系中的左上角坐标
     double viewLeft = m_viewCenter.x() - visibleWorldWidth / 2.0;
