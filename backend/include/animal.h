@@ -52,6 +52,7 @@ public:
     int base_reproduction_cooldown;
     double eating_range;
     double energy_efficiency;
+    std::string current_bt_action;
 
     // 构造函数（默认物种名为 "RaceBase"）
     Animal(Position pos, const AnimalParams& params, std::mt19937& rng);

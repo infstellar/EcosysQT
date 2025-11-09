@@ -129,6 +129,9 @@ void SimulationEngine::simulation_loop() {
                 std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
 
                 update_ecosystem();
+            }
+            {   
+                ZoneScopedN("Create Snapshot");
                 new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
                 new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
             }

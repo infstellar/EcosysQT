@@ -12,6 +12,7 @@ BehaviorTreeDef:
             cond: should_flee              # danger_nearby 或 threat_distance<=threshold
           - type: Action
             action: flee_from_threat       # 反方向一步并清理繁殖上下文
+            status_name: "Fleeing"
 
       # ========== 交配（雄性） ==========
       - type: Sequence
@@ -45,6 +46,7 @@ BehaviorTreeDef:
                 kind: cow
                 range_param: hunting_range
                 success_rate_param: hunting_success_rate
+                status_name: "Hunting"
               
               # 尝试 2: 追逐远处目标
               # 只有当 'hunt_nearby_race' 返回 Failure (近处没牛) 时，才会执行这个 Sequence
@@ -52,13 +54,16 @@ BehaviorTreeDef:
                 children:
                   - type: Action
                     action: select_target_point       # 远处猎物搜索与目标选择
+                    status_name: "Scanning Prey"
                   - type: Action
                     action: plan_path_to_target       # 路径规划至 current_target
                     range_param: hunting_range  # <--- 在这里添加这一行
+                    status_name: "Chasing Prey"
 
       # ========== 游荡 ==========
       - type: Action
         name: Wander
         action: wander_anywhere
+        status_name: "Wandering"
         radius_param: wander_radius
         duration_param: wandering_duration

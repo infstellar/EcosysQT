@@ -16,6 +16,7 @@ BehaviorTreeDef:
             #   threshold_param: threat_threshold
           - type: Action
             action: flee_from_threat       # 反方向一步并清理繁殖上下文
+            status_name: "Fleeing"
             # params:
             #   pos_x_param: threat_pos_x
             #   pos_y_param: threat_pos_y
@@ -34,8 +35,10 @@ BehaviorTreeDef:
             probability_param: mating_desire_probability
           - type: Action
             action: find_available_mate      # Animal::find_available_mate(world)
+            status_name: "Seeking Mate"
           - type: Action
             action: approach_or_mate         # 近则提交 AttemptToMateRequest；远则设定 mating_target
+            status_name: "Approaching Mate"
             mating_range_param: mating_range
 
       # ========== 觅食（草） ==========
@@ -52,17 +55,21 @@ BehaviorTreeDef:
                 action: eat_nearby_thing         # 近处吃草（如果就在身边）
                 kind: grass
                 range_param: eating_range
+                status_name: "Eating"
               - type: Sequence               # 若近处没有草，则移动去食物
                 children:
                   - type: Action
                     action: select_target_point      # 选择食物目标（远近皆可）
+                    status_name: "Scanning Food"
                   - type: Action
                     action: plan_path_to_target      # 路径规划并移动一步
                     plan_path_move_mode: direct      # 觅食场景使用直接移动，复刻游荡的平滑节奏
+                    status_name: "Chasing Food"
 
       # ========== 游荡 ==========
       - type: Action
         name: Wander
         action: wander_anywhere
+        status_name: "Wandering"
         radius_param: wander_radius
         duration_param: wandering_duration

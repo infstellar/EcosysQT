@@ -25,6 +25,7 @@
 // 注册表所需容器
 #include <unordered_map>
 #include <functional>
+#include <utility>
 
 namespace behavior {
 
@@ -44,6 +45,8 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
     return std::make_shared<Action>([&self, source_tag](TickContext& ctx){
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
+
+    self.current_bt_action = "Idle";
 
         // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
         self.set_skip_movement(false);
@@ -691,10 +694,48 @@ static std::shared_ptr<Node> make_condition_node(const std::string& name, const 
     return std::make_shared<Condition>([](TickContext&){ return false; });
 }
 
+class StatusReportingDecorator final : public Decorator {
+public:
+    StatusReportingDecorator(std::shared_ptr<Node> child_node, Animal& owner, std::string status_label)
+        : Decorator(std::move(child_node)), self(owner), status_name(std::move(status_label)) {}
+
+    Status tick(TickContext& ctx) override {
+        if (!child) {
+            return Status::Failure;
+        }
+        const auto result = child->tick(ctx);
+        if ((result == Status::Running || result == Status::Success) && !status_name.empty()) {
+            self.current_bt_action = status_name;
+        }
+        return result;
+    }
+
+    void reset() override {
+        if (child) {
+            child->reset();
+        }
+    }
+
+private:
+    Animal& self;
+    std::string status_name;
+};
+
 static std::shared_ptr<Node> make_action_node(const std::string& name, const YAML::Node& params, Animal& self) {
     auto it = kActionFactories.find(name);
     if (it != kActionFactories.end()) {
-        return it->second(params, self);
+        auto original_node = it->second(params, self);
+
+        std::string status_name;
+        if (params["status_name"] && params["status_name"].IsScalar()) {
+            status_name = params["status_name"].as<std::string>();
+        }
+
+        if (status_name.empty()) {
+            return original_node;
+        }
+
+        return std::make_shared<StatusReportingDecorator>(std::move(original_node), self, std::move(status_name));
     }
     return std::make_shared<Action>([](TickContext&){ return Status::Failure; });
 }

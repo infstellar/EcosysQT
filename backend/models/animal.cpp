@@ -39,6 +39,7 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             base_reproduction_cooldown(params.reproduction_cooldown),
             eating_range(params.eating_range),
             energy_efficiency(params.energy_efficiency),
+            current_bt_action("Idle"),
             current_target(std::nullopt),
             planned_path(),
             planned_path_index(0),
