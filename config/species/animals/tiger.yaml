@@ -6,7 +6,7 @@ species:
   reproduction_energy_cost: 1000
 animal:
   movement_speed: 4.0
-  energy_consumption: 15
+  energy_consumption: 1
   hunting_range: 6.0
   hunting_success_rate: 0.2
   detection_range: 300.0
@@ -17,6 +17,7 @@ animal:
   # 行为树黑板默认逃离倍率配置
   bt_params:
     doubles:
+      hunting_range: 6.0          # <--- 在这里添加这一行
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       wander_speed_multiplier: 0.9

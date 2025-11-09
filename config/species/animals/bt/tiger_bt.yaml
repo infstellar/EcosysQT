@@ -10,17 +10,9 @@ BehaviorTreeDef:
         children:
           - type: Condition
             cond: should_flee              # danger_nearby 或 threat_distance<=threshold
-            # params:
-            #   danger_param: danger_nearby
-            #   distance_param: threat_distance
-            #   threshold_param: threat_threshold
           - type: Action
             action: flee_from_threat       # 反方向一步并清理繁殖上下文
-            # params:
-            #   pos_x_param: threat_pos_x
-            #   pos_y_param: threat_pos_y
-            #   speed_multiplier_param: flee_speed_multiplier
-            #   energy_multiplier_param: flee_energy_multiplier
+
       # ========== 交配（雄性） ==========
       - type: Sequence
         name: Mate
@@ -38,21 +30,31 @@ BehaviorTreeDef:
             action: approach_or_mate
             mating_range_param: mating_range
 
-      # ========== 捕食（牛） ==========
+      # ========== 捕食（牛） - [已修正] ==========
       - type: Sequence
         name: Hunt
         children:
           - type: Condition
-            cond: is_hungry
-          - type: Action
-            action: hunt_nearby_race          # 就近捕食 AttemptToEatRaceRequest + 冷却
-            kind: cow
-            range_param: hunting_range
-            success_rate_param: hunting_success_rate
-          - type: Action
-            action: select_target_point       # 远处猎物搜索与目标选择
-          - type: Action
-            action: plan_path_to_target       # 路径规划至 current_target
+            cond: is_hungry                  # 1. 必须饥饿
+          - type: PrioritySelector           # 2. 优先尝试近处，失败则尝试远处
+            children:
+              # 尝试 1: 就近捕食
+              # 如果近处有牛 (hunt_nearby_race 返回 Success/Running)，则执行此动作
+              - type: Action
+                action: hunt_nearby_race
+                kind: cow
+                range_param: hunting_range
+                success_rate_param: hunting_success_rate
+              
+              # 尝试 2: 追逐远处目标
+              # 只有当 'hunt_nearby_race' 返回 Failure (近处没牛) 时，才会执行这个 Sequence
+              - type: Sequence
+                children:
+                  - type: Action
+                    action: select_target_point       # 远处猎物搜索与目标选择
+                  - type: Action
+                    action: plan_path_to_target       # 路径规划至 current_target
+                    range_param: hunting_range  # <--- 在这里添加这一行
 
       # ========== 游荡 ==========
       - type: Action
