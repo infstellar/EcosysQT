@@ -13,9 +13,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_isMusicPlaying(true) // 默认音乐开启
 {
     // 1. 创建后端控制器 (这是程序中唯一创建 Controller 的地方)
-    EcosystemConfig config(1600, 9000); 
+    EcosystemConfig config(1600, 900); 
     config.initial_populations = {
-        {"grass", 100000},
+        {"grass", 1000},
         {"cow", 3},
         {"tiger", 3},
     };
