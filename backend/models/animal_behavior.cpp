@@ -57,26 +57,8 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
         self.refresh_hunger_state();
 
         // 从黑板读取意图锁定时长（可由 YAML 配置覆盖）
-        if (ctx.blackboard) {
-            auto& bb = *ctx.blackboard;
-            if (bb.ints.find("mating_intent_lock_duration") != bb.ints.end()) {
-                self.set_mating_intent_lock_duration(std::max(0, bb.ints["mating_intent_lock_duration"]));
-            }
-            if (bb.ints.find("forage_intent_lock_duration") != bb.ints.end()) {
-                self.set_forage_intent_lock_duration(std::max(0, bb.ints["forage_intent_lock_duration"]));
-            }
-        }
-
-        // 求偶/觅食意图锁定推进与释放
-        if (self.get_mating_intent_lock_ticks() > 0) {
-            self.set_mating_intent_lock_ticks(self.get_mating_intent_lock_ticks() - 1);
-        } else {
-            if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
-                self.clear_mating_target();
-            }
-        }
-        if (self.get_forage_intent_lock_ticks() > 0) {
-            self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_ticks() - 1);
+        if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
+            self.clear_mating_target();
         }
 
         // 进行中的交配计时器（仅推进，不再强制停滞）
@@ -244,9 +226,6 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             {
                 int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
                 bb.ints["ticks_since_last_meal"] = std::max(0, meal_ticks + 1);
-                if (bb.ints.find("force_wander_ticks") != bb.ints.end()) {
-                    bb.ints["force_wander_ticks"] = std::max(0, bb.ints["force_wander_ticks"] - 1);
-                }
             }
         }
 
@@ -290,8 +269,8 @@ static std::shared_ptr<Node> build_code_tree_logic_node(Animal& self) {
     // --- 交配序列：条件 -> 追配偶/提交交互 ---
     auto seq_mate = std::make_shared<Sequence>();
     seq_mate->add_child(std::make_shared<Condition>([&self](TickContext&){
-        // 交配条件：雄性、可繁殖、非极度饥饿，且未被觅食意图锁阻断
-        return self.sex == Sex::MALE && self.can_reproduce() && self.get_hunger_state() != HungerState::STARVING && self.get_forage_intent_lock_ticks() <= 0;
+        // 交配条件：雄性、可繁殖、非极度饥饿
+        return self.sex == Sex::MALE && self.can_reproduce() && self.get_hunger_state() != HungerState::STARVING;
     }));
     // 额外条件：基于求偶意愿概率的抽样（与 YAML 中的 desire_below_param 对齐）
     seq_mate->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
@@ -311,13 +290,6 @@ static std::shared_ptr<Node> build_code_tree_logic_node(Animal& self) {
     auto seq_forage = std::make_shared<Sequence>();
     seq_forage->add_child(std::make_shared<Condition>([&self](TickContext&){
         return self.get_hunger_state() != HungerState::SATISFIED && !self.food_types.empty();
-    }));
-    // 冷却门控：若 force_wander_ticks > 0，则暂时不进入觅食序列，避免高频切换
-    seq_forage->add_child(std::make_shared<Condition>([](TickContext& ctx){
-        if (!ctx.blackboard) return true;
-        auto& bb = *ctx.blackboard;
-        int fwt = (bb.ints.find("force_wander_ticks") != bb.ints.end()) ? bb.ints["force_wander_ticks"] : 0;
-        return fwt <= 0;
     }));
     // 近场吃草：由进度装饰器控制持续时间（仅当主食为 grass 时）
     // 并通过 Selector 保障非草食动物（如老虎）不会被该动作阻塞
@@ -416,7 +388,7 @@ static std::shared_ptr<Node> build_code_tree_logic_node(Animal& self) {
     // 远处追食分支
     auto seq_chase_food = std::make_shared<Sequence>();
     seq_chase_food->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return !self.food_types.empty() && self.get_hunger_state() != HungerState::SATISFIED && self.get_mating_intent_lock_ticks() <= 0;
+        return !self.food_types.empty() && self.get_hunger_state() != HungerState::SATISFIED;
     }));
     seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
         YAML::Node p; // 默认选择范围内最近食物并写入黑板 target_pos
@@ -760,6 +732,28 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
             }
         }
         return composite_node;
+    }
+    if (type == "TickIntervalDecorator") {
+        const int interval = n["interval"] ? n["interval"].as<int>() : 1;
+        std::string prefix;
+        if (n["key_prefix"]) {
+            prefix = n["key_prefix"].as<std::string>();
+        } else if (n["name"]) {
+            prefix = n["name"].as<std::string>();
+        } else {
+            prefix = "interval";
+        }
+        const YAML::Node child_node = n["child"];
+        if (!child_node) {
+            SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT YAML] TickIntervalDecorator '{}' missing 'child' node", prefix);
+            return nullptr;
+        }
+        auto child = parse_bt_yaml_node(child_node, self);
+        if (!child) {
+            SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT YAML] TickIntervalDecorator '{}' child failed to parse", prefix);
+            return nullptr;
+        }
+        return std::make_shared<TickIntervalDecorator>(child, interval, prefix);
     }
     if (type == "Condition") {
         const std::string cond_name = n["cond"] ? n["cond"].as<std::string>() : std::string();

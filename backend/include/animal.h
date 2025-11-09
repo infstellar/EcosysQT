@@ -112,14 +112,6 @@ public:
     bool get_skip_movement() const;
     void set_skip_movement(bool v);
     // 意图锁定
-    int get_mating_intent_lock_ticks() const;
-    void set_mating_intent_lock_ticks(int v);
-    int get_mating_intent_lock_duration() const;
-    void set_mating_intent_lock_duration(int v);
-    int get_forage_intent_lock_ticks() const;
-    void set_forage_intent_lock_ticks(int v);
-    int get_forage_intent_lock_duration() const;
-    void set_forage_intent_lock_duration(int v);
     // 感知缓存操作
     void clear_sensor_caches();
     void cache_mate(const std::shared_ptr<Animal>& mate);
@@ -178,12 +170,6 @@ protected:
     double mating_desire_probability;
 
     // 交配意图锁定，防止与捕食来回切换
-    int mating_intent_lock_ticks{0};
-    int mating_intent_lock_duration{30};
-
-    // 觅食意图锁定，防止与交配来回切换
-    int forage_intent_lock_ticks{0};
-    int forage_intent_lock_duration{20};
 
     // 本 tick 感知缓存（弱引用，避免循环与跨帧残留）
     std::vector<std::weak_ptr<RaceBase>> cached_food_races;

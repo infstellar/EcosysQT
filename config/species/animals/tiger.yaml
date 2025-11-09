@@ -28,8 +28,6 @@ animal:
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
     ints:
-      mating_intent_lock_duration: 40
-      forage_intent_lock_duration: 30
   hunting_cooldown_duration: 4
   min_reproduction_age: 30
   reproduction_cooldown: 800

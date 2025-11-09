@@ -5,17 +5,20 @@ BehaviorTreeDef:
     type: PrioritySelector
     children:
       # ========== 逃跑（高优先级） ==========
-      - type: Sequence
+      - type: TickIntervalDecorator  # 每帧评估，确保快速逃离
         name: Flee
-        children:
-          - type: Condition
-            cond: should_flee              # danger_nearby 或 threat_distance<=threshold
-          - type: Action
-            action: flee_from_threat       # 反方向一步并清理繁殖上下文
-            status_name: "Fleeing"
+        interval: 1
+        child:
+          type: Sequence
+          children:
+            - type: Condition
+              cond: should_flee
+            - type: Action
+              action: flee_from_threat
+              status_name: "Fleeing"
 
       # ========== 交配（雄性） ==========
-      - type: Sequence
+      - type: Sequence  # 条件满足后：决策节流 + 执行每帧
         name: Mate
         children:
           - type: Condition
@@ -25,45 +28,51 @@ BehaviorTreeDef:
           - type: Condition
             cond: desire_below_param
             probability_param: mating_desire_probability
+          - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
+            name: FindMate
+            interval: 60
+            child:
+              type: Action
+              action: find_available_mate
           - type: Action
-            action: find_available_mate
-          - type: Action
-            action: approach_or_mate
+            action: approach_or_mate    # 每帧靠近/交配，保证移动平滑
             mating_range_param: mating_range
 
       # ========== 捕食（牛） - [已修正] ==========
-      - type: Sequence
+      - type: Sequence  # 条件满足后：目标选择节流 + 追逐每帧
         name: Hunt
         children:
           - type: Condition
-            cond: is_hungry                  # 1. 必须饥饿
-          - type: PrioritySelector           # 2. 优先尝试近处，失败则尝试远处
+            cond: is_hungry
+          - type: PrioritySelector
             children:
-              # 尝试 1: 就近捕食
-              # 如果近处有牛 (hunt_nearby_race 返回 Success/Running)，则执行此动作
               - type: Action
                 action: hunt_nearby_race
                 kind: cow
                 range_param: hunting_range
                 success_rate_param: hunting_success_rate
                 status_name: "Hunting"
-              
-              # 尝试 2: 追逐远处目标
-              # 只有当 'hunt_nearby_race' 返回 Failure (近处没牛) 时，才会执行这个 Sequence
               - type: Sequence
                 children:
+                  - type: TickIntervalDecorator  # 每30tick选择一次猎物目标；不执行移动
+                    name: SelectTarget
+                    interval: 30
+                    child:
+                      type: Action
+                      action: select_target_point
+                      status_name: "Scanning Prey"
                   - type: Action
-                    action: select_target_point       # 远处猎物搜索与目标选择
-                    status_name: "Scanning Prey"
-                  - type: Action
-                    action: plan_path_to_target       # 路径规划至 current_target
-                    range_param: hunting_range  # <--- 在这里添加这一行
+                    action: plan_path_to_target  # 每帧追逐至目标
+                    range_param: hunting_range
                     status_name: "Chasing Prey"
 
       # ========== 游荡 ==========
-      - type: Action
+      - type: TickIntervalDecorator  # 每帧评估游荡；轻量检查
         name: Wander
-        action: wander_anywhere
-        status_name: "Wandering"
-        radius_param: wander_radius
-        duration_param: wandering_duration
+        interval: 1
+        child:
+          type: Action
+          action: wander_anywhere      # 随机游荡；受半径与持续时间参数控制
+          status_name: "Wandering"
+          radius_param: wander_radius
+          duration_param: wandering_duration

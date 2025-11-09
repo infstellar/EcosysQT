@@ -69,9 +69,6 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     pregnancy_timer = 0;
     mating_timer = 0;
     // 初始化交配意图锁定时长（可按需调整或从参数映射）
-    mating_intent_lock_ticks = 0;
-    mating_intent_lock_duration = 30;
-
     // 行为树脚手架构建（默认关闭，若 species_name 有对应 YAML 则加载并使用）
     use_bt = params.use_bt;
     build_behavior_tree();
@@ -138,14 +135,6 @@ double Animal::get_detection_range() const { return detection_range; }
 double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
 bool Animal::get_skip_movement() const { return skip_movement; }
 void Animal::set_skip_movement(bool v) { skip_movement = v; }
-int Animal::get_mating_intent_lock_ticks() const { return mating_intent_lock_ticks; }
-void Animal::set_mating_intent_lock_ticks(int v) { mating_intent_lock_ticks = v; }
-int Animal::get_mating_intent_lock_duration() const { return mating_intent_lock_duration; }
-void Animal::set_mating_intent_lock_duration(int v) { mating_intent_lock_duration = v; }
-int Animal::get_forage_intent_lock_ticks() const { return forage_intent_lock_ticks; }
-void Animal::set_forage_intent_lock_ticks(int v) { forage_intent_lock_ticks = v; }
-int Animal::get_forage_intent_lock_duration() const { return forage_intent_lock_duration; }
-void Animal::set_forage_intent_lock_duration(int v) { forage_intent_lock_duration = v; }
 void Animal::clear_sensor_caches() {
     cached_food_races.clear();
     cached_food_things.clear();
@@ -340,18 +329,6 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     // 初始化游荡当前进度为 0，确保首次可见且不受之前残留影响
     if (bb.ints.find("wander_current_ticks") == bb.ints.end()) {
         bb.ints["wander_current_ticks"] = 0;
-    }
-
-    // 默认参数注入：游荡冷却与最近进食耐心阈值（可由物种 YAML 覆盖）
-    if (bb.ints.find("wander_cooldown_ticks") == bb.ints.end()) {
-        bb.ints["wander_cooldown_ticks"] = 20; // 默认 20 tick（若 YAML 未提供）
-    }
-    if (bb.ints.find("forage_patience_ticks") == bb.ints.end()) {
-        bb.ints["forage_patience_ticks"] = 50; // 默认 50 tick（若 YAML 未提供）
-    }
-    // 进食后的短暂游荡冷却（减少“吃草-停顿”频繁发生），可由 YAML 覆盖
-    if (bb.ints.find("post_eat_wander_cooldown_ticks") == bb.ints.end()) {
-        bb.ints["post_eat_wander_cooldown_ticks"] = 5; // 默认 5 tick
     }
 
     // 追草多步推进的默认值（未在 YAML 指定时），缓解“逐帧小步·放大似瞬移”问题

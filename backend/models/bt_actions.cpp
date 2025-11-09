@@ -85,17 +85,6 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         return Status::Failure;
     }
 
-    // 首次进入游荡时设置强制游荡冷却，避免立即被觅食分支抢占
-    if (ctx.blackboard) {
-        int fwt = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
-        if (fwt <= 0) {
-            const int cooldown = bb_get_int(ctx.blackboard, "wander_cooldown_ticks", 20);
-            if (cooldown > 0) {
-                ctx.blackboard->ints["force_wander_ticks"] = cooldown;
-            }
-        }
-    }
-
     const int world_width = world->config.world_width;
     const int world_height = world->config.world_height;
 
@@ -211,7 +200,6 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     }
 
     self.set_mating_target(mate->position);
-    self.set_mating_intent_lock_ticks(self.get_mating_intent_lock_duration());
     self.set_current_target(self.get_mating_target());
     self.plan_path_to_target(*world, self.get_current_target());
     if (ctx.blackboard && self.get_current_target().has_value()) {
@@ -287,15 +275,6 @@ bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
             // 成功提交进食请求：重置最近进食计时并施加轻微冷却
             if (ctx.blackboard) {
                 ctx.blackboard->ints["ticks_since_last_meal"] = 0;
-        
-                int cooldown_default = 5;
-                int cooldown = bb_get_int(ctx.blackboard, "post_eat_wander_cooldown_ticks", cooldown_default);
-                int existing = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
-                int applied = std::max(existing, cooldown);
-                ctx.blackboard->ints["force_wander_ticks"] = applied;
-                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-                    "[Hysteresis] Apply force_wander_ticks={} after eat (existing={}, cooldown={})",
-                    applied, existing, cooldown);
             }
             return Status::Success;
         } else {
@@ -330,7 +309,6 @@ bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
                 if (self.position.distance_to(r->position) > range) continue;
                 world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), r});
                 self.start_hunting_cooldown();
-                self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
                 self.set_skip_movement(true);
 
                 return Status::Running;
@@ -345,14 +323,6 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
-
-    // 冷却门控：强制游荡期间，觅食目标选择直接失败，交由上层转游荡
-    {
-        int fwt = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
-        if (fwt > 0) {
-            return Status::Failure;
-        }
-    }
 
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
@@ -388,28 +358,6 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     }
     self.clear_current_target();
     self.clear_path();
-    // 最近进食滞后：若刚进食不久，不再在觅食序列中返回 Running（这会阻塞后续分支并造成原地不动），
-    // 改为返回 Failure，并设置一段强制游荡冷却，使上层选择器切换到游荡分支，同时避免立即又回到觅食。
-    {
-        int patience = bb_get_int(ctx.blackboard, "forage_patience_ticks", 50);
-        int since_meal = bb_get_int(ctx.blackboard, "ticks_since_last_meal", patience + 1);
-        if (since_meal < patience) {
-            int remain = patience - since_meal;
-            if (ctx.blackboard && remain > 0) {
-                // 将剩余的“等待觅食”时间转化为强制游荡冷却，避免频繁切换导致停顿
-                int existing = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
-                ctx.blackboard->ints["force_wander_ticks"] = std::max(existing, remain);
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                    "[Hysteresis->Wander] No food target; since_meal={} < patience={}; set force_wander_ticks={} and return Failure",
-                    since_meal, patience, ctx.blackboard->ints["force_wander_ticks"]);
-            } else {
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                    "[Hysteresis->Wander] No food target; since_meal={} < patience={}; blackboard missing; return Failure",
-                    since_meal, patience);
-            }
-            return Status::Failure;
-        }
-    }
     return Status::Failure;
 }
 
@@ -472,8 +420,6 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
         // 若已到达并清空目标，提前结束本 tick 的后续子步
         if (!self.get_current_target().has_value()) break;
     }
-    self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
-
     // 回退：若本 tick 到达目标点并在移动过程中被清空（目标已无可食物），立即尝试重选目标；
     // 如果没有新的目标则返回 Failure，让上层选择器尝试游荡或其他分支，避免长时间原地不动。
     if (!self.get_current_target().has_value()) {
@@ -521,8 +467,6 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
                 }
                 if (!self.get_current_target().has_value()) break;
             }
-            // 同步设置觅食意图锁，保持与常规路径推进一致
-            self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
             return Status::Running;
         }
         // 无新目标：交由外层处理（通常将转入游荡），避免持续占用觅食分支

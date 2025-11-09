@@ -22,7 +22,3 @@ animal:
   mating_range: 5.0        
   pregnancy_speed_penalty: 0.5
   mating_desire_probability: 0.6
-  bt_params:
-    ints:
-      mating_intent_lock_duration: 30
-      forage_intent_lock_duration: 20

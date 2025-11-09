@@ -5,71 +5,76 @@ BehaviorTreeDef:
     type: PrioritySelector
     children:
       # ========== 逃跑（高优先级） ==========
-      - type: Sequence
+      - type: TickIntervalDecorator  # 每帧评估，确保快速逃离
         name: Flee
-        children:
-          - type: Condition
-            cond: should_flee              # danger_nearby 或 threat_distance<=threshold
-            # params:
-            #   danger_param: danger_nearby
-            #   distance_param: threat_distance
-            #   threshold_param: threat_threshold
-          - type: Action
-            action: flee_from_threat       # 反方向一步并清理繁殖上下文
-            status_name: "Fleeing"
-            # params:
-            #   pos_x_param: threat_pos_x
-            #   pos_y_param: threat_pos_y
-            #   speed_multiplier_param: flee_speed_multiplier
-            #   energy_multiplier_param: flee_energy_multiplier
+        interval: 1
+        child:
+          type: Sequence
+          children:
+            - type: Condition
+              cond: should_flee              # danger_nearby 或 threat_distance<=threshold
+            - type: Action
+              action: flee_from_threat       # 反方向一步并清理繁殖上下文
+              status_name: "Fleeing"
       # ========== 交配（雄性） ==========
-      - type: Sequence
+      - type: Sequence  # 条件满足后：决策节流 + 执行每帧
         name: Mate
         children:
           - type: Condition
-            cond: sex_is_male                # Animal::sex == MALE
+            cond: sex_is_male
           - type: Condition
-            cond: can_reproduce              # Animal::can_reproduce()
+            cond: can_reproduce
           - type: Condition
-            cond: desire_below_param         # 随机数 < mating_desire_probability
+            cond: desire_below_param
             probability_param: mating_desire_probability
+          - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
+            name: FindMate
+            interval: 60
+            child:
+              type: Action
+              action: find_available_mate
+              status_name: "Seeking Mate"
           - type: Action
-            action: find_available_mate      # Animal::find_available_mate(world)
-            status_name: "Seeking Mate"
-          - type: Action
-            action: approach_or_mate         # 近则提交 AttemptToMateRequest；远则设定 mating_target
+            action: approach_or_mate    # 每帧靠近/交配，保证移动平滑
             status_name: "Approaching Mate"
             mating_range_param: mating_range
 
       # ========== 觅食（草） ==========
-      - type: Sequence
+      - type: Sequence  # 条件满足后：目标选择节流 + 移动每帧
         name: Forage
         children:
           - type: Condition
-            cond: is_hungry                  # hunger_state != SATISFIED
+            cond: is_hungry
           - type: Condition
-            cond: has_food_types             # !food_types.empty()
-          - type: PrioritySelector           # 优先在近处吃草，其次才移动寻食
+            cond: has_food_types
+          - type: PrioritySelector
             children:
               - type: Action
-                action: eat_nearby_thing         # 近处吃草（如果就在身边）
+                action: eat_nearby_thing
                 kind: grass
                 range_param: eating_range
                 status_name: "Eating"
-              - type: Sequence               # 若近处没有草，则移动去食物
+              - type: Sequence
                 children:
+                  - type: TickIntervalDecorator  # 每30tick选择目标；不执行移动
+                    name: SelectTarget
+                    interval: 30
+                    child:
+                      type: Action
+                      action: select_target_point
+                      status_name: "Scanning Food"
                   - type: Action
-                    action: select_target_point      # 选择食物目标（远近皆可）
-                    status_name: "Scanning Food"
-                  - type: Action
-                    action: plan_path_to_target      # 路径规划并移动一步
-                    plan_path_move_mode: direct      # 觅食场景使用直接移动，复刻游荡的平滑节奏
+                    action: plan_path_to_target  # 每帧规划/移动至目标
+                    plan_path_move_mode: direct
                     status_name: "Chasing Food"
 
       # ========== 游荡 ==========
-      - type: Action
+      - type: TickIntervalDecorator  # 每帧评估游荡；轻量检查
         name: Wander
-        action: wander_anywhere
-        status_name: "Wandering"
-        radius_param: wander_radius
-        duration_param: wandering_duration
+        interval: 1
+        child:
+          type: Action
+          action: wander_anywhere      # 随机游荡；受半径与持续时间参数控制
+          status_name: "Wandering"
+          radius_param: wander_radius
+          duration_param: wandering_duration

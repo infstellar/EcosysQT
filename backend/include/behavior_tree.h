@@ -2,6 +2,7 @@
 // Header-only to avoid build system changes during introduction
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -322,6 +323,60 @@ public:
 
     void reset() override {
         if (child) child->reset();
+    }
+};
+
+// Tick-interval装饰器：降低高开销分支的评估频率，同时缓存最近的执行状态
+class TickIntervalDecorator : public Decorator {
+    int interval;
+    std::string counter_key;
+    std::string status_key;
+    bool force_evaluate{false};
+public:
+    TickIntervalDecorator(std::shared_ptr<Node> c, int eval_interval, std::string key_prefix)
+                : Decorator(std::move(c)),
+                    interval(std::max(1, eval_interval)),
+                    counter_key(key_prefix + "_interval_counter"),
+                    status_key(key_prefix + "_interval_status") {}
+
+    Status tick(TickContext& ctx) override {
+        if (!child) {
+            return Status::Failure;
+        }
+        if (!ctx.blackboard) {
+            force_evaluate = false;
+            return child->tick(ctx);
+        }
+
+        auto& bb = *ctx.blackboard;
+        int counter = 0;
+        if (!force_evaluate) {
+            const auto it = bb.ints.find(counter_key);
+            if (it != bb.ints.end()) {
+                counter = it->second;
+            }
+        }
+
+        if (counter > 0) {
+            bb.ints[counter_key] = counter - 1;
+            const auto it_status = bb.ints.find(status_key);
+            const int cached_raw = (it_status != bb.ints.end()) ? it_status->second : static_cast<int>(Status::Failure);
+            force_evaluate = false;
+            return static_cast<Status>(cached_raw);
+        }
+
+        bb.ints[counter_key] = interval;
+        const Status result = child->tick(ctx);
+        bb.ints[status_key] = static_cast<int>(result);
+        force_evaluate = false;
+        return result;
+    }
+
+    void reset() override {
+        force_evaluate = true;
+        if (child) {
+            child->reset();
+        }
     }
 };
 
