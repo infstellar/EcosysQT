@@ -668,51 +668,6 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
     return nullptr;
 }
 
-// 若存在 bt/<species>_bt.yaml 则构建 YAML 行为树，否则返回空指针以回退到代码版
-static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& self) {
-    try {
-        if (self.species_name.empty()) return nullptr;
-        auto provider = g_race_factory.get_config_provider();
-        const std::string root_dir = provider ? provider->get_config_root_dir() : std::string(".");
-        const std::string path = root_dir + "/config/species/animals/bt/" + self.species_name + "_bt.yaml";
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Try load '{}': {}", self.species_name, path);
-        YAML::Node doc = YAML::LoadFile(path);
-        if (!doc) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Empty YAML doc for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node def = doc["BehaviorTreeDef"];
-        if (!def) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'BehaviorTreeDef' for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node root = def["root"];
-        if (!root) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'root' node for '{}'", self.species_name);
-            return nullptr;
-        }
-
-        auto root_seq = std::make_shared<Sequence>();
-        auto user_root = parse_bt_yaml_node(root, self);
-        if (!user_root) return nullptr;
-        auto selector_succeeder = std::make_shared<Succeeder>(user_root);
-
-        auto act_update = create_update_node(self, "YAML");
-        auto act_finalize = create_finalize_node(self, "YAML");
-
-        root_seq->add_child(act_update);
-        root_seq->add_child(selector_succeeder);
-        root_seq->add_child(act_finalize);
-        auto tree = std::make_unique<BehaviorTree>(root_seq);
-        tree->blackboard().strings["bt_source"] = std::string("yaml:") + self.species_name;
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT YAML] Built YAML tree for '{}'", self.species_name);
-        return tree;
-    } catch (const std::exception& e) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to build YAML tree for '{}': {}. Falling back to code tree.", self.species_name, e.what());
-        return nullptr;
-    }
-}
-
 // 主节点：吃草动作（内联 Action），在近场范围内提交吃草交互
 
 std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {

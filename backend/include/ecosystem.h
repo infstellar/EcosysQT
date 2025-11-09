@@ -171,6 +171,11 @@ private:
     std::vector<Tile> m_world_grid;
     std::vector<std::shared_ptr<ThingBase>> m_all_things;
 
+    // --- 新增：Thing 计数器 ---
+    // 用于实时追踪 m_all_things 中每种物种的【存活】数量
+    // 键: species_name (例如 "grass"), 值: count
+    std::unordered_map<std::string, std::size_t> m_thing_counts;
+
     // 线程局部的随机数生成器。
     static thread_local std::mt19937 thread_local_rng;
     // 线程局部的活动请求队列指针，指向当前线程应该使用的请求队列。
