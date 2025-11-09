@@ -3,22 +3,24 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QFont>
+#include <QPainter>
+#include <QDebug> 
 
 StartScreenWidget::StartScreenWidget(QWidget *parent) 
     : QWidget(parent)
     , m_isMusicOn(true) // 按钮状态默认开启
 {
-    // 设置背景色
-    setAutoFillBackground(true);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, QColor(25, 25, 40));
-    setPalette(pal);
+
+    m_backgroundImage.load(":/images/background_start.png");
+    if (m_backgroundImage.isNull()) {
+        qDebug() << "警告: 开始界面背景图 background_start.png 加载失败!";
+    }
 
     // 标题
     QLabel* titleLabel = new QLabel("生态系统模拟", this);
     QFont titleFont("Arial", 40, QFont::Bold);
     titleLabel->setFont(titleFont);
-    titleLabel->setStyleSheet("color: white;");
+    titleLabel->setStyleSheet("color: black;");
     titleLabel->setAlignment(Qt::AlignCenter);
 
     // 创建按钮
@@ -43,11 +45,11 @@ StartScreenWidget::StartScreenWidget(QWidget *parent)
     buttonLayout->setAlignment(Qt::AlignCenter);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->addStretch();
+    mainLayout->addStretch(1);
     mainLayout->addWidget(titleLabel);
-    mainLayout->addSpacing(50);
+    mainLayout->addSpacing(150);
     mainLayout->addLayout(buttonLayout);
-    mainLayout->addStretch();
+    mainLayout->addStretch(3);
     
     setLayout(mainLayout);
 
@@ -57,7 +59,6 @@ StartScreenWidget::StartScreenWidget(QWidget *parent)
     connect(m_musicButton, &QPushButton::clicked, this, &StartScreenWidget::onMusicButtonClicked); // <-- 新增：连接音乐按钮
 }
 
-// --- 新增：实现音乐按钮点击槽函数 ---
 void StartScreenWidget::onMusicButtonClicked()
 {
     m_isMusicOn = !m_isMusicOn; // 切换状态
@@ -67,4 +68,18 @@ void StartScreenWidget::onMusicButtonClicked()
         m_musicButton->setText("开启音乐");
     }
     emit toggleMusicClicked(m_isMusicOn); // 发射信号，通知主窗口
+}
+
+void StartScreenWidget::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event);
+    QPainter painter(this);
+
+    if (!m_backgroundImage.isNull()) {
+        // 绘制图片，使其拉伸以填满整个窗口
+        painter.drawPixmap(this->rect(), m_backgroundImage);
+    } else {
+        // 如果图片加载失败，回退到绘制纯色背景
+        painter.fillRect(this->rect(), QColor(25, 25, 40));
+    }
 }

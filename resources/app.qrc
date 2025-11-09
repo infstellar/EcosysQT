@@ -7,5 +7,6 @@
         <file>images/tiger.png</file>
         <file>images/tiger_man.png</file>
         <file>music/background_music.mp3</file>
+        <file>images/background_start.png</file>
     </qresource>
 </RCC>
