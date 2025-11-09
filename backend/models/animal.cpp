@@ -39,7 +39,6 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             base_reproduction_cooldown(params.reproduction_cooldown),
             eating_range(params.eating_range),
             energy_efficiency(params.energy_efficiency),
-            current_bt_action("Idle"),
             current_target(std::nullopt),
             planned_path(),
             planned_path_index(0),
@@ -395,6 +394,20 @@ void Animal::perform_step_move_to(const Position& target, int world_width, int w
         }
     );
 }
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+
+void Animal::update_ui_snapshot(const AnimalUiSnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(m_ui_snapshot_mutex);
+    m_ui_snapshot = snapshot;
+}
+
+AnimalUiSnapshot Animal::get_ui_snapshot() const {
+    std::lock_guard<std::mutex> lock(m_ui_snapshot_mutex);
+    return m_ui_snapshot;
+}
+
+#endif
 
 void Animal::perform_step_move_path(int world_width, int world_height,
                                     double speed_multiplier, double energy_multiplier) {

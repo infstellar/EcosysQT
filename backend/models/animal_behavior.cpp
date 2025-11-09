@@ -27,9 +27,21 @@
 #include <functional>
 #include <utility>
 
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+#include "animal_ui_snapshot.h"
+#endif
+
 namespace behavior {
 
 using namespace bt;
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+static inline int bb_get_int(Blackboard* bb, const std::string& key, int def_v = 0) {
+    if (!bb) return def_v;
+    auto it = bb->ints.find(key);
+    return it == bb->ints.end() ? def_v : it->second;
+}
+#endif
 
 // 默认行为参数常量：集中管理以替代魔法数字
 namespace defaults {
@@ -46,7 +58,11 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
 
-    self.current_bt_action = "Idle";
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+        if (ctx.blackboard) {
+            ctx.blackboard->strings["_ui_current_action"] = "Idle";
+        }
+#endif
 
         // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
         self.set_skip_movement(false);
@@ -256,6 +272,24 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
                 bb.doubles.erase("target_pos_y");
             }
         }
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+        if (ctx.blackboard) {
+            auto& bb = *ctx.blackboard;
+            AnimalUiSnapshot snapshot;
+            if (auto it = bb.strings.find("_ui_current_action"); it != bb.strings.end()) {
+                snapshot.current_bt_action = it->second;
+            }
+            snapshot.is_pregnant = self.is_pregnant;
+            snapshot.hunger_state = bb_get_int(&bb, "hunger_state", 1);
+            snapshot.danger_nearby = bb_get_int(&bb, "danger_nearby", 0);
+            snapshot.perceived_mates = bb_get_int(&bb, "perceived_mates_count", 0);
+            snapshot.perceived_food = bb_get_int(&bb, "perceived_food_races_count", 0)
+                + bb_get_int(&bb, "perceived_food_things_count", 0);
+            snapshot.wander_current_ticks = bb_get_int(&bb, "wander_current_ticks", 0);
+            snapshot.wander_total_ticks = bb_get_int(&bb, "wander_total_ticks", 50);
+            self.update_ui_snapshot(snapshot);
+        }
+#endif
         self.set_skip_movement(false);
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT {}] Finalize: reset skip_movement=false for '{}'", source_tag, self.species_name);
         return Status::Success;
@@ -677,7 +711,11 @@ public:
         }
         const auto result = child->tick(ctx);
         if ((result == Status::Running || result == Status::Success) && !status_name.empty()) {
-            self.current_bt_action = status_name;
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+            if (ctx.blackboard) {
+                ctx.blackboard->strings["_ui_current_action"] = status_name;
+            }
+#endif
         }
         return result;
     }

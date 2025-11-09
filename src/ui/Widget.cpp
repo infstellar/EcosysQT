@@ -3,6 +3,9 @@
 #include "race_base.h"
 #include "thing_base.h"
 #include "animal.h" 
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+#include "animal_ui_snapshot.h"
+#endif
 #include <QPainter>
 #include <QDebug>
 #include <algorithm>
@@ -939,6 +942,35 @@ void Widget::drawSelectionInfo(QPainter& painter, const SelectableEntity& entity
 
         if constexpr (std::is_same_v<T, std::shared_ptr<Animal>>) {
             infoText += QString("\n性别: %1").arg(arg->sex == Sex::MALE ? "雄性" : "雌性");
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+            AnimalUiSnapshot ui = arg->get_ui_snapshot();
+            std::string status = ui.current_bt_action;
+            if (ui.is_pregnant) {
+                status += " (Pregnant)";
+            }
+            infoText += QString("\n状态: %1").arg(QString::fromStdString(status));
+
+            QString hungerStr = "普通";
+            if (ui.hunger_state == 0) {
+                hungerStr = "饱足";
+            } else if (ui.hunger_state == 2) {
+                hungerStr = "饥饿";
+            }
+            infoText += QString("\n饥饿: %1").arg(hungerStr);
+
+            infoText += QString("\n感知: %1食物, %2配偶")
+                .arg(ui.perceived_food)
+                .arg(ui.perceived_mates);
+            if (ui.danger_nearby > 0) {
+                infoText += " (有威胁!)";
+            }
+
+            if (ui.current_bt_action == "Wandering" && ui.wander_total_ticks > 0) {
+                infoText += QString("\n游荡: %1 / %2")
+                    .arg(ui.wander_current_ticks)
+                    .arg(ui.wander_total_ticks);
+            }
+#endif
         }
     }, entity);
 

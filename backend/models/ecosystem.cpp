@@ -364,7 +364,7 @@ void EcosystemState::prepare_for_update() {
 void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     current_phase = UpdatePhase::Decision;
 
-    constexpr std::size_t heavy_chunk_size = 3;
+    constexpr std::size_t heavy_chunk_size = 1;
     constexpr std::size_t light_chunk_size = 8192;
 
     const std::size_t worker_count = std::max<std::size_t>(1, pool.worker_count());

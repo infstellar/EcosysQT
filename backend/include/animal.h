@@ -14,6 +14,11 @@
 #include "race_base.h"
 #include "animal_behavior.h" // 提供行为树构建函数声明，用于 friend 授权访问
 
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+#include <mutex>
+#include "animal_ui_snapshot.h"
+#endif
+
 // 前向声明
 class EcosystemState;
 struct AnimalParams;
@@ -52,7 +57,11 @@ public:
     int base_reproduction_cooldown;
     double eating_range;
     double energy_efficiency;
-    std::string current_bt_action;
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    AnimalUiSnapshot get_ui_snapshot() const;
+    void update_ui_snapshot(const AnimalUiSnapshot& snapshot);
+#endif
 
     // 构造函数（默认物种名为 "RaceBase"）
     Animal(Position pos, const AnimalParams& params, std::mt19937& rng);
@@ -186,4 +195,9 @@ protected:
     void perform_step_move_common(double speed_multiplier, double energy_multiplier,
                                   const char* log_tag,
                                   const std::function<void()>& advance_fn);
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    mutable std::mutex m_ui_snapshot_mutex;
+    AnimalUiSnapshot m_ui_snapshot;
+#endif
 };

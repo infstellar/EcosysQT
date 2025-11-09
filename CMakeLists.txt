@@ -10,6 +10,15 @@ endif()
 # 项目名称和语言
 project(MyQtApp LANGUAGES CXX)
 
+# --- UI 调试快照编译选项 ---
+option(ECOSIM_UI_DEBUG "Enable UI debug snapshots for animal state" ON)
+
+if(ECOSIM_UI_DEBUG)
+    message(STATUS "UI Debug Snapshots: ENABLED")
+else()
+    message(STATUS "UI Debug Snapshots: DISABLED")
+endif()
+
 # 设置 C++ 标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -141,6 +150,7 @@ target_compile_definitions(${PROJECT_NAME}
     PRIVATE
     TRACY_ENABLE # <--- 定义这个宏来开启分析
     NOMINMAX
+    $<$<BOOL:${ECOSIM_UI_DEBUG}>:ECOSIM_ENABLE_UI_DEBUG> # 
 )
 
 # 在 Windows 上为高精度定时器链接 winmm

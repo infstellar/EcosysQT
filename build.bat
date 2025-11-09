@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 echo Building EcosysQT project...
 
 REM check conda
