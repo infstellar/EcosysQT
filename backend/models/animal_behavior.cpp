@@ -30,6 +30,12 @@ namespace behavior {
 
 using namespace bt;
 
+// 默认行为参数常量：集中管理以替代魔法数字
+namespace defaults {
+    static constexpr int EAT_TICKS = 20;
+    static constexpr int WANDER_TICKS = 50;
+}
+
 // 前向声明：YAML 节点解析器（在后文定义）
 static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& self);
 
@@ -612,7 +618,7 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
             // - 近距子节点返回 Running/Success，推进进度；达到总时长后返回 Success
             const std::string kind = (p["kind"] ? p["kind"].as<std::string>() : std::string(""));
             if (kind == std::string("grass")) {
-                const int default_eat_ticks = 20; // 若黑板未提供则默认 20
+                const int default_eat_ticks = defaults::EAT_TICKS; // 若黑板未提供则默认 20
                 auto decorator = std::make_shared<ProgressLoopDecorator>(
                     act,
                     "eat_grass_total_ticks",
@@ -668,7 +674,7 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
                 return behavior::actions::WanderAnywhere(self, ctx, p);
             });
             if (p["duration_param"]) {
-                auto decorator = std::make_shared<ProgressLoopDecorator>(act, "wander_total_ticks", "wander_current_ticks", 50);
+                auto decorator = std::make_shared<ProgressLoopDecorator>(act, "wander_total_ticks", "wander_current_ticks", defaults::WANDER_TICKS);
                 return std::static_pointer_cast<Node>(decorator);
             }
             return std::static_pointer_cast<Node>(act);
@@ -697,38 +703,22 @@ static std::shared_ptr<Node> make_action_node(const std::string& name, const YAM
 static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& self) {
     if (!n || !n["type"]) return nullptr;
     const std::string type = n["type"].as<std::string>();
-    if (type == "PrioritySelector") {
-        auto s = std::make_shared<PrioritySelector>();
+    // 复合节点统一工厂：减少重复分支并遵循开闭原则
+    static const std::unordered_map<std::string, std::function<std::shared_ptr<Composite>()>> kCompositeFactories = {
+        {"PrioritySelector", [](){ return std::make_shared<PrioritySelector>(); }},
+        {"Selector",         [](){ return std::make_shared<Selector>(); }},
+        {"Sequence",         [](){ return std::make_shared<Sequence>(); }}
+    };
+    if (auto it = kCompositeFactories.find(type); it != kCompositeFactories.end()) {
+        auto composite_node = it->second();
         const YAML::Node children = n["children"];
         if (children && children.IsSequence()) {
             for (const auto& ch : children) {
                 auto node = parse_bt_yaml_node(ch, self);
-                if (node) s->add_child(node);
+                if (node) composite_node->add_child(node);
             }
         }
-        return s;
-    }
-    if (type == "Selector") {
-        auto s = std::make_shared<Selector>();
-        const YAML::Node children = n["children"];
-        if (children && children.IsSequence()) {
-            for (const auto& ch : children) {
-                auto node = parse_bt_yaml_node(ch, self);
-                if (node) s->add_child(node);
-            }
-        }
-        return s;
-    }
-    if (type == "Sequence") {
-        auto s = std::make_shared<Sequence>();
-        const YAML::Node children = n["children"];
-        if (children && children.IsSequence()) {
-            for (const auto& ch : children) {
-                auto node = parse_bt_yaml_node(ch, self);
-                if (node) s->add_child(node);
-            }
-        }
-        return s;
+        return composite_node;
     }
     if (type == "Condition") {
         const std::string cond_name = n["cond"] ? n["cond"].as<std::string>() : std::string();
