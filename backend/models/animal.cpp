@@ -382,20 +382,21 @@ void Animal::consume_energy(double multiplier) {
     }
 }
 
-void Animal::perform_step_move_to(const Position& target, int world_width, int world_height,
-                                  double speed_multiplier, double energy_multiplier) {
-    // 仅当发生实际位移时才结算能量，避免“原地不动仍掉能量”
+// 通用一步移动 + 能量结算内核：由调用者提供具体推进实现
+void Animal::perform_step_move_common(double speed_multiplier, double energy_multiplier,
+                                      const char* log_tag,
+                                      const std::function<void()>& advance_fn) {
     const double prev_x = position.x;
     const double prev_y = position.y;
     current_step_distance = step_distance_per_tick * std::max(0.0, speed_multiplier);
-    move_towards_target(target, world_width, world_height);
+    advance_fn();
     const double moved_dx = std::abs(position.x - prev_x);
     const double moved_dy = std::abs(position.y - prev_y);
-    // 调试：记录本 tick 位移与步长、倍率，定位“刚开始追草就很慢”的根因
     {
         const double moved_len = std::sqrt(moved_dx * moved_dx + moved_dy * moved_dy);
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[MoveStep->To] '{}' step={:.2f} moved={:.2f} prev=({:.1f},{:.1f}) now=({:.1f},{:.1f}) mul(speed={:.2f}, energy={:.2f})",
+            "[MoveStep->{}] '{}' step={:.2f} moved={:.2f} prev=({:.1f},{:.1f}) now=({:.1f},{:.1f}) mul(speed={:.2f}, energy={:.2f})",
+            log_tag,
             species_name,
             current_step_distance,
             moved_len,
@@ -403,34 +404,25 @@ void Animal::perform_step_move_to(const Position& target, int world_width, int w
             position.x, position.y,
             std::max(0.0, speed_multiplier), std::max(0.0, energy_multiplier));
     }
-    // 使用一个很小的阈值避免浮点误差导致误判
     if (moved_dx > 1e-9 || moved_dy > 1e-9) {
         consume_energy(energy_multiplier);
     }
 }
 
+void Animal::perform_step_move_to(const Position& target, int world_width, int world_height,
+                                  double speed_multiplier, double energy_multiplier) {
+    perform_step_move_common(speed_multiplier, energy_multiplier, "To",
+        [this, target, world_width, world_height]() {
+            move_towards_target(target, world_width, world_height);
+        }
+    );
+}
+
 void Animal::perform_step_move_path(int world_width, int world_height,
                                     double speed_multiplier, double energy_multiplier) {
-    // 仅当发生实际位移时才结算能量，避免“原地不动仍掉能量”
-    const double prev_x = position.x;
-    const double prev_y = position.y;
-    current_step_distance = step_distance_per_tick * std::max(0.0, speed_multiplier);
-    move_to_target_point(world_width, world_height);
-    const double moved_dx = std::abs(position.x - prev_x);
-    const double moved_dy = std::abs(position.y - prev_y);
-    // 调试：记录路径推进的一步位移和步长、倍率
-    {
-        const double moved_len = std::sqrt(moved_dx * moved_dx + moved_dy * moved_dy);
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[MoveStep->Path] '{}' step={:.2f} moved={:.2f} prev=({:.1f},{:.1f}) now=({:.1f},{:.1f}) mul(speed={:.2f}, energy={:.2f})",
-            species_name,
-            current_step_distance,
-            moved_len,
-            prev_x, prev_y,
-            position.x, position.y,
-            std::max(0.0, speed_multiplier), std::max(0.0, energy_multiplier));
-    }
-    if (moved_dx > 1e-9 || moved_dy > 1e-9) {
-        consume_energy(energy_multiplier);
-    }
+    perform_step_move_common(speed_multiplier, energy_multiplier, "Path",
+        [this, world_width, world_height]() {
+            move_to_target_point(world_width, world_height);
+        }
+    );
 }

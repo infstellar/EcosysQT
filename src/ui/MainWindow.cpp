@@ -11,8 +11,8 @@ MainWindow::MainWindow(QWidget *parent)
     // 1. 创建后端控制器 (这是程序中唯一创建 Controller 的地方)
     EcosystemConfig config(1600, 900); 
     config.initial_populations = {
-        {"grass", 0},
-        {"cow", 20},
+        {"grass", 200},
+        {"cow", 3},
         {"tiger", 3},
     };
     m_controller = std::make_unique<SimulationController>(config);

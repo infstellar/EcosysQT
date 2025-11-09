@@ -9,6 +9,7 @@
 #include <string>
 #include <optional>
 #include <memory>
+#include <functional>
 #include "utils.h"
 #include "race_base.h"
 #include "animal_behavior.h" // 提供行为树构建函数声明，用于 friend 授权访问
@@ -193,4 +194,9 @@ protected:
     // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
     std::optional<Position> wander_target;
     bool skip_movement{false};
+
+    // 抽象“一步移动 + 能量结算”的通用内核，供两个对外接口复用
+    void perform_step_move_common(double speed_multiplier, double energy_multiplier,
+                                  const char* log_tag,
+                                  const std::function<void()>& advance_fn);
 };

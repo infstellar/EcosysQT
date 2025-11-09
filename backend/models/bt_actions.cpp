@@ -53,12 +53,13 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double base_mul = bb_get_double(&bb, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(&bb, speed_key, 1.5);
     const double energy_mul = bb_get_double(&bb, energy_key, 1.5);
+    const double base_energy_mul = bb_get_double(&bb, "current_energy_multiplier", 1.0);
     if (self.is_pregnant) {
         SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
             "[Move Flee] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
             base_mul, speed_mul, base_mul * speed_mul);
     }
-    self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
+    self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
 
     self.clear_current_target();
     self.clear_path();
@@ -141,6 +142,7 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(ctx.blackboard, "wander_speed_multiplier", 0.8);
     const double energy_mul = bb_get_double(ctx.blackboard, "wander_energy_multiplier", 0.6);
+    const double base_energy_mul = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
     if (!self.get_wander_target().has_value()) {
         std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
         const double a2 = angle2(rng_local);
@@ -151,7 +153,7 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         if (self.is_pregnant) {
             // 保留孕期速度计算，但不输出 info 日志
         }
-        self.perform_step_move_to(fallback, world_width, world_height, base_mul * speed_mul, energy_mul);
+        self.perform_step_move_to(fallback, world_width, world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
         return Status::Running;
     } else {
         const Position target2 = self.get_wander_target().value();
@@ -159,7 +161,7 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
             // 保留孕期速度计算，但不输出 info 日志
         }
         const Position prev2 = self.position;
-        self.perform_step_move_to(target2, world_width, world_height, base_mul * speed_mul, energy_mul);
+        self.perform_step_move_to(target2, world_width, world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
         const double disp_x2 = self.position.x - prev2.x;
         const double disp_y2 = self.position.y - prev2.y;
         const double disp_len2 = std::sqrt(disp_x2*disp_x2 + disp_y2*disp_y2);
@@ -219,12 +221,13 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(ctx.blackboard, "mate_speed_multiplier", 1.0);
     const double energy_mul = bb_get_double(ctx.blackboard, "mate_energy_multiplier", 1.0);
+    const double base_energy_mul = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
     if (self.is_pregnant) {
         SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
             "[Move Mate] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
             base_mul, speed_mul, base_mul * speed_mul);
     }
-    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
+    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
     return Status::Running;
 }
 
@@ -423,6 +426,7 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     const std::string energy_key = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
     const double speed_mul = bb_get_double(ctx.blackboard, speed_key, 1.0);
     const double energy_mul = bb_get_double(ctx.blackboard, energy_key, 1.0);
+    const double base_energy_mul = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
     const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
     const std::string move_mode = params["plan_path_move_mode"] ? params["plan_path_move_mode"].as<std::string>() : std::string("path");
@@ -496,6 +500,7 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
             const std::string energy_key2 = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
             const double speed_mul2 = bb_get_double(ctx.blackboard, speed_key2, 1.0);
             const double energy_mul2 = bb_get_double(ctx.blackboard, energy_key2, 1.0);
+            const double base_energy_mul2 = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
             if (self.is_pregnant) {
                 SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
                     "[Move PlanPath Fallback] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
@@ -509,10 +514,10 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
             for (int i = 0; i < substeps2; ++i) {
                 if (move_mode == "direct") {
                     if (self.get_current_target().has_value()) {
-                        self.perform_step_move_to(self.get_current_target().value(), world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2);
+                        self.perform_step_move_to(self.get_current_target().value(), world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2 * base_energy_mul2);
                     }
                 } else {
-                    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2);
+                    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2 * base_energy_mul2);
                 }
                 if (!self.get_current_target().has_value()) break;
             }
