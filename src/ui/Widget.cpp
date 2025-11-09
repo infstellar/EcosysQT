@@ -319,6 +319,19 @@ void Widget::paintEvent(QPaintEvent *event)
     
     // ========== 步骤2: 收集、排序并绘制所有生物 ==========
 
+    // --- 核心优化：计算视野内的世界坐标矩形 ---
+    const double visibleWorldWidth = data->world_width / m_zoomFactor;
+    const double screenAspect = (double)width() / (double)height();
+    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    const double viewLeft = m_viewCenter.x() - visibleWorldWidth / 2.0;
+    const double viewTop = m_viewCenter.y() - visibleWorldHeight / 2.0;
+    
+    // 创建一个代表视野的矩形，并增加一些缓冲区域，防止边缘物体被错误剔除
+    const double buffer = 200.0; // 缓冲的世界单位
+    QRectF visibleWorldRect(viewLeft - buffer, viewTop - buffer, visibleWorldWidth + buffer * 2, visibleWorldHeight + buffer * 2);
+    // --- 优化结束 ---
+
+
     // 定义一个结构体来存储绘制所需的信息
     struct DrawableEntity {
         const QPixmap* texture;
@@ -329,10 +342,8 @@ void Widget::paintEvent(QPaintEvent *event)
     std::vector<DrawableEntity> entitiesToDraw;
     entitiesToDraw.reserve(m_grassCount + m_cowCount + m_tigerCount); // 预分配内存以提高效率
 
-    // --- 核心修改：将尺寸计算所需的变量提取到循环外 ---
-    const double visibleWorldWidth = data->world_width / m_zoomFactor;
     const double pixelsPerWorldUnit = width() / visibleWorldWidth;
-    const double animalWorldSize = 100.0; // 假设动物和草一样，都占据 100x100 的世界单位
+    const double animalWorldSize = 100.0; 
     const double animalSizeOnScreen = animalWorldSize * pixelsPerWorldUnit;
 
     // 循环 1: 收集 Races (动物)
@@ -340,9 +351,15 @@ void Widget::paintEvent(QPaintEvent *event)
         for (const auto& individual_base : individuals) {
             if (!individual_base || !individual_base->alive) continue;
 
+            // --- 核心优化：视野剔除 ---
+            // 如果生物不在可见的世界矩形内，则直接跳过，不进行任何后续计算
+            if (!visibleWorldRect.contains(individual_base->position.x, individual_base->position.y)) {
+                continue;
+            }
+            // --- 优化结束 ---
+
             const QPixmap* texture = nullptr;
             
-            // --- 核心修改：根据物种和性别选择贴图 ---
             if (name == "cow") {
                 // 尝试将 RaceBase 指针安全地转换为 Animal 指针以访问性别
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
@@ -365,7 +382,7 @@ void Widget::paintEvent(QPaintEvent *event)
 
             QPointF screenPos = toScreenCoords(individual_base->position);
             
-            const double size = animalSizeOnScreen; // <-- 新的、基于地图缩放的固定尺寸计算
+            const double size = animalSizeOnScreen;
             QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
             
             entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
@@ -377,12 +394,18 @@ void Widget::paintEvent(QPaintEvent *event)
         if (name == "grass") {
             if (m_grassTexture.isNull()) continue;
             
-            // --- 草的尺寸计算逻辑保持不变 ---
-            const double grassWorldSize = 100.0;  // 一个完整的网格格子
+            const double grassWorldSize = 100.0;
             const double size = grassWorldSize * pixelsPerWorldUnit;
             
             for (const auto& individual : individuals) {
                 if (!individual || !individual->alive) continue;
+
+                // --- 核心优化：视野剔除 ---
+                if (!visibleWorldRect.contains(individual->position.x, individual->position.y)) {
+                    continue;
+                }
+                // --- 优化结束 ---
+
                 QPointF screenPos = toScreenCoords(individual->position);
                 QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
                 entitiesToDraw.push_back({&m_grassTexture, targetRectF.toRect(), individual->position.y});
