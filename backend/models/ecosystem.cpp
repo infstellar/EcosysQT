@@ -58,6 +58,7 @@ void EcosystemState::initialize_populations() {
         tile.things.clear();
     }
     m_all_things.clear();
+    m_thing_counts.clear();
 
     auto race_names = races_registry.get_all_species_names();
     if (logger) {
@@ -213,11 +214,18 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
         state.race_lists[species_name] = std::move(snapshot);
     }
 
-    for (const auto& thing : m_all_things) {
-        if (!thing) {
-            continue;
+    // --- 优化：使用 m_thing_counts 进行预分配，并仅收集存活对象 ---
+    for (const auto& pair : m_thing_counts) {
+        const std::string& species_name = pair.first;
+        const std::size_t count = pair.second;
+        if (count > 0) {
+            state.thing_lists[species_name].reserve(count);
         }
-        state.thing_lists[thing->species_name].push_back(thing);
+    }
+    for (const auto& thing : m_all_things) {
+        if (thing && thing->alive) {
+            state.thing_lists[thing->species_name].push_back(thing);
+        }
     }
 
     // 预计算草的位置和存活对象 (Eigen矩阵)
@@ -299,6 +307,10 @@ void EcosystemState::attach_thing_to_world(const std::shared_ptr<ThingBase>& thi
     Tile& tile = get_tile(thing->m_grid_x, thing->m_grid_y);
     tile.things.push_back(thing.get());
     m_all_things.push_back(thing);
+    // 更新存活计数器（仅对存活对象计数）
+    if (thing->alive) {
+        ++m_thing_counts[thing->species_name];
+    }
 }
 
 void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
@@ -754,6 +766,11 @@ void EcosystemState::apply_registry_changes() {
             if (thing->alive) {
                 return false;
             }
+            // 目标已死亡，从计数器中减去
+            auto it = m_thing_counts.find(thing->species_name);
+            if (it != m_thing_counts.end() && it->second > 0) {
+                --(it->second);
+            }
             ++thing_death_counts[thing->species_name];
             if (auto logger = spdlog::get("ecosim")) {
                 logger->info("[Finalize] Removing '{}' at ({:.1f},{:.1f})",
@@ -969,6 +986,7 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     thing_energy_changes.clear();
     thing_marked_for_death.clear();
     reproduction_parents.clear();
+    m_thing_counts.clear();
     const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
     spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);
     initialize_populations();

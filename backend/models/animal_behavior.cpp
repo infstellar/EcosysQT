@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <functional>
 #include <utility>
+#include <stdexcept>
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 #include "animal_ui_snapshot.h"
@@ -310,181 +311,6 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
 }
 
 // 代码版行为逻辑核心：返回优先级选择器（逃逸>繁殖>觅食>游荡）
-static std::shared_ptr<Node> build_code_tree_logic_node(Animal& self) {
-    auto root_selector = std::make_shared<PrioritySelector>();
-
-    // --- 交配序列：条件 -> 追配偶/提交交互 ---
-    auto seq_mate = std::make_shared<Sequence>();
-    seq_mate->add_child(std::make_shared<Condition>([&self](TickContext&){
-        // 交配条件：雄性、可繁殖、非极度饥饿
-        return self.sex == Sex::MALE && self.can_reproduce() && self.get_hunger_state() != HungerState::STARVING;
-    }));
-    // 额外条件：基于求偶意愿概率的抽样（与 YAML 中的 desire_below_param 对齐）
-    seq_mate->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
-        auto* world = static_cast<EcosystemState*>(ctx.world);
-        if (!world || !self.alive) return false;
-        auto& rng_local = world->get_thread_local_rng();
-        std::uniform_real_distribution<> desire_dist(0.0, 1.0);
-        return desire_dist(rng_local) < self.get_mating_desire_probability();
-    }));
-    // 行为：复用封装的 ApproachOrMate
-    seq_mate->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; // 默认为使用黑板键 'mating_range'
-        return behavior::actions::ApproachOrMate(self, ctx, p);
-    }));
-
-    // --- 觅食/捕食序列：条件 -> 近场吃草(进度) -> 远处目标与移动/捕食 ---
-    auto seq_forage = std::make_shared<Sequence>();
-    seq_forage->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return self.get_hunger_state() != HungerState::SATISFIED && !self.food_types.empty();
-    }));
-    // 近场吃草：由进度装饰器控制持续时间（仅当主食为 grass 时）
-    // 并通过 Selector 保障非草食动物（如老虎）不会被该动作阻塞
-    auto sel_forage_inner = std::make_shared<Selector>();
-    {
-        auto eat_action = std::make_shared<Action>([&self](TickContext& ctx){
-            auto* world = static_cast<EcosystemState*>(ctx.world);
-            if (!world || !self.alive) return Status::Failure;
-            if (self.get_skip_movement()) return Status::Failure;
-            if (self.food_types.empty() || self.get_hunger_state() == HungerState::SATISFIED) {
-                return Status::Failure;
-            }
-            const std::string& primary_food = self.food_types.front();
-            if (primary_food != std::string("grass")) {
-                return Status::Failure;
-            }
-            if (self.eating_range <= 0.0) {
-                return Status::Failure;
-            }
-            auto nearby_things = world->get_things_in_range("grass", self.position, self.eating_range);
-            for (const auto& thing_ptr : nearby_things) {
-                if (!thing_ptr || !thing_ptr->alive) continue;
-                world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), thing_ptr});
-                self.set_skip_movement(true); // 本 tick 不移动
-                if (ctx.blackboard) {
-                    ctx.blackboard->ints["ticks_since_last_meal"] = 0;
-                    int cur = 0;
-                    int tot = 0;
-                    auto it_cur = ctx.blackboard->ints.find("eat_grass_current_ticks");
-                    if (it_cur != ctx.blackboard->ints.end()) cur = it_cur->second;
-                    auto it_tot = ctx.blackboard->ints.find("eat_grass_total_ticks");
-                    if (it_tot != ctx.blackboard->ints.end()) tot = it_tot->second;
-                    double pct = (tot > 0) ? (static_cast<double>(cur) / static_cast<double>(tot) * 100.0) : 0.0;
-                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                        "[EatNearbyGrass] progress {}/{} ({:.0f}%) range={:.1f}",
-                        cur, tot, pct, self.eating_range);
-                }
-                (void)ctx.blackboard;
-                return Status::Success;
-            }
-            return Status::Failure;
-        });
-        const int default_eat_ticks = 20; // 若 YAML 未提供，默认 20 tick
-        auto eat_with_progress = std::make_shared<ProgressLoopDecorator>(
-            eat_action,
-            "eat_grass_total_ticks",
-            "eat_grass_current_ticks",
-            default_eat_ticks
-        );
-        auto grass_only_seq = std::make_shared<Sequence>();
-        grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext&){
-            if (self.food_types.empty()) return false;
-            const std::string& primary_food = self.food_types.front();
-            return primary_food == std::string("grass");
-        }));
-        grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
-            auto* world = static_cast<EcosystemState*>(ctx.world);
-            if (!world || !self.alive) return false;
-            if (self.eating_range <= 0.0) return false;
-            double stop_range = self.eating_range;
-            if (ctx.blackboard) {
-                auto& bb = *ctx.blackboard;
-                auto it_stop = bb.doubles.find("eat_hard_stop_range");
-                if (it_stop != bb.doubles.end()) {
-                    stop_range = std::max(0.0, it_stop->second);
-                }
-            }
-            if (stop_range <= 0.0) {
-                stop_range = std::max(0.0, self.eating_range * 0.5);
-            }
-            auto nearby_things = world->get_things_in_range("grass", self.position, stop_range);
-            const bool ok = !nearby_things.empty();
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-                "[Gate EatNear] stop_range={:.1f} eating_range={:.1f} candidates={}",
-                stop_range, self.eating_range, static_cast<int>(nearby_things.size()));
-            return ok;
-        }));
-        grass_only_seq->add_child(eat_with_progress);
-        sel_forage_inner->add_child(grass_only_seq);
-    }
-
-    // 近场捕食分支
-    auto seq_hunt_near = std::make_shared<Sequence>();
-    seq_hunt_near->add_child(std::make_shared<Condition>([&self](TickContext&){
-        if (self.food_types.empty()) return false;
-        const std::string& primary_food = self.food_types.front();
-        if (primary_food != std::string("cow")) return false;
-        return self.hunting_range > 0.0 && self.hunting_cooldown <= 0 && self.get_hunting_desire() > 0.0;
-    }));
-    seq_hunt_near->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; p["race"] = "cow"; p["range_param"] = "hunting_range"; p["success_rate_param"] = "hunting_success_rate";
-        return behavior::actions::HuntNearbyRace(self, ctx, p);
-    }));
-    sel_forage_inner->add_child(seq_hunt_near);
-
-    // 远处追食分支
-    auto seq_chase_food = std::make_shared<Sequence>();
-    seq_chase_food->add_child(std::make_shared<Condition>([&self](TickContext&){
-        return !self.food_types.empty() && self.get_hunger_state() != HungerState::SATISFIED;
-    }));
-    seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; // 默认选择范围内最近食物并写入黑板 target_pos
-        return behavior::actions::SelectTargetPoint(self, ctx, p);
-    }));
-    seq_chase_food->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; p["speed_multiplier_key"] = "chase_speed_multiplier"; p["energy_multiplier_key"] = "chase_energy_multiplier";
-        return behavior::actions::PlanPathToTarget(self, ctx, p);
-    }));
-    sel_forage_inner->add_child(seq_chase_food);
-
-    // 将内层 Selector 作为觅食序列的第二个子节点
-    seq_forage->add_child(sel_forage_inner);
-
-    // --- 逃逸序列：条件 -> 逃逸一步并清理繁殖上下文 ---
-    auto seq_flee = std::make_shared<Sequence>();
-    seq_flee->add_child(std::make_shared<Condition>([](TickContext& ctx){
-        if (!ctx.blackboard) return false;
-        auto& bb = *ctx.blackboard;
-        const bool danger = (bb.ints.find("danger_nearby") != bb.ints.end() && bb.ints["danger_nearby"] != 0);
-        const double dist = (bb.doubles.find("threat_distance") != bb.doubles.end()) ? bb.doubles["threat_distance"] : std::numeric_limits<double>::max();
-        const double threshold = (bb.doubles.find("threat_threshold") != bb.doubles.end()) ? bb.doubles["threat_threshold"] : 0.0;
-        return danger || (threshold > 0.0 && dist <= threshold);
-    }));
-    seq_flee->add_child(std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; p["pos_x_param"] = "threat_pos_x"; p["pos_y_param"] = "threat_pos_y"; p["speed_multiplier_param"] = "flee_speed_multiplier"; p["energy_multiplier_param"] = "flee_energy_multiplier";
-        return behavior::actions::FleeFromThreat(self, ctx, p);
-    }));
-
-    // --- 游荡行为：复用封装函数并配合进度 ---
-    auto act_wander = std::make_shared<Action>([&self](TickContext& ctx){
-        YAML::Node p; return behavior::actions::WanderAnywhere(self, ctx, p);
-    });
-    const int default_wander_ticks = 50;
-    auto wander_with_progress = std::make_shared<ProgressLoopDecorator>(
-        act_wander,
-        "wander_total_ticks",
-        "wander_current_ticks",
-        default_wander_ticks
-    );
-
-    // 优先级：逃逸 > 繁殖 > 觅食/捕猎 > 游荡
-    root_selector->add_child(seq_flee);
-    root_selector->add_child(seq_mate);
-    root_selector->add_child(seq_forage);
-    root_selector->add_child(wander_with_progress);
-
-    return std::static_pointer_cast<Node>(root_selector);
-}
 
 // 解析 YAML 并返回用户定义的行为逻辑根节点（不含骨架）
 static std::shared_ptr<Node> parse_bt_yaml_logic_root_if_available(Animal& self) {
@@ -842,51 +668,6 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
     return nullptr;
 }
 
-// 若存在 bt/<species>_bt.yaml 则构建 YAML 行为树，否则返回空指针以回退到代码版
-static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& self) {
-    try {
-        if (self.species_name.empty()) return nullptr;
-        auto provider = g_race_factory.get_config_provider();
-        const std::string root_dir = provider ? provider->get_config_root_dir() : std::string(".");
-        const std::string path = root_dir + "/config/species/animals/bt/" + self.species_name + "_bt.yaml";
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Try load '{}': {}", self.species_name, path);
-        YAML::Node doc = YAML::LoadFile(path);
-        if (!doc) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Empty YAML doc for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node def = doc["BehaviorTreeDef"];
-        if (!def) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'BehaviorTreeDef' for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node root = def["root"];
-        if (!root) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'root' node for '{}'", self.species_name);
-            return nullptr;
-        }
-
-        auto root_seq = std::make_shared<Sequence>();
-        auto user_root = parse_bt_yaml_node(root, self);
-        if (!user_root) return nullptr;
-        auto selector_succeeder = std::make_shared<Succeeder>(user_root);
-
-        auto act_update = create_update_node(self, "YAML");
-        auto act_finalize = create_finalize_node(self, "YAML");
-
-        root_seq->add_child(act_update);
-        root_seq->add_child(selector_succeeder);
-        root_seq->add_child(act_finalize);
-        auto tree = std::make_unique<BehaviorTree>(root_seq);
-        tree->blackboard().strings["bt_source"] = std::string("yaml:") + self.species_name;
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT YAML] Built YAML tree for '{}'", self.species_name);
-        return tree;
-    } catch (const std::exception& e) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to build YAML tree for '{}': {}. Falling back to code tree.", self.species_name, e.what());
-        return nullptr;
-    }
-}
-
 // 主节点：吃草动作（内联 Action），在近场范围内提交吃草交互
 
 std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
@@ -900,9 +681,13 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         source_tag = "YAML";
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Using YAML logic for '{}'", self.species_name);
     } else {
-        logic_root = build_code_tree_logic_node(self);
-        source_tag = "Code";
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Built code logic for '{}' (YAML not found or failed)", self.species_name);
+        SPDLOG_LOGGER_CRITICAL(spdlog::get("ecosim"),
+            "[BT] Failed to load behavior tree logic for '{}'.",
+            self.species_name);
+        SPDLOG_LOGGER_CRITICAL(spdlog::get("ecosim"),
+            "       Check if 'config/species/animals/bt/{}_bt.yaml' exists and is valid.",
+            self.species_name);
+        throw std::runtime_error(std::string("Behavior tree configuration missing or invalid for ") + self.species_name);
     }
 
     auto selector_succeeder = std::make_shared<Succeeder>(logic_root);
