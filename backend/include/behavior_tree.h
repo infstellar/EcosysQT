@@ -2,6 +2,8 @@
 // Header-only to avoid build system changes during introduction
 #pragma once
 
+#include "tracy/Tracy.hpp"
+
 #include <algorithm>
 #include <functional>
 #include <memory>
