@@ -65,7 +65,11 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     }
     m_tigerTexture.load(":/images/tiger.png");
     if (m_tigerTexture.isNull()) {
-        qDebug() << "警告: 老虎贴图加载失败";
+        qDebug() << "警告: 雌性老虎贴图加载失败";
+    }
+    m_tigerManTexture.load(":/images/tiger_man.png");
+    if (m_tigerManTexture.isNull()) {
+        qDebug() << "警告: 雄性老虎贴图加载失败";
     }
     m_grassTexture.load(":/images/grass.png");
     if (m_grassTexture.isNull()) {
@@ -325,6 +329,12 @@ void Widget::paintEvent(QPaintEvent *event)
     std::vector<DrawableEntity> entitiesToDraw;
     entitiesToDraw.reserve(m_grassCount + m_cowCount + m_tigerCount); // 预分配内存以提高效率
 
+    // --- 核心修改：将尺寸计算所需的变量提取到循环外 ---
+    const double visibleWorldWidth = data->world_width / m_zoomFactor;
+    const double pixelsPerWorldUnit = width() / visibleWorldWidth;
+    const double animalWorldSize = 100.0; // 假设动物和草一样，都占据 100x100 的世界单位
+    const double animalSizeOnScreen = animalWorldSize * pixelsPerWorldUnit;
+
     // 循环 1: 收集 Races (动物)
     for (const auto& [name, individuals] : data->race_lists) {
         for (const auto& individual_base : individuals) {
@@ -342,16 +352,20 @@ void Widget::paintEvent(QPaintEvent *event)
                     texture = &m_cowTexture;
                 }
             } else if (name == "tiger") {
-                texture = &m_tigerTexture;
+                auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
+                if (animal_ptr) { // 转换成功
+                    texture = (animal_ptr->sex == Sex::MALE) ? &m_tigerManTexture : &m_tigerTexture;
+                } else { // 转换失败，使用默认雌性老虎贴图
+                    texture = &m_tigerTexture;
+                }
             }
-            // --- 修改结束 ---
+            // --- 选择贴图结束 ---
 
             if (!texture || texture->isNull()) continue;
 
             QPointF screenPos = toScreenCoords(individual_base->position);
-            const double max_energy = std::max(1.0, individual_base->max_energy);
-            const double energyRatio = std::clamp(individual_base->energy / max_energy, 0.0, 1.5);
-            const double size = 40.0 + energyRatio * 12.0;
+            
+            const double size = animalSizeOnScreen; // <-- 新的、基于地图缩放的固定尺寸计算
             QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
             
             entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
@@ -363,16 +377,9 @@ void Widget::paintEvent(QPaintEvent *event)
         if (name == "grass") {
             if (m_grassTexture.isNull()) continue;
             
-            // --- 修改：计算 1×1 格子在屏幕上的大小 ---
-            // 注意：一个格子 = 100 世界单位 (在 ecosystem.cpp 中定义)
-            // 1. 计算可见世界宽度
-            double visibleWorldWidth = data->world_width / m_zoomFactor;
-            // 2. 计算 1 个世界单位对应的屏幕像素数
-            double pixelsPerWorldUnit = width() / visibleWorldWidth;
-            // 3. 草的大小为 1×1 格子 = 100 世界单位
+            // --- 草的尺寸计算逻辑保持不变 ---
             const double grassWorldSize = 100.0;  // 一个完整的网格格子
             const double size = grassWorldSize * pixelsPerWorldUnit;
-            // --- 修改结束 ---
             
             for (const auto& individual : individuals) {
                 if (!individual || !individual->alive) continue;
