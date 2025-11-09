@@ -27,6 +27,7 @@
 #include <functional>
 #include <utility>
 #include <stdexcept>
+#include "tracy/Tracy.hpp"
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 #include "animal_ui_snapshot.h"
@@ -62,6 +63,7 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
 // 通用 Update 节点构建：复用 YAML/代码两种来源的相同行为
 static std::shared_ptr<Node> create_update_node(Animal& self, const char* source_tag = "Code") {
     return std::make_shared<Action>([&self, source_tag](TickContext& ctx){
+        ZoneScopedN("Animal::BT::Update");
         auto* world = static_cast<EcosystemState*>(ctx.world);
         if (!world || !self.alive) return Status::Failure;
 
@@ -71,147 +73,154 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
         }
 #endif
 
-        // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
-        self.set_skip_movement(false);
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT {}] Update: reset skip_movement=false for '{}'", source_tag, self.species_name);
-        self.clear_sensor_caches();
+        {
+            ZoneScopedN("BT::Update::State");
+            // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
+            self.set_skip_movement(false);
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT {}] Update: reset skip_movement=false for '{}'", source_tag, self.species_name);
+            self.clear_sensor_caches();
 
-        // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
-        self.refresh_hunger_state();
+            // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
+            self.refresh_hunger_state();
 
-        // 从黑板读取意图锁定时长（可由 YAML 配置覆盖）
-        if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
-            self.clear_mating_target();
-        }
-
-        // 进行中的交配计时器（仅推进，不再强制停滞）
-        if (self.mating_timer > 0) {
-            self.mating_timer -= 1;
-            if (ctx.blackboard) {
-                ctx.blackboard->ints["mating_timer_ticks"] = std::max(0, self.mating_timer);
+            // 从黑板读取意图锁定时长（可由 YAML 配置覆盖）
+            if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
+                self.clear_mating_target();
             }
-        }
 
-        // 怀孕推进与分娩提交
-        if (self.is_pregnant) {
-            self.pregnancy_timer -= 1;
-            if (self.pregnancy_timer <= 0) {
-                self.is_pregnant = false;
-                // 生成分娩位置候选
-                auto& rng_local = world->get_thread_local_rng();
-                std::uniform_real_distribution<> dist_angle(0.0, 2 * M_PI);
-                std::uniform_real_distribution<> dist_radius(std::max(0.2, self.movement_speed * 0.2), std::max(0.5, self.movement_speed * 2.5));
-                const double angle = dist_angle(rng_local);
-                const double distance = dist_radius(rng_local);
-                Position spawn_candidate{
-                    std::max(0.0, std::min(static_cast<double>(world->config.world_width), self.position.x + std::cos(angle) * distance)),
-                    std::max(0.0, std::min(static_cast<double>(world->config.world_height), self.position.y + std::sin(angle) * distance))
-                };
-                self.pending_spawn_position = spawn_candidate;
-                // 提交分娩请求并进入产后冷却
-                world->submit_interaction_request(AttemptToReproduceRaceRequest{self.shared_from_this()});
-                self.start_reproduction_cooldown();
-                self.set_skip_movement(true); // 分娩本 tick 不移动
+            // 进行中的交配计时器（仅推进，不再强制停滞）
+            if (self.mating_timer > 0) {
+                self.mating_timer -= 1;
             }
-        }
 
-        // 冷却推进
-        if (self.hunting_cooldown > 0) {
-            self.hunting_cooldown -= 1;
+            // 怀孕推进与分娩提交
+            if (self.is_pregnant) {
+                self.pregnancy_timer -= 1;
+                if (self.pregnancy_timer <= 0) {
+                    self.is_pregnant = false;
+                    // 生成分娩位置候选
+                    auto& rng_local = world->get_thread_local_rng();
+                    std::uniform_real_distribution<> dist_angle(0.0, 2 * M_PI);
+                    std::uniform_real_distribution<> dist_radius(std::max(0.2, self.movement_speed * 0.2), std::max(0.5, self.movement_speed * 2.5));
+                    const double angle = dist_angle(rng_local);
+                    const double distance = dist_radius(rng_local);
+                    Position spawn_candidate{
+                        std::max(0.0, std::min(static_cast<double>(world->config.world_width), self.position.x + std::cos(angle) * distance)),
+                        std::max(0.0, std::min(static_cast<double>(world->config.world_height), self.position.y + std::sin(angle) * distance))
+                    };
+                    self.pending_spawn_position = spawn_candidate;
+                    // 提交分娩请求并进入产后冷却
+                    world->submit_interaction_request(AttemptToReproduceRaceRequest{self.shared_from_this()});
+                    self.start_reproduction_cooldown();
+                    self.set_skip_movement(true); // 分娩本 tick 不移动
+                }
+            }
+
+            // 冷却推进
+            if (self.hunting_cooldown > 0) {
+                self.hunting_cooldown -= 1;
+            }
         }
 
         // --- 将规范黑板键写入（供分支条件与装饰器使用） ---
         if (ctx.blackboard) {
             auto& bb = *ctx.blackboard;
-            // 饥饿状态（枚举以 int 存储：0=SATISFIED,1=NORMAL,2=STARVING）
-            int hunger_code = 1;
-            switch (self.get_hunger_state()) {
-                case HungerState::SATISFIED: hunger_code = 0; break;
-                case HungerState::NORMAL: hunger_code = 1; break;
-                case HungerState::STARVING: hunger_code = 2; break;
-            }
-            bb.ints["hunger_state"] = hunger_code;
-
-            // 交配计时器（用于 UI 展示或进度装饰器）
-            bb.ints["mating_timer_ticks"] = std::max(0, self.mating_timer);
-
-            // 繁殖守卫相关键：最低能量、最低年龄、冷却剩余
-            bb.doubles["repro_energy_min"] = self.reproduction_energy_cost * 2.0;
-            bb.ints["repro_age_min"] = self.min_reproduction_age;
-            bb.ints["repro_cooldown_ticks"] = self.reproduction_cooldown;
-
-            // 逃逸阈值：按物种设置。默认=探测范围；牛用较小比例（不影响其他用途的探测范围）
-            const double default_threat_threshold = (self.species_name == std::string("cow"))
-                ? std::max(0.0, self.get_detection_range() * 0.1)
-                : self.get_detection_range();
-            if (bb.doubles.find("threat_threshold") == bb.doubles.end()) {
-                bb.doubles["threat_threshold"] = default_threat_threshold;
-            }
-            const double threat_threshold = (bb.doubles.find("threat_threshold") != bb.doubles.end())
-                ? bb.doubles["threat_threshold"]
-                : default_threat_threshold;
-
-            // 探测威胁（仅在阈值范围内），目前将“tiger”视为威胁对象
-            bool danger = false;
-            double threat_dist = std::numeric_limits<double>::max();
-            Position threat_pos = self.position;
             {
-                const auto nearby = world->get_nearby_races_broad(self.position, threat_threshold);
-                for (const auto& r : nearby) {
-                    if (!r || !r->alive) continue;
-                    if (r.get() == &self) continue;
-                    if (r->species_name == std::string("tiger") && self.species_name != std::string("tiger")) {
-                        double d = self.position.distance_to(r->position);
-                        if (d < threat_dist) {
-                            threat_dist = d;
-                            threat_pos = r->position;
-                        }
-                        if (d <= threat_threshold) {
-                            danger = true;
+                ZoneScopedN("BT::Update::State");
+                // 饥饿状态（枚举以 int 存储：0=SATISFIED,1=NORMAL,2=STARVING）
+                int hunger_code = 1;
+                switch (self.get_hunger_state()) {
+                    case HungerState::SATISFIED: hunger_code = 0; break;
+                    case HungerState::NORMAL: hunger_code = 1; break;
+                    case HungerState::STARVING: hunger_code = 2; break;
+                }
+                bb.ints["hunger_state"] = hunger_code;
+
+                // 交配计时器（用于 UI 展示或进度装饰器）
+                bb.ints["mating_timer_ticks"] = std::max(0, self.mating_timer);
+
+                // 繁殖守卫相关键：最低能量、最低年龄、冷却剩余
+                bb.doubles["repro_energy_min"] = self.reproduction_energy_cost * 2.0;
+                bb.ints["repro_age_min"] = self.min_reproduction_age;
+                bb.ints["repro_cooldown_ticks"] = self.reproduction_cooldown;
+            }
+
+            {
+                ZoneScopedN("BT::Update::Threat");
+                // 逃逸阈值：按物种设置。默认=探测范围；牛用较小比例（不影响其他用途的探测范围）
+                const double default_threat_threshold = (self.species_name == std::string("cow"))
+                    ? std::max(0.0, self.get_detection_range() * 0.1)
+                    : self.get_detection_range();
+                if (bb.doubles.find("threat_threshold") == bb.doubles.end()) {
+                    bb.doubles["threat_threshold"] = default_threat_threshold;
+                }
+                const double threat_threshold = (bb.doubles.find("threat_threshold") != bb.doubles.end())
+                    ? bb.doubles["threat_threshold"]
+                    : default_threat_threshold;
+
+                // 探测威胁（仅在阈值范围内），目前将“tiger”视为威胁对象
+                bool danger = false;
+                double threat_dist = std::numeric_limits<double>::max();
+                Position threat_pos = self.position;
+                {
+                    const auto nearby = world->get_nearby_races_broad(self.position, threat_threshold);
+                    for (const auto& r : nearby) {
+                        if (!r || !r->alive) continue;
+                        if (r.get() == &self) continue;
+                        if (r->species_name == std::string("tiger") && self.species_name != std::string("tiger")) {
+                            double d = self.position.distance_to(r->position);
+                            if (d < threat_dist) {
+                                threat_dist = d;
+                                threat_pos = r->position;
+                            }
+                            if (d <= threat_threshold) {
+                                danger = true;
+                            }
                         }
                     }
                 }
-            }
-            bb.ints["danger_nearby"] = danger ? 1 : 0;
-            bb.doubles["threat_distance"] = std::isfinite(threat_dist) ? threat_dist : (threat_threshold + 1.0);
-            bb.doubles["threat_pos_x"] = threat_pos.x;
-            bb.doubles["threat_pos_y"] = threat_pos.y;
-
-            // 集中孕期与饥饿速度惩罚：本 tick 的基础速度倍率
-            double base_speed_multiplier = 1.0;
-            if (self.is_pregnant) {
-                base_speed_multiplier *= std::max(0.0, self.get_pregnancy_speed_penalty());
-            }
-            if (self.get_hunger_state() == HungerState::STARVING) {
-                double starving_mul = 1.0;
-                if (ctx.blackboard) {
-                    auto it = ctx.blackboard->doubles.find("starving_speed_multiplier");
-                    if (it != ctx.blackboard->doubles.end()) starving_mul = it->second;
-                }
-                base_speed_multiplier *= std::max(0.0, starving_mul);
-            }
-            bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
-
-            // 饥饿状态能耗降低：本 tick 的基础能量倍率（供移动 Action 使用）
-            double base_energy_multiplier = 1.0;
-            if (self.get_hunger_state() == HungerState::STARVING) {
-                double starving_energy_mul = 1.0;
-                if (ctx.blackboard) {
-                    auto it2 = ctx.blackboard->doubles.find("starving_energy_multiplier");
-                    if (it2 != ctx.blackboard->doubles.end()) starving_energy_mul = it2->second;
-                }
-                base_energy_multiplier *= std::max(0.0, starving_energy_mul);
-            }
-            bb.doubles["current_energy_multiplier"] = base_energy_multiplier;
-
-            if (self.is_pregnant) {
-                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-                    "[BT {}] Pregnant speed: penalty={:.2f} base_mul={:.2f} movement_speed={:.2f}",
-                    source_tag, self.get_pregnancy_speed_penalty(), base_speed_multiplier, self.movement_speed);
+                bb.ints["danger_nearby"] = danger ? 1 : 0;
+                bb.doubles["threat_distance"] = std::isfinite(threat_dist) ? threat_dist : (threat_threshold + 1.0);
+                bb.doubles["threat_pos_x"] = threat_pos.x;
+                bb.doubles["threat_pos_y"] = threat_pos.y;
             }
 
-            // --- 缓存：探测范围内的食物/配偶列表 ---
             {
+                ZoneScopedN("BT::Update::State");
+                // 集中孕期与饥饿速度惩罚：本 tick 的基础速度倍率
+                double base_speed_multiplier = 1.0;
+                if (self.is_pregnant) {
+                    base_speed_multiplier *= std::max(0.0, self.get_pregnancy_speed_penalty());
+                }
+                if (self.get_hunger_state() == HungerState::STARVING) {
+                    double starving_mul = 1.0;
+                    if (auto it = bb.doubles.find("starving_speed_multiplier"); it != bb.doubles.end()) {
+                        starving_mul = it->second;
+                    }
+                    base_speed_multiplier *= std::max(0.0, starving_mul);
+                }
+                bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
+
+                // 饥饿状态能耗降低：本 tick 的基础能量倍率（供移动 Action 使用）
+                double base_energy_multiplier = 1.0;
+                if (self.get_hunger_state() == HungerState::STARVING) {
+                    double starving_energy_mul = 1.0;
+                    if (auto it2 = bb.doubles.find("starving_energy_multiplier"); it2 != bb.doubles.end()) {
+                        starving_energy_mul = it2->second;
+                    }
+                    base_energy_multiplier *= std::max(0.0, starving_energy_mul);
+                }
+                bb.doubles["current_energy_multiplier"] = base_energy_multiplier;
+
+                if (self.is_pregnant) {
+                    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                        "[BT {}] Pregnant speed: penalty={:.2f} base_mul={:.2f} movement_speed={:.2f}",
+                        source_tag, self.get_pregnancy_speed_penalty(), base_speed_multiplier, self.movement_speed);
+                }
+            }
+
+            {
+                ZoneScopedN("BT::Update::CacheMates");
                 const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
                 for (const auto& r : nearby_races) {
                     if (!r || !r->alive) continue;
@@ -227,33 +236,37 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             }
 
             {
-                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
-                for (const auto& r : nearby_races) {
-                    if (!r || !r->alive) continue;
-                    if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
-                    if (self.position.distance_to(r->position) > self.get_detection_range()) continue;
-                    self.cache_food_race(r);
+                ZoneScopedN("BT::Update::CacheFood");
+                {
+                    const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
+                    for (const auto& r : nearby_races) {
+                        if (!r || !r->alive) continue;
+                        if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
+                        if (self.position.distance_to(r->position) > self.get_detection_range()) continue;
+                        self.cache_food_race(r);
+                    }
                 }
-                const auto nearby_things = world->get_nearby_things_broad(self.position, self.get_detection_range());
-                for (const auto& t : nearby_things) {
-                    if (!t || !t->alive) continue;
-                    if (std::find(self.food_types.begin(), self.food_types.end(), t->species_name) == self.food_types.end()) continue;
-                    if (self.position.distance_to(t->position) > self.get_detection_range()) continue;
-                    self.cache_food_thing(t);
+                {
+                    const auto nearby_things = world->get_nearby_things_broad(self.position, self.get_detection_range());
+                    for (const auto& t : nearby_things) {
+                        if (!t || !t->alive) continue;
+                        if (std::find(self.food_types.begin(), self.food_types.end(), t->species_name) == self.food_types.end()) continue;
+                        if (self.position.distance_to(t->position) > self.get_detection_range()) continue;
+                        self.cache_food_thing(t);
+                    }
                 }
                 bb.ints["perceived_food_races_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size());
                 bb.ints["perceived_food_things_count"] = static_cast<int>(self.get_cached_food_things_snapshot().size());
             }
 
             {
+                ZoneScopedN("BT::Update::State");
                 const double base_range = bb_get_double(&bb, "stop_range_base_range", 0.0);
                 const double factor = bb_get_double(&bb, "stop_range_factor", 0.5);
                 const double stop_range = std::max(0.0, base_range * factor);
                 bb.doubles["eat_hard_stop_range"] = stop_range;
-            }
 
-            // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
-            {
+                // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
                 int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
                 bb.ints["ticks_since_last_meal"] = std::max(0, meal_ticks + 1);
             }
@@ -266,6 +279,7 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
 // 通用 Finalize 节点构建：复用 YAML/代码两种来源的相同行为
 static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* source_tag = "Code") {
     return std::make_shared<Action>([&self, source_tag](TickContext& ctx){
+        ZoneScopedN("Animal::BT::Finalize");
         auto* world = static_cast<EcosystemState*>(ctx.world);
         (void)world;
         if (!self.alive) return Status::Failure;
@@ -338,7 +352,7 @@ static std::shared_ptr<Node> parse_bt_yaml_logic_root_if_available(Animal& self)
         auto user_root = parse_bt_yaml_node(root, self);
         return user_root;
     } catch (const std::exception& e) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to parse YAML for '{}': {}. Falling back to code logic.", self.species_name, e.what());
+    SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to parse YAML for '{}': {}.", self.species_name, e.what());
         return nullptr;
     }
 }
@@ -671,16 +685,12 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
 // 主节点：吃草动作（内联 Action），在近场范围内提交吃草交互
 
 std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
-    // 统一入口：优先加载 YAML 逻辑，否则使用代码版逻辑
     auto root_seq = std::make_shared<Sequence>();
     std::shared_ptr<Node> logic_root = nullptr;
-    std::string source_tag = "Code";
 
-    if (auto yaml_logic = parse_bt_yaml_logic_root_if_available(self)) {
-        logic_root = yaml_logic;
-        source_tag = "YAML";
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Using YAML logic for '{}'", self.species_name);
-    } else {
+    logic_root = parse_bt_yaml_logic_root_if_available(self);
+
+    if (!logic_root) {
         SPDLOG_LOGGER_CRITICAL(spdlog::get("ecosim"),
             "[BT] Failed to load behavior tree logic for '{}'.",
             self.species_name);
@@ -690,17 +700,24 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         throw std::runtime_error(std::string("Behavior tree configuration missing or invalid for ") + self.species_name);
     }
 
+    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Using YAML logic for '{}'", self.species_name);
+
+    auto act_update = create_update_node(self, "YAML");
+    auto act_finalize = create_finalize_node(self, "YAML");
+
     auto selector_succeeder = std::make_shared<Succeeder>(logic_root);
-    auto act_update = create_update_node(self, source_tag.c_str());
-    auto act_finalize = create_finalize_node(self, source_tag.c_str());
+    auto profiled_logic = std::make_shared<Action>([selector_succeeder](TickContext& ctx) {
+        ZoneScopedN("Animal::BT::Logic (YAML)");
+        return selector_succeeder->tick(ctx);
+    });
 
     root_seq->add_child(act_update);
-    root_seq->add_child(selector_succeeder);
+    root_seq->add_child(profiled_logic);
     root_seq->add_child(act_finalize);
 
     auto tree = std::make_unique<BehaviorTree>(root_seq);
-    tree->blackboard().strings["bt_source"] = std::string(source_tag == "YAML" ? "yaml:" : "code:") + self.species_name;
-    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", self.species_name, source_tag);
+    tree->blackboard().strings["bt_source"] = std::string("yaml:") + self.species_name;
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from YAML", self.species_name);
     return tree;
 }
 
