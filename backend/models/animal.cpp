@@ -55,6 +55,10 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     // 初始化每tick步长为当前移动速度（tick制）
     step_distance_per_tick = movement_speed;
     current_step_distance = step_distance_per_tick; // 首帧近似为1 tick
+    // 诊断：构造时确认孕速惩罚与移动速度
+    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+        "[Animal Ctor] '{}' created: pregnancy_speed_penalty={:.2f}, movement_speed={:.2f}",
+        species_name, pregnancy_speed_penalty, movement_speed);
 
     // 使用传递进来的 rng，而不是线程本地的
     std::uniform_int_distribution<> dist(0, 1);
@@ -189,9 +193,10 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 
     if (distance > 0) {
         // 到达减速（Arrive）：临近目标时按比例减速，平滑收敛
-    const double slow_radius = std::max(current_step_distance * 4.0, step_distance_per_tick * 2.0);
-    const double ratio = std::min(1.0, distance / std::max(1e-9, slow_radius));
-    const double desired = current_step_distance * ratio;
+        // 优化：缩小减速半径，避免过早减速导致“靠近非常慢”的体验
+        const double slow_radius = std::max(current_step_distance * 2.0, step_distance_per_tick * 1.0);
+        const double ratio = std::min(1.0, distance / std::max(1e-9, slow_radius));
+        const double desired = current_step_distance * ratio;
         const double step = std::min(desired, distance);
         dx = (dx / distance) * step;
         dy = (dy / distance) * step;
@@ -226,18 +231,18 @@ void Animal::move_to_target_point(int world_width, int world_height) {
 
     // 达到当前路径点后推进到下一个点
     double remain = position.distance_to(goal);
-    const double arrival_threshold = std::max(1.0, current_step_distance * 0.5);
+    const double arrival_threshold = std::max(0.2, current_step_distance * 0.5);
     if (remain <= arrival_threshold) {
         if (!planned_path.empty() && planned_path_index < planned_path.size()) {
             planned_path_index += 1;
             if (planned_path_index >= planned_path.size()) {
-                // 路径完成
+                // 路径完成：保留 current_target，交由上层行为（如 EatNearbyThing）处理近场交互
                 planned_path.clear();
                 planned_path_index = 0;
             }
         } else {
-            // 直接目标已到达（近似判断），清空目标以触发重新选择
-            current_target.reset();
+            // 直接目标已到达：不再主动清空 current_target，避免“到达-清空-重选-再移动”的停顿感
+            // 保持目标以便上层优先选择器首先尝试近场动作（吃草/交互），从而平滑收敛
         }
     }
 }
@@ -249,8 +254,8 @@ void Animal::start_hunting_cooldown() {
 
 bool Animal::can_reproduce() const {
     if (sex == Sex::MALE) {
-        // 雄性检查自身状态（能量、年龄、冷却）
-        return RaceBase::can_reproduce() && age > min_reproduction_age;
+        // 雄性检查自身状态（能量、年龄、冷却）；若正在交配则不可重复触发
+        return (mating_timer <= 0) && RaceBase::can_reproduce() && age > min_reproduction_age;
     }
     if (sex == Sex::FEMALE) {
         // 雌性检查是否“可受孕”
@@ -335,6 +340,37 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     if (bb.ints.find("wander_current_ticks") == bb.ints.end()) {
         bb.ints["wander_current_ticks"] = 0;
     }
+
+    // 默认参数注入：游荡冷却与最近进食耐心阈值（可由物种 YAML 覆盖）
+    if (bb.ints.find("wander_cooldown_ticks") == bb.ints.end()) {
+        bb.ints["wander_cooldown_ticks"] = 20; // 默认 20 tick（若 YAML 未提供）
+    }
+    if (bb.ints.find("forage_patience_ticks") == bb.ints.end()) {
+        bb.ints["forage_patience_ticks"] = 50; // 默认 50 tick（若 YAML 未提供）
+    }
+    // 进食后的短暂游荡冷却（减少“吃草-停顿”频繁发生），可由 YAML 覆盖
+    if (bb.ints.find("post_eat_wander_cooldown_ticks") == bb.ints.end()) {
+        bb.ints["post_eat_wander_cooldown_ticks"] = 5; // 默认 5 tick
+    }
+
+    // 追草多步推进的默认值（未在 YAML 指定时），缓解“逐帧小步·放大似瞬移”问题
+    if (bb.ints.find("chase_substeps_per_tick") == bb.ints.end()) {
+        bb.ints["chase_substeps_per_tick"] = 3; // 默认每 tick 连续推进 3 步
+    }
+
+    // 打印调试信息：eat_grass_total_ticks 来源与当前黑板值
+    {
+        int eat_total = -1;
+        auto it = bb.ints.find("eat_grass_total_ticks");
+        if (it != bb.ints.end()) eat_total = it->second;
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+            "[BT Params] '{}' eat_grass_total_ticks={} (after injection)",
+            species_name, eat_total);
+        // 初始化吃草当前进度键，便于进度装饰器与日志显示
+        if (bb.ints.find("eat_grass_current_ticks") == bb.ints.end()) {
+            bb.ints["eat_grass_current_ticks"] = 0;
+        }
+    }
 }
 
 // --- 统一能量与一步移动封装（供行为树动作复用） ---
@@ -348,14 +384,53 @@ void Animal::consume_energy(double multiplier) {
 
 void Animal::perform_step_move_to(const Position& target, int world_width, int world_height,
                                   double speed_multiplier, double energy_multiplier) {
+    // 仅当发生实际位移时才结算能量，避免“原地不动仍掉能量”
+    const double prev_x = position.x;
+    const double prev_y = position.y;
     current_step_distance = step_distance_per_tick * std::max(0.0, speed_multiplier);
     move_towards_target(target, world_width, world_height);
-    consume_energy(energy_multiplier);
+    const double moved_dx = std::abs(position.x - prev_x);
+    const double moved_dy = std::abs(position.y - prev_y);
+    // 调试：记录本 tick 位移与步长、倍率，定位“刚开始追草就很慢”的根因
+    {
+        const double moved_len = std::sqrt(moved_dx * moved_dx + moved_dy * moved_dy);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[MoveStep->To] '{}' step={:.2f} moved={:.2f} prev=({:.1f},{:.1f}) now=({:.1f},{:.1f}) mul(speed={:.2f}, energy={:.2f})",
+            species_name,
+            current_step_distance,
+            moved_len,
+            prev_x, prev_y,
+            position.x, position.y,
+            std::max(0.0, speed_multiplier), std::max(0.0, energy_multiplier));
+    }
+    // 使用一个很小的阈值避免浮点误差导致误判
+    if (moved_dx > 1e-9 || moved_dy > 1e-9) {
+        consume_energy(energy_multiplier);
+    }
 }
 
 void Animal::perform_step_move_path(int world_width, int world_height,
                                     double speed_multiplier, double energy_multiplier) {
+    // 仅当发生实际位移时才结算能量，避免“原地不动仍掉能量”
+    const double prev_x = position.x;
+    const double prev_y = position.y;
     current_step_distance = step_distance_per_tick * std::max(0.0, speed_multiplier);
     move_to_target_point(world_width, world_height);
-    consume_energy(energy_multiplier);
+    const double moved_dx = std::abs(position.x - prev_x);
+    const double moved_dy = std::abs(position.y - prev_y);
+    // 调试：记录路径推进的一步位移和步长、倍率
+    {
+        const double moved_len = std::sqrt(moved_dx * moved_dx + moved_dy * moved_dy);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[MoveStep->Path] '{}' step={:.2f} moved={:.2f} prev=({:.1f},{:.1f}) now=({:.1f},{:.1f}) mul(speed={:.2f}, energy={:.2f})",
+            species_name,
+            current_step_distance,
+            moved_len,
+            prev_x, prev_y,
+            position.x, position.y,
+            std::max(0.0, speed_multiplier), std::max(0.0, energy_multiplier));
+    }
+    if (moved_dx > 1e-9 || moved_dy > 1e-9) {
+        consume_energy(energy_multiplier);
+    }
 }

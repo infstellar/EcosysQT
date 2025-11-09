@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/sink.h>
 #include "logging.h"
 #include "race_factory.h"
 #include "thing_factory.h"
@@ -21,6 +22,17 @@ int main(int argc, char *argv[])
         qWarning() << "Failed to acquire logger:" << QString::fromStdString(Logging::MAIN_LOGGER_NAME);
         Logging::shutdown();
         return 1;
+    }
+    // 强制启用 debug 级别日志（包括各 sink），便于调试 skip_movement 等细节
+    try {
+        logger->set_level(spdlog::level::debug);
+        spdlog::set_level(spdlog::level::debug);
+        for (auto& s : logger->sinks()) {
+            s->set_level(spdlog::level::debug);
+        }
+        logger->info("[Main] Log level overridden to DEBUG for ecosim");
+    } catch (...) {
+        // 安全兜底，避免日志系统异常中断应用启动
     }
     QApplication app(argc, argv);
     

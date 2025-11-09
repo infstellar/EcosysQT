@@ -517,8 +517,15 @@ void EcosystemState::resolve_interactions() {
                 auto& target = req.target;
                 if (!initiator || !target) return;
                 if (!initiator->alive || !target->alive) return;
-
-                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
+                auto logger = spdlog::get("ecosim");
+                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) {
+                    if (logger) {
+                        logger->info("[Resolve EatThing] Duplicate request ignored: initiator='{}' target='{}' pos=({:.1f},{:.1f})",
+                                     initiator->species_name, target->species_name,
+                                     target->position.x, target->position.y);
+                    }
+                    return;
+                }
 
                 thing_marked_for_death.insert(target.get());
                 {
@@ -528,6 +535,12 @@ void EcosystemState::resolve_interactions() {
                         efficiency = std::max(0.0, a->energy_efficiency);
                     }
                     race_energy_changes[initiator.get()] += (target->energy * efficiency);
+                }
+                if (logger) {
+                    logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
+                                 initiator->species_name, target->species_name,
+                                 target->position.x, target->position.y,
+                                 target->energy);
                 }
                 target->die_from_predation(initiator->species_name);
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
@@ -742,6 +755,10 @@ void EcosystemState::apply_registry_changes() {
                 return false;
             }
             ++thing_death_counts[thing->species_name];
+            if (auto logger = spdlog::get("ecosim")) {
+                logger->info("[Finalize] Removing '{}' at ({:.1f},{:.1f})",
+                             thing->species_name, thing->position.x, thing->position.y);
+            }
             detach_thing_from_tile(*thing);
             return true;
         });

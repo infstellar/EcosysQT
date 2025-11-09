@@ -53,6 +53,11 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double base_mul = bb_get_double(&bb, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(&bb, speed_key, 1.5);
     const double energy_mul = bb_get_double(&bb, energy_key, 1.5);
+    if (self.is_pregnant) {
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+            "[Move Flee] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
+            base_mul, speed_mul, base_mul * speed_mul);
+    }
     self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
 
     self.clear_current_target();
@@ -71,7 +76,24 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     (void)params;
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
-    if (self.get_skip_movement()) return Status::Failure;
+    // 进入游荡的状态日志（降级为 Debug，避免刷屏）
+    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+        "[WANDER] '{}' entered Wander. IsPregnant={} skip_movement={} pos=({:.1f},{:.1f}) has_target={}",
+        self.species_name, self.is_pregnant, self.get_skip_movement(), self.position.x, self.position.y, self.get_wander_target().has_value());
+    if (self.get_skip_movement()) {
+        return Status::Failure;
+    }
+
+    // 首次进入游荡时设置强制游荡冷却，避免立即被觅食分支抢占
+    if (ctx.blackboard) {
+        int fwt = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
+        if (fwt <= 0) {
+            const int cooldown = bb_get_int(ctx.blackboard, "wander_cooldown_ticks", 20);
+            if (cooldown > 0) {
+                ctx.blackboard->ints["force_wander_ticks"] = cooldown;
+            }
+        }
+    }
 
     const int world_width = world->config.world_width;
     const int world_height = world->config.world_height;
@@ -81,11 +103,21 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
         const double speed_mul = bb_get_double(ctx.blackboard, "wander_speed_multiplier", 0.8);
         const double energy_mul = bb_get_double(ctx.blackboard, "wander_energy_multiplier", 0.6);
+        if (self.is_pregnant) {
+            // 保留孕期速度计算，但不输出 info 日志
+        }
+        const Position prev = self.position;
         self.perform_step_move_to(target, world_width, world_height, base_mul * speed_mul, energy_mul);
+        const double disp_x = self.position.x - prev.x;
+        const double disp_y = self.position.y - prev.y;
+        const double disp_len = std::sqrt(disp_x*disp_x + disp_y*disp_y);
         const double arrival_threshold = std::max(0.2, self.get_current_step_distance() * 0.5);
         if (self.position.distance_to(target) <= arrival_threshold) {
             self.clear_wander_target();
+            // 到达目标：返回 Success，让外层节点感知完成
+            return Status::Success;
         }
+        // 未到达：持续推进，返回 Running
         return Status::Running;
     }
 
@@ -103,7 +135,12 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         candidate.y = std::max(0.0, std::min(static_cast<double>(world_height), candidate.y));
         if (self.position.distance_to(candidate) < 1e-6) continue;
         self.set_wander_target(candidate);
+        // 采样到新目标时不再输出 info 日志
     }
+    // 统一移动逻辑：若采样失败执行后备移动；若采样成功则当帧立即移动到新目标
+    const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
+    const double speed_mul = bb_get_double(ctx.blackboard, "wander_speed_multiplier", 0.8);
+    const double energy_mul = bb_get_double(ctx.blackboard, "wander_energy_multiplier", 0.6);
     if (!self.get_wander_target().has_value()) {
         std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
         const double a2 = angle2(rng_local);
@@ -111,19 +148,43 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
             std::max(0.0, std::min(static_cast<double>(world_width), self.position.x + std::cos(a2) * self.movement_speed)),
             std::max(0.0, std::min(static_cast<double>(world_height), self.position.y + std::sin(a2) * self.movement_speed))
         };
-        const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
-        const double speed_mul = bb_get_double(ctx.blackboard, "wander_speed_multiplier", 0.8);
-        const double energy_mul = bb_get_double(ctx.blackboard, "wander_energy_multiplier", 0.6);
+        if (self.is_pregnant) {
+            // 保留孕期速度计算，但不输出 info 日志
+        }
         self.perform_step_move_to(fallback, world_width, world_height, base_mul * speed_mul, energy_mul);
         return Status::Running;
+    } else {
+        const Position target2 = self.get_wander_target().value();
+        if (self.is_pregnant) {
+            // 保留孕期速度计算，但不输出 info 日志
+        }
+        const Position prev2 = self.position;
+        self.perform_step_move_to(target2, world_width, world_height, base_mul * speed_mul, energy_mul);
+        const double disp_x2 = self.position.x - prev2.x;
+        const double disp_y2 = self.position.y - prev2.y;
+        const double disp_len2 = std::sqrt(disp_x2*disp_x2 + disp_y2*disp_y2);
+        const double arrival_threshold2 = std::max(0.2, self.get_current_step_distance() * 0.5);
+        if (self.position.distance_to(target2) <= arrival_threshold2) {
+            self.clear_wander_target();
+            // 到达新采样目标：返回 Success
+            return Status::Success;
+        }
+        // 未到达：返回 Running
+        return Status::Running;
     }
-    return Status::Running;
 }
 
 bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
+    // 若交配计时器仍在进行，避免重复提交导致每 tick 停动
+    if (self.mating_timer > 0) {
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[ApproachOrMate] Mating in progress (timer={}), skipping action",
+            self.mating_timer);
+        return Status::Failure;
+    }
     const std::string range_key = params["mating_range_param"] ? params["mating_range_param"].as<std::string>() : std::string("mating_range");
 
     auto nearest_mate_opt = self.find_available_mate(*world);
@@ -143,8 +204,8 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
             "Submitting mate request: male pos=({:.1f},{:.1f}), female pos=({:.1f},{:.1f}), dist={:.2f}, range={:.2f}",
             self.position.x, self.position.y, mate->position.x, mate->position.y, dist, range);
         world->submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(self.shared_from_this())});
-        self.set_skip_movement(true);
-        return Status::Running;
+        
+        return Status::Success;
     }
 
     self.set_mating_target(mate->position);
@@ -158,6 +219,11 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(ctx.blackboard, "mate_speed_multiplier", 1.0);
     const double energy_mul = bb_get_double(ctx.blackboard, "mate_energy_multiplier", 1.0);
+    if (self.is_pregnant) {
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+            "[Move Mate] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
+            base_mul, speed_mul, base_mul * speed_mul);
+    }
     self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
     return Status::Running;
 }
@@ -170,14 +236,71 @@ bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const std::string thing = params["thing"] ? params["thing"].as<std::string>() : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
     const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
+    // 统一“近距短路”的阈值为与吃草动作一致的 stop_range，避免 6~12 区间卡死
+    double stop_range = eat_range;
+    if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
+        stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
+    } else {
+        stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
+    }
+    // 调试：打印吃草进度 current/total 与范围（降噪为 DEBUG）
+    {
+        int total = bb_get_int(ctx.blackboard, "eat_grass_total_ticks", -1);
+        int current = bb_get_int(ctx.blackboard, "eat_grass_current_ticks", 0);
+        double pct = (total > 0) ? (static_cast<double>(current) / static_cast<double>(total) * 100.0) : 0.0;
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[EatNearbyThing] '{}' thing={} eat_range={:.1f} progress={}/{} ({:.0f}%)",
+            self.species_name, thing, eat_range, current, total, pct);
+    }
     if (eat_range <= 0.0) return Status::Failure;
 
     auto nearby_things = world->get_things_in_range(thing, self.position, eat_range);
+    // 选择最近的草，并计算硬停止半径（仅当足够接近才停止移动）
+    std::shared_ptr<ThingBase> nearest;
+    double nearest_dist = std::numeric_limits<double>::max();
     for (const auto& t : nearby_things) {
         if (!t || !t->alive) continue;
-        world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), t});
-        self.set_skip_movement(true);
-        return Status::Success;
+        double d = self.position.distance_to(t->position);
+        if (d < nearest_dist) { nearest_dist = d; nearest = t; }
+    }
+    if (nearest) {
+        double stop_range = eat_range;
+        if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
+            stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
+        } else {
+            stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
+        }
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[EatNearbyThing] nearest_dist={:.2f} eat_range={:.1f} stop_range={:.1f}",
+            nearest_dist, eat_range, stop_range);
+
+        // 仅当足够接近时才提交吃草请求并停止移动；不够近则返回 Failure 以允许移动分支执行
+        if (nearest_dist <= stop_range) {
+            world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), nearest});
+            self.set_skip_movement(true);
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "[BT Action] {} eat within stop_range ({:.1f}); submit request, skip_movement=true",
+                self.species_name, stop_range);
+            // 成功提交进食请求：重置最近进食计时并施加轻微冷却
+            if (ctx.blackboard) {
+                ctx.blackboard->ints["ticks_since_last_meal"] = 0;
+        
+                int cooldown_default = 5;
+                int cooldown = bb_get_int(ctx.blackboard, "post_eat_wander_cooldown_ticks", cooldown_default);
+                int existing = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
+                int applied = std::max(existing, cooldown);
+                ctx.blackboard->ints["force_wander_ticks"] = applied;
+                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                    "[Hysteresis] Apply force_wander_ticks={} after eat (existing={}, cooldown={})",
+                    applied, existing, cooldown);
+            }
+            return Status::Success;
+        } else {
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "[BT Action] {} see grass but outside stop_range ({:.1f}); return Failure to keep moving",
+                self.species_name, stop_range);
+            return Status::Failure;
+        }
     }
     return Status::Failure;
 }
@@ -206,6 +329,7 @@ bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
                 self.start_hunting_cooldown();
                 self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
                 self.set_skip_movement(true);
+
                 return Status::Running;
             }
         }
@@ -218,6 +342,14 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
+
+    // 冷却门控：强制游荡期间，觅食目标选择直接失败，交由上层转游荡
+    {
+        int fwt = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
+        if (fwt > 0) {
+            return Status::Failure;
+        }
+    }
 
     std::optional<Position> nearest_food;
     double min_distance = std::numeric_limits<double>::max();
@@ -253,6 +385,28 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     }
     self.clear_current_target();
     self.clear_path();
+    // 最近进食滞后：若刚进食不久，不再在觅食序列中返回 Running（这会阻塞后续分支并造成原地不动），
+    // 改为返回 Failure，并设置一段强制游荡冷却，使上层选择器切换到游荡分支，同时避免立即又回到觅食。
+    {
+        int patience = bb_get_int(ctx.blackboard, "forage_patience_ticks", 50);
+        int since_meal = bb_get_int(ctx.blackboard, "ticks_since_last_meal", patience + 1);
+        if (since_meal < patience) {
+            int remain = patience - since_meal;
+            if (ctx.blackboard && remain > 0) {
+                // 将剩余的“等待觅食”时间转化为强制游荡冷却，避免频繁切换导致停顿
+                int existing = bb_get_int(ctx.blackboard, "force_wander_ticks", 0);
+                ctx.blackboard->ints["force_wander_ticks"] = std::max(existing, remain);
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                    "[Hysteresis->Wander] No food target; since_meal={} < patience={}; set force_wander_ticks={} and return Failure",
+                    since_meal, patience, ctx.blackboard->ints["force_wander_ticks"]);
+            } else {
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                    "[Hysteresis->Wander] No food target; since_meal={} < patience={}; blackboard missing; return Failure",
+                    since_meal, patience);
+            }
+            return Status::Failure;
+        }
+    }
     return Status::Failure;
 }
 
@@ -269,8 +423,110 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     const std::string energy_key = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
     const double speed_mul = bb_get_double(ctx.blackboard, speed_key, 1.0);
     const double energy_mul = bb_get_double(ctx.blackboard, energy_key, 1.0);
-    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul);
+    const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
+    const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
+    const std::string move_mode = params["plan_path_move_mode"] ? params["plan_path_move_mode"].as<std::string>() : std::string("path");
+    // 计算停吃范围（stop_range）：优先黑板 eat_hard_stop_range；否则按 eating_range 的一半并下限 3.0
+    double stop_range = eat_range;
+    if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
+        stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
+    } else {
+        stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
+    }
+    const double final_mul = base_mul * speed_mul;
+    if (self.get_current_target().has_value()) {
+        const Position tgt = self.get_current_target().value();
+        const double dist = self.position.distance_to(tgt);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[PlanPath] mode={} substeps={} target=({:.1f},{:.1f}) dist={:.2f} eat_range={:.2f} stop_range={:.2f} base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
+            move_mode,
+            bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1),
+            tgt.x, tgt.y, dist, eat_range, stop_range,
+            base_mul, speed_mul, final_mul);
+        // 近场短路：若已在“可停吃”的范围内，避免推进移动，交由 EatNearbyThing 处理
+        if (stop_range > 0.0 && dist <= stop_range) {
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "[PlanPath] Stop-range short-circuit: dist={:.2f} <= stop_range={:.2f}; skip movement this tick",
+                dist, stop_range);
+            // 不设置 skip_movement，仅避免本动作推进；返回 Success 保持觅食分支占位
+            return Status::Success;
+        }
+    }
+    // 支持每 tick 执行多步追逐以减少“逐帧小步”的视觉卡顿
+    int substeps = bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1);
+    if (substeps < 1) substeps = 1; if (substeps > 8) substeps = 8; // 上限保护，避免一次移动过多
+    for (int i = 0; i < substeps; ++i) {
+        if (move_mode == "direct") {
+            // 直接朝目标推进，复刻游荡的平滑节奏
+            if (self.get_current_target().has_value()) {
+                self.perform_step_move_to(self.get_current_target().value(), world->config.world_width, world->config.world_height, final_mul, energy_mul);
+            }
+        } else {
+            // 默认：沿路径点推进
+            self.perform_step_move_path(world->config.world_width, world->config.world_height, final_mul, energy_mul);
+        }
+        // 若已到达并清空目标，提前结束本 tick 的后续子步
+        if (!self.get_current_target().has_value()) break;
+    }
     self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
+
+    // 回退：若本 tick 到达目标点并在移动过程中被清空（目标已无可食物），立即尝试重选目标；
+    // 如果没有新的目标则返回 Failure，让上层选择器尝试游荡或其他分支，避免长时间原地不动。
+    if (!self.get_current_target().has_value()) {
+        // 到达但目标失效：记录强提示日志，附带孕状态与当前位置
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
+            "[FALLBACK] '{}' arrived at target. IsPregnant={}. Re-selecting... pos=({:.1f},{:.1f})",
+            self.species_name, self.is_pregnant, self.position.x, self.position.y);
+        YAML::Node sel_params; // 使用默认选择策略（检测范围内最近可食目标）
+        auto sel_status = SelectTargetPoint(self, ctx, sel_params);
+        if (sel_status == Status::Success) {
+            // 立即规划新路径，但不重复移动；保持本分支 Running，由下个 tick 推进新路径
+            self.plan_path_to_target(*world, self.get_current_target());
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "[PlanPath Fallback] Retargeted after arrival; new target=({:.1f},{:.1f})",
+                ctx.blackboard ? ctx.blackboard->doubles["target_pos_x"] : self.get_current_target()->x,
+                ctx.blackboard ? ctx.blackboard->doubles["target_pos_y"] : self.get_current_target()->y);
+            SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
+                "[FALLBACK] '{}' RETARGETED. New target is ({:.1f}, {:.1f})",
+                self.species_name, self.get_current_target()->x, self.get_current_target()->y);
+
+            // 关键修复：回退成功后本帧也执行一次移动，避免到达-停顿-再移动的卡顿
+            const double base_mul2 = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
+            const std::string speed_key2 = params["speed_multiplier_key"] ? params["speed_multiplier_key"].as<std::string>() : std::string("chase_speed_multiplier");
+            const std::string energy_key2 = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
+            const double speed_mul2 = bb_get_double(ctx.blackboard, speed_key2, 1.0);
+            const double energy_mul2 = bb_get_double(ctx.blackboard, energy_key2, 1.0);
+            if (self.is_pregnant) {
+                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                    "[Move PlanPath Fallback] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
+                    base_mul2, speed_mul2, base_mul2 * speed_mul2);
+            }
+            int substeps2 = bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1);
+            if (substeps2 < 1) substeps2 = 1; if (substeps2 > 8) substeps2 = 8;
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "[RETARGET] mode={} substeps={} final_mul={:.2f}",
+                move_mode, substeps2, base_mul2 * speed_mul2);
+            for (int i = 0; i < substeps2; ++i) {
+                if (move_mode == "direct") {
+                    if (self.get_current_target().has_value()) {
+                        self.perform_step_move_to(self.get_current_target().value(), world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2);
+                    }
+                } else {
+                    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2);
+                }
+                if (!self.get_current_target().has_value()) break;
+            }
+            // 同步设置觅食意图锁，保持与常规路径推进一致
+            self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_duration());
+            return Status::Running;
+        }
+        // 无新目标：交由外层处理（通常将转入游荡），避免持续占用觅食分支
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[PlanPath Fallback] No new target; yielding Failure to selector");
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
+            "[FALLBACK] '{}' FAILED to find new target. Returning Failure.",
+            self.species_name);
+        return Status::Failure;
+    }
     return Status::Running;
 }
 

@@ -144,11 +144,26 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
     },
     {
         "eat_nearby_thing",
-        [](const YAML::Node& params, Animal& self){
+        [](const YAML::Node& params, Animal& self) -> std::shared_ptr<Node> {
             YAML::Node p = params;
-            return std::make_shared<Action>([&self, p](TickContext& ctx){
+            auto act = std::make_shared<Action>([&self, p](TickContext& ctx){
                 return behavior::actions::EatNearbyThing(self, ctx, p);
             });
+            // 若 YAML 指定吃的是 grass：使用“循环进度装饰器”，每 tick 执行子节点；
+            // - 远距子节点返回 Failure，装饰器也返回 Failure（不推进度），允许后续分支执行移动
+            // - 近距子节点返回 Running/Success，推进进度；达到总时长后返回 Success
+            const std::string kind = (p["kind"] ? p["kind"].as<std::string>() : std::string(""));
+            if (kind == std::string("grass")) {
+                const int default_eat_ticks = 20; // 若黑板未提供则默认 20
+                auto decorator = std::make_shared<ProgressLoopDecorator>(
+                    act,
+                    "eat_grass_total_ticks",
+                    "eat_grass_current_ticks",
+                    default_eat_ticks
+                );
+                return std::static_pointer_cast<Node>(decorator);
+            }
+            return std::static_pointer_cast<Node>(act);
         }
     },
     {
@@ -328,6 +343,7 @@ static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& s
             if (!world || !self.alive) return Status::Failure;
 
             self.set_skip_movement(false);
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Update: reset skip_movement=false for '{}'", self.species_name);
             self.clear_sensor_caches();
             self.refresh_hunger_state();
             if (ctx.blackboard) {
@@ -338,6 +354,71 @@ static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& s
             }
             Blackboard dummy;
             auto& bb = ctx.blackboard ? *ctx.blackboard : dummy;
+
+            // 意图锁推进与饥饿打断处理（与代码版保持一致）
+            if (self.get_mating_intent_lock_ticks() > 0) {
+                self.set_mating_intent_lock_ticks(self.get_mating_intent_lock_ticks() - 1);
+            } else {
+                if (self.get_mating_target().has_value() && self.get_hunger_state() == HungerState::STARVING) {
+                    self.clear_mating_target();
+                }
+            }
+            if (self.get_forage_intent_lock_ticks() > 0) {
+                self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_ticks() - 1);
+            }
+
+            // 进行中的交配计时器：仅推进计时，不再全程禁止移动
+            // 交配受理当 tick 的静止由 ApproachOrMate 动作负责；此处不再强制停滞
+            if (self.mating_timer > 0) {
+                self.mating_timer -= 1;
+                if (ctx.blackboard) {
+                    ctx.blackboard->ints["mating_timer_ticks"] = std::max(0, self.mating_timer);
+                }
+                // 诊断：雌性交配期间的移动锁与能量变化观察
+                if (self.sex == Sex::FEMALE) {
+                    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                        "[BT YAML] Female mating_timer={} skip_movement={} energy={:.1f} pos=({:.1f},{:.1f})",
+                        self.mating_timer, self.get_skip_movement(), self.energy, self.position.x, self.position.y);
+                }
+            }
+
+            // 怀孕推进与分娩提交
+            if (self.is_pregnant) {
+                self.pregnancy_timer -= 1;
+                if (self.pregnancy_timer <= 0) {
+                    self.is_pregnant = false;
+                    // 生成分娩位置候选
+                    auto& rng_local = world->get_thread_local_rng();
+                    std::uniform_real_distribution<> dist_angle(0.0, 2 * M_PI);
+                    std::uniform_real_distribution<> dist_radius(std::max(0.2, self.movement_speed * 0.2), std::max(0.5, self.movement_speed * 2.5));
+                    const double angle = dist_angle(rng_local);
+                    const double distance = dist_radius(rng_local);
+                    Position spawn_candidate{
+                        std::max(0.0, std::min(static_cast<double>(world->config.world_width), self.position.x + std::cos(angle) * distance)),
+                        std::max(0.0, std::min(static_cast<double>(world->config.world_height), self.position.y + std::sin(angle) * distance))
+                    };
+                    self.pending_spawn_position = spawn_candidate;
+                    // 提交分娩请求并进入产后冷却
+                    world->submit_interaction_request(AttemptToReproduceRaceRequest{self.shared_from_this()});
+                    self.start_reproduction_cooldown();
+                    self.set_skip_movement(true);
+                }
+            }
+
+            // 集中怀孕速度惩罚：本 tick 的基础速度倍率（供移动 Action 使用）
+            {
+                double base_speed_multiplier = 1.0;
+                if (self.is_pregnant) {
+                    base_speed_multiplier *= std::max(0.0, self.get_pregnancy_speed_penalty());
+                }
+                bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
+                if (self.is_pregnant) {
+                    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                        "[BT YAML] Pregnant speed: penalty={:.2f} base_mul={:.2f} movement_speed={:.2f}",
+                        self.get_pregnancy_speed_penalty(), base_speed_multiplier, self.movement_speed);
+                }
+            }
+
             // 感知：附近同种雌性
             {
                 const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
@@ -371,6 +452,18 @@ static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& s
                 }
                 bb.ints["perceived_food_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size() + self.get_cached_food_things_snapshot().size());
             }
+            // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
+            if (ctx.blackboard) {
+                auto& bb2 = *ctx.blackboard;
+                int ticks = 0;
+                if (bb2.ints.find("ticks_since_last_meal") != bb2.ints.end()) {
+                    ticks = bb2.ints["ticks_since_last_meal"];
+                }
+                bb2.ints["ticks_since_last_meal"] = std::max(0, ticks + 1);
+                if (bb2.ints.find("force_wander_ticks") != bb2.ints.end()) {
+                    bb2.ints["force_wander_ticks"] = std::max(0, bb2.ints["force_wander_ticks"] - 1);
+                }
+            }
             return Status::Success;
         });
 
@@ -397,6 +490,7 @@ static std::unique_ptr<BehaviorTree> build_tree_from_yaml_if_available(Animal& s
                 }
             }
             self.set_skip_movement(false);
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Finalize: reset skip_movement=false for '{}'", self.species_name);
             return Status::Success;
         });
 
@@ -437,6 +531,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
 
         // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
         self.set_skip_movement(false);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Update: reset skip_movement=false for '{}'", self.species_name);
         self.clear_sensor_caches();
 
         // 注：skip_movement 仅由本 tick 的具体动作设置（交配、分娩、近场吃草/捕食），
@@ -468,10 +563,9 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             self.set_forage_intent_lock_ticks(self.get_forage_intent_lock_ticks() - 1);
         }
 
-        // 进行中的交配计时器
+        // 进行中的交配计时器（仅推进，不再强制停滞）
         if (self.mating_timer > 0) {
             self.mating_timer -= 1;
-            self.set_skip_movement(true); // 交配中本 tick 不移动
         }
 
         // 怀孕推进与分娩提交
@@ -567,6 +661,11 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                 base_speed_multiplier *= std::max(0.0, self.get_pregnancy_speed_penalty());
             }
             bb.doubles["current_speed_multiplier"] = base_speed_multiplier;
+            if (self.is_pregnant) {
+                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                    "[BT Code] Pregnant speed: penalty={:.2f} base_mul={:.2f} movement_speed={:.2f}",
+                    self.get_pregnancy_speed_penalty(), base_speed_multiplier, self.movement_speed);
+            }
 
             // --- 缓存：探测范围内的食物/配偶列表 ---
             // mates: 同种雌性，且可繁殖
@@ -604,6 +703,14 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                 bb.ints["perceived_food_races_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size());
                 bb.ints["perceived_food_things_count"] = static_cast<int>(self.get_cached_food_things_snapshot().size());
             }
+            // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
+            {
+                int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
+                bb.ints["ticks_since_last_meal"] = std::max(0, meal_ticks + 1);
+                if (bb.ints.find("force_wander_ticks") != bb.ints.end()) {
+                    bb.ints["force_wander_ticks"] = std::max(0, bb.ints["force_wander_ticks"] - 1);
+                }
+            }
         }
 
         return Status::Success;
@@ -634,11 +741,17 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
     seq_forage->add_child(std::make_shared<Condition>([&self](TickContext&){
         return self.get_hunger_state() != HungerState::SATISFIED && !self.food_types.empty();
     }));
+    // 冷却门控：若 force_wander_ticks > 0，则暂时不进入觅食序列，避免高频切换
+    seq_forage->add_child(std::make_shared<Condition>([](TickContext& ctx){
+        if (!ctx.blackboard) return true;
+        auto& bb = *ctx.blackboard;
+        int fwt = (bb.ints.find("force_wander_ticks") != bb.ints.end()) ? bb.ints["force_wander_ticks"] : 0;
+        return fwt <= 0;
+    }));
     // 近场吃草：由进度装饰器控制持续时间（仅当主食为 grass 时）
     // 并通过 Selector 保障非草食动物（如老虎）不会被该动作阻塞
     auto sel_forage_inner = std::make_shared<Selector>();
     {
-        const int default_eat_ticks = 300; // 可配置：行为树编辑器参数 ${total_ticks}
         auto eat_action = std::make_shared<Action>([&self](TickContext& ctx){
             auto* world = static_cast<EcosystemState*>(ctx.world);
             if (!world || !self.alive) return Status::Failure;
@@ -658,16 +771,36 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
                 if (!thing_ptr || !thing_ptr->alive) continue;
                 world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), thing_ptr});
                 self.set_skip_movement(true); // 本 tick 不移动
+                // 与通用 EatNearbyThing 行为保持一致：重置最近进食计时，避免立即切回远程觅食
+                if (ctx.blackboard) {
+                    ctx.blackboard->ints["ticks_since_last_meal"] = 0;
+
+                    // 调试：显示当前吃草进度 current/total
+                    int cur = 0;
+                    int tot = 0;
+                    auto it_cur = ctx.blackboard->ints.find("eat_grass_current_ticks");
+                    if (it_cur != ctx.blackboard->ints.end()) cur = it_cur->second;
+                    auto it_tot = ctx.blackboard->ints.find("eat_grass_total_ticks");
+                    if (it_tot != ctx.blackboard->ints.end()) tot = it_tot->second;
+                    double pct = (tot > 0) ? (static_cast<double>(cur) / static_cast<double>(tot) * 100.0) : 0.0;
+                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                        "[EatNearbyGrass] progress {}/{} ({:.0f}%) range={:.1f}",
+                        cur, tot, pct, self.eating_range);
+                }
                 // 进度相关：若存在黑板，保持 current/total 用于显示
                 (void)ctx.blackboard;
                 return Status::Success;
             }
             return Status::Failure;
         });
-        auto eat_with_progress = std::make_shared<ProgressDecorator>(eat_action,
+        // 近场吃草使用“循环进度装饰器”以跨 tick 维持进度
+        const int default_eat_ticks = 20; // 若 YAML 未提供，默认 20 tick
+        auto eat_with_progress = std::make_shared<ProgressLoopDecorator>(
+            eat_action,
             "eat_grass_total_ticks",
             "eat_grass_current_ticks",
-            default_eat_ticks);
+            default_eat_ticks
+        );
         // 仅在主食为 grass 时执行进度吃草，否则跳过以尝试后续分支
         auto grass_only_seq = std::make_shared<Sequence>();
         grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext&){
@@ -675,14 +808,31 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
             const std::string& primary_food = self.food_types.front();
             return primary_food == std::string("grass");
         }));
-        // 仅当近场确有草可吃时才进入进度阶段，避免在无草时被阻塞
+        // 仅当“足够接近”草时才执行吃草，避免刚入 eating_range 就频繁打断追食
+        // 硬停止半径：优先读取黑板键 eat_hard_stop_range；若未设置则使用 min(eating_range, max(3.0, eating_range*0.5))
         grass_only_seq->add_child(std::make_shared<Condition>([&self](TickContext& ctx){
             auto* world = static_cast<EcosystemState*>(ctx.world);
             if (!world || !self.alive) return false;
             if (self.eating_range <= 0.0) return false;
-            auto nearby_things = world->get_things_in_range("grass", self.position, self.eating_range);
-            return !nearby_things.empty();
+            double stop_range = self.eating_range;
+            if (ctx.blackboard) {
+                auto& bb = *ctx.blackboard;
+                if (bb.doubles.find("eat_hard_stop_range") != bb.doubles.end()) {
+                    stop_range = std::max(0.0, bb.doubles["eat_hard_stop_range"]);
+                } else {
+                    stop_range = std::min(self.eating_range, std::max(3.0, self.eating_range * 0.5));
+                }
+            } else {
+                stop_range = std::min(self.eating_range, std::max(3.0, self.eating_range * 0.5));
+            }
+            auto nearby_things = world->get_things_in_range("grass", self.position, stop_range);
+            const bool ok = !nearby_things.empty();
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                "[Gate EatNear] stop_range={:.1f} eating_range={:.1f} candidates={}",
+                stop_range, self.eating_range, static_cast<int>(nearby_things.size()));
+            return ok;
         }));
+        // 在有草可吃的前提下，执行带进度的吃草动作
         grass_only_seq->add_child(eat_with_progress);
         sel_forage_inner->add_child(grass_only_seq);
     }
@@ -785,6 +935,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
         }
         // 本 tick 结束，重置仅当 tick 内使用的标记
         self.set_skip_movement(false);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT] Finalize: reset skip_movement=false for '{}'", self.species_name);
         return Status::Success;
     });
 

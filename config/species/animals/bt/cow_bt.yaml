@@ -46,18 +46,19 @@ BehaviorTreeDef:
             cond: is_hungry                  # hunger_state != SATISFIED
           - type: Condition
             cond: has_food_types             # !food_types.empty()
-          - type: PrioritySelector           # New PrioritySelector
+          - type: PrioritySelector           # 优先在近处吃草，其次才移动寻食
             children:
               - type: Action
-                action: eat_nearby_thing         # 就近吃草 AttemptToEatThingRequest
+                action: eat_nearby_thing         # 近处吃草（如果就在身边）
                 kind: grass
                 range_param: eating_range
-              - type: Sequence               # If no nearby grass, try to find distant food
+              - type: Sequence               # 若近处没有草，则移动去食物
                 children:
                   - type: Action
-                    action: select_target_point      # 远处食物目标选择（保留现有实现）
+                    action: select_target_point      # 选择食物目标（远近皆可）
                   - type: Action
-                    action: plan_path_to_target      # 路径规划至 current_target
+                    action: plan_path_to_target      # 路径规划并移动一步
+                    plan_path_move_mode: direct      # 觅食场景使用直接移动，复刻游荡的平滑节奏
 
       # ========== 游荡 ==========
       - type: Action
