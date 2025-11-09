@@ -10,7 +10,7 @@ animal:
   hunting_range: 6.0
   hunting_success_rate: 0.2
   detection_range: 300.0
-  wander_radius: 60.0
+  wander_radius: 120.0
   food_types:
     - cow
   use_bt: true

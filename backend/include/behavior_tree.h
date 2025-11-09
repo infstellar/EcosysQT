@@ -335,7 +335,7 @@ class TickIntervalDecorator : public Decorator {
 public:
     TickIntervalDecorator(std::shared_ptr<Node> c, int eval_interval, std::string key_prefix)
                 : Decorator(std::move(c)),
-                    interval(std::max(1, eval_interval)),
+                    interval(std::max(0, eval_interval)),
                     counter_key(key_prefix + "_interval_counter"),
                     status_key(key_prefix + "_interval_status") {}
 

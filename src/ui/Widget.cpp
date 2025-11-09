@@ -933,17 +933,19 @@ void Widget::drawSelectionInfo(QPainter& painter, const SelectableEntity& entity
 
     // 使用 std::visit 从 variant 中提取信息
     std::visit([&](auto&& arg) {
-        using T = std::decay_t<decltype(arg)>;
         screenPos = toScreenCoords(arg->position);
 
+        // 基础信息（所有实体共有）
         infoText += QString("物种: %1\n").arg(QString::fromStdString(arg->species_name));
         infoText += QString("年龄: %1\n").arg(arg->age);
         infoText += QString("能量: %1 / %2").arg(QString::number(arg->energy, 'f', 1)).arg(arg->max_energy);
 
-        if constexpr (std::is_same_v<T, std::shared_ptr<Animal>>) {
-            infoText += QString("\n性别: %1").arg(arg->sex == Sex::MALE ? "雄性" : "雌性");
+        // 运行时类型检查：尝试将 RaceBase/ThingBase 转为 Animal
+        auto animal_ptr = std::dynamic_pointer_cast<Animal>(arg);
+        if (animal_ptr) {
+            infoText += QString("\n性别: %1").arg(animal_ptr->sex == Sex::MALE ? "雄性" : "雌性");
 #ifdef ECOSIM_ENABLE_UI_DEBUG
-            AnimalUiSnapshot ui = arg->get_ui_snapshot();
+            AnimalUiSnapshot ui = animal_ptr->get_ui_snapshot();
             std::string status = ui.current_bt_action;
             if (ui.is_pregnant) {
                 status += " (Pregnant)";
@@ -969,8 +971,10 @@ void Widget::drawSelectionInfo(QPainter& painter, const SelectableEntity& entity
                 infoText += QString("\n游荡: %1 / %2")
                     .arg(ui.wander_current_ticks)
                     .arg(ui.wander_total_ticks);
+            }else{
+                infoText += QString("\n游荡: Unknown");
             }
-#endif
+#endif // ECOSIM_ENABLE_UI_DEBUG
         }
     }, entity);
 

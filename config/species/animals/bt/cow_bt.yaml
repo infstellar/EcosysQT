@@ -71,7 +71,7 @@ BehaviorTreeDef:
       # ========== 游荡 ==========
       - type: TickIntervalDecorator  # 每帧评估游荡；轻量检查
         name: Wander
-        interval: 1
+        interval: 0
         child:
           type: Action
           action: wander_anywhere      # 随机游荡；受半径与持续时间参数控制

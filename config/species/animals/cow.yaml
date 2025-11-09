@@ -5,7 +5,7 @@ species:
   max_age: 4000
   reproduction_energy_cost: 50     # 提高繁殖能量门槛，避免能量过低仍繁殖
 animal:
-  movement_speed: 3.0
+  movement_speed: 1.0
   energy_consumption: 0.5
   detection_range: 200.0
   wander_radius: 35.0
@@ -17,10 +17,10 @@ animal:
     ints:
       eat_grass_total_ticks: 20
   doubles:
-      flee_speed_multiplier: 1.5
-      flee_energy_multiplier: 1.5
-      wander_speed_multiplier: 0.6
-      wander_energy_multiplier: 0.6
+      flee_speed_multiplier: 1.2
+      flee_energy_multiplier: 1.2
+      wander_speed_multiplier: 0.5
+      wander_energy_multiplier: 0.5
       chase_speed_multiplier: 1.0
       chase_energy_multiplier: 1.0
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
