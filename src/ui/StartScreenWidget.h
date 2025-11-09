@@ -14,10 +14,16 @@ public:
 signals:
     void startClicked();
     void exitClicked();
+    void toggleMusicClicked(bool play);
+
+private slots:
+    void onMusicButtonClicked();
 
 private:
     QPushButton *m_startButton;
     QPushButton *m_exitButton;
+    QPushButton *m_musicButton;
+    bool m_isMusicOn;
 };
 
 #endif // STARTSCREENWIDGET_H

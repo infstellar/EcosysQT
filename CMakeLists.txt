@@ -55,6 +55,7 @@ find_package(Qt5 COMPONENTS
     Core 
     Gui 
     Widgets 
+    Multimedia
     REQUIRED
 )
 find_package(Eigen3 CONFIG REQUIRED)
@@ -139,6 +140,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt5::Core
     Qt5::Gui
     Qt5::Widgets
+    Qt5::Multimedia
     Eigen3::Eigen
     nlohmann_json::nlohmann_json
     spdlog::spdlog
