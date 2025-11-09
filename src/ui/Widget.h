@@ -89,6 +89,7 @@ private:
     QPixmap m_bullTexture;
     QPixmap m_tigerTexture;
     QPixmap m_grassTexture;
+    QPixmap m_tigerManTexture;
 
     // --- 新增：用于高亮和选择的状态变量 ---
     std::optional<SelectableEntity> m_hoveredEntity;
