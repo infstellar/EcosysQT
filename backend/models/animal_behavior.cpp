@@ -35,6 +35,12 @@ namespace behavior {
 
 using namespace bt;
 
+static inline double bb_get_double(Blackboard* bb, const std::string& key, double def_v = 0.0) {
+    if (!bb) return def_v;
+    auto it = bb->doubles.find(key);
+    return it == bb->doubles.end() ? def_v : it->second;
+}
+
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 static inline int bb_get_int(Blackboard* bb, const std::string& key, int def_v = 0) {
     if (!bb) return def_v;
@@ -238,6 +244,13 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 bb.ints["perceived_food_things_count"] = static_cast<int>(self.get_cached_food_things_snapshot().size());
             }
 
+            {
+                const double base_range = bb_get_double(&bb, "stop_range_base_range", 0.0);
+                const double factor = bb_get_double(&bb, "stop_range_factor", 0.5);
+                const double stop_range = std::max(0.0, base_range * factor);
+                bb.doubles["eat_hard_stop_range"] = stop_range;
+            }
+
             // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
             {
                 int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
@@ -386,13 +399,13 @@ static std::shared_ptr<Node> build_code_tree_logic_node(Animal& self) {
             double stop_range = self.eating_range;
             if (ctx.blackboard) {
                 auto& bb = *ctx.blackboard;
-                if (bb.doubles.find("eat_hard_stop_range") != bb.doubles.end()) {
-                    stop_range = std::max(0.0, bb.doubles["eat_hard_stop_range"]);
-                } else {
-                    stop_range = std::min(self.eating_range, std::max(3.0, self.eating_range * 0.5));
+                auto it_stop = bb.doubles.find("eat_hard_stop_range");
+                if (it_stop != bb.doubles.end()) {
+                    stop_range = std::max(0.0, it_stop->second);
                 }
-            } else {
-                stop_range = std::min(self.eating_range, std::max(3.0, self.eating_range * 0.5));
+            }
+            if (stop_range <= 0.0) {
+                stop_range = std::max(0.0, self.eating_range * 0.5);
             }
             auto nearby_things = world->get_things_in_range("grass", self.position, stop_range);
             const bool ok = !nearby_things.empty();

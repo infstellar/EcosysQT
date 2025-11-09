@@ -227,13 +227,8 @@ bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const std::string thing = params["thing"] ? params["thing"].as<std::string>() : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
     const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
-    // 统一“近距短路”的阈值为与吃草动作一致的 stop_range，避免 6~12 区间卡死
-    double stop_range = eat_range;
-    if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
-        stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
-    } else {
-        stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
-    }
+    // Short-circuit: if chase already inside the hard stop range, fail so downstream nodes can act.
+    const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
     // 调试：打印吃草进度 current/total 与范围（降噪为 DEBUG）
     {
         int total = bb_get_int(ctx.blackboard, "eat_grass_total_ticks", -1);
@@ -255,18 +250,12 @@ bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         if (d < nearest_dist) { nearest_dist = d; nearest = t; }
     }
     if (nearest) {
-        double stop_range = eat_range;
-        if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
-            stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
-        } else {
-            stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
-        }
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
             "[EatNearbyThing] nearest_dist={:.2f} eat_range={:.1f} stop_range={:.1f}",
             nearest_dist, eat_range, stop_range);
 
         // 仅当足够接近时才提交吃草请求并停止移动；不够近则返回 Failure 以允许移动分支执行
-        if (nearest_dist <= stop_range) {
+    if (nearest_dist <= stop_range) {
             world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), nearest});
             self.set_skip_movement(true);
             SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
@@ -291,31 +280,48 @@ bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
+
     const std::string race = params["race"] ? params["race"].as<std::string>() : (params["kind"] ? params["kind"].as<std::string>() : std::string("cow"));
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("hunting_range");
     const std::string rate_key = params["success_rate_param"] ? params["success_rate_param"].as<std::string>() : std::string("hunting_success_rate");
+
     const double range = bb_get_double(ctx.blackboard, range_key, self.hunting_range);
     const double desire = self.get_hunting_desire();
+
+    if (range <= 0.0 || self.hunting_cooldown > 0 || desire <= 0.0) {
+        return Status::Failure;
+    }
+
+    // Sticky hunting: remember the first valid target within range.
+    std::shared_ptr<RaceBase> target_in_range;
+    for (auto& wptr : self.get_cached_food_races_snapshot()) {
+        auto r = wptr.lock();
+        if (!r || !r->alive) continue;
+        if (r.get() == &self) continue;
+        if (r->species_name != race) continue;
+        if (self.position.distance_to(r->position) <= range) {
+            target_in_range = r;
+            break;
+        }
+    }
+
+    if (!target_in_range) {
+        return Status::Failure;
+    }
+
     auto& rng_local = world->get_thread_local_rng();
     std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
     const double rate = bb_get_double(ctx.blackboard, rate_key, self.hunting_success_rate);
-    if (range > 0.0 && self.hunting_cooldown <= 0 && desire > 0.0) {
-        if (hunt_dist(rng_local) < rate * desire) {
-            for (auto& wptr : self.get_cached_food_races_snapshot()) {
-                auto r = wptr.lock();
-                if (!r || !r->alive) continue;
-                if (r.get() == &self) continue;
-                if (r->species_name != race) continue;
-                if (self.position.distance_to(r->position) > range) continue;
-                world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), r});
-                self.start_hunting_cooldown();
-                self.set_skip_movement(true);
 
-                return Status::Running;
-            }
-        }
+    if (hunt_dist(rng_local) < rate * desire) {
+        world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), target_in_range});
+        self.start_hunting_cooldown();
+        self.set_skip_movement(true);
+        return Status::Success;
     }
-    return Status::Failure;
+
+    // Miss: keep the attack node active so the selector stays on P1.
+    return Status::Running;
 }
 
 bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
@@ -367,6 +373,15 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     if (self.get_skip_movement()) return Status::Failure;
 
     if (!self.get_current_target().has_value()) return Status::Failure;
+
+    const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
+    if (stop_range > 0.0) {
+        const double dist = self.position.distance_to(self.get_current_target().value());
+        if (dist <= stop_range) {
+            return Status::Failure;
+        }
+    }
+
     self.plan_path_to_target(*world, self.get_current_target());
 
     const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
@@ -378,31 +393,16 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
     const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
     const std::string move_mode = params["plan_path_move_mode"] ? params["plan_path_move_mode"].as<std::string>() : std::string("path");
-    // 计算停吃范围（stop_range）：优先黑板 eat_hard_stop_range；否则按 eating_range 的一半并下限 3.0
-    double stop_range = eat_range;
-    if (ctx.blackboard && ctx.blackboard->doubles.find("eat_hard_stop_range") != ctx.blackboard->doubles.end()) {
-        stop_range = std::max(0.0, ctx.blackboard->doubles["eat_hard_stop_range"]);
-    } else {
-        stop_range = std::min(eat_range, std::max(3.0, eat_range * 0.5));
-    }
     const double final_mul = base_mul * speed_mul;
     if (self.get_current_target().has_value()) {
         const Position tgt = self.get_current_target().value();
         const double dist = self.position.distance_to(tgt);
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[PlanPath] mode={} substeps={} target=({:.1f},{:.1f}) dist={:.2f} eat_range={:.2f} stop_range={:.2f} base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
+            "[PlanPath] mode={} substeps={} target=({:.1f},{:.1f}) dist={:.2f} eat_range={:.2f} base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
             move_mode,
             bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1),
-            tgt.x, tgt.y, dist, eat_range, stop_range,
+            tgt.x, tgt.y, dist, eat_range,
             base_mul, speed_mul, final_mul);
-        // 近场短路：若已在“可停吃”的范围内，避免推进移动，交由 EatNearbyThing 处理
-        if (stop_range > 0.0 && dist <= stop_range) {
-            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                "[PlanPath] Stop-range short-circuit: dist={:.2f} <= stop_range={:.2f}; skip movement this tick",
-                dist, stop_range);
-            // 不设置 skip_movement，仅避免本动作推进；返回 Success 保持觅食分支占位
-            return Status::Success;
-        }
     }
     // 支持每 tick 执行多步追逐以减少“逐帧小步”的视觉卡顿
     int substeps = bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1);
@@ -419,62 +419,6 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
         }
         // 若已到达并清空目标，提前结束本 tick 的后续子步
         if (!self.get_current_target().has_value()) break;
-    }
-    // 回退：若本 tick 到达目标点并在移动过程中被清空（目标已无可食物），立即尝试重选目标；
-    // 如果没有新的目标则返回 Failure，让上层选择器尝试游荡或其他分支，避免长时间原地不动。
-    if (!self.get_current_target().has_value()) {
-        // 到达但目标失效：记录强提示日志，附带孕状态与当前位置
-        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
-            "[FALLBACK] '{}' arrived at target. IsPregnant={}. Re-selecting... pos=({:.1f},{:.1f})",
-            self.species_name, self.is_pregnant, self.position.x, self.position.y);
-        YAML::Node sel_params; // 使用默认选择策略（检测范围内最近可食目标）
-        auto sel_status = SelectTargetPoint(self, ctx, sel_params);
-        if (sel_status == Status::Success) {
-            // 立即规划新路径，但不重复移动；保持本分支 Running，由下个 tick 推进新路径
-            self.plan_path_to_target(*world, self.get_current_target());
-            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                "[PlanPath Fallback] Retargeted after arrival; new target=({:.1f},{:.1f})",
-                ctx.blackboard ? ctx.blackboard->doubles["target_pos_x"] : self.get_current_target()->x,
-                ctx.blackboard ? ctx.blackboard->doubles["target_pos_y"] : self.get_current_target()->y);
-            SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
-                "[FALLBACK] '{}' RETARGETED. New target is ({:.1f}, {:.1f})",
-                self.species_name, self.get_current_target()->x, self.get_current_target()->y);
-
-            // 关键修复：回退成功后本帧也执行一次移动，避免到达-停顿-再移动的卡顿
-            const double base_mul2 = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
-            const std::string speed_key2 = params["speed_multiplier_key"] ? params["speed_multiplier_key"].as<std::string>() : std::string("chase_speed_multiplier");
-            const std::string energy_key2 = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
-            const double speed_mul2 = bb_get_double(ctx.blackboard, speed_key2, 1.0);
-            const double energy_mul2 = bb_get_double(ctx.blackboard, energy_key2, 1.0);
-            const double base_energy_mul2 = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
-            if (self.is_pregnant) {
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                    "[Move PlanPath Fallback] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
-                    base_mul2, speed_mul2, base_mul2 * speed_mul2);
-            }
-            int substeps2 = bb_get_int(ctx.blackboard, "chase_substeps_per_tick", 1);
-            if (substeps2 < 1) substeps2 = 1; if (substeps2 > 8) substeps2 = 8;
-            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                "[RETARGET] mode={} substeps={} final_mul={:.2f}",
-                move_mode, substeps2, base_mul2 * speed_mul2);
-            for (int i = 0; i < substeps2; ++i) {
-                if (move_mode == "direct") {
-                    if (self.get_current_target().has_value()) {
-                        self.perform_step_move_to(self.get_current_target().value(), world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2 * base_energy_mul2);
-                    }
-                } else {
-                    self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul2 * speed_mul2, energy_mul2 * base_energy_mul2);
-                }
-                if (!self.get_current_target().has_value()) break;
-            }
-            return Status::Running;
-        }
-        // 无新目标：交由外层处理（通常将转入游荡），避免持续占用觅食分支
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[PlanPath Fallback] No new target; yielding Failure to selector");
-        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"),
-            "[FALLBACK] '{}' FAILED to find new target. Returning Failure.",
-            self.species_name);
-        return Status::Failure;
     }
     return Status::Running;
 }
