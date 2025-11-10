@@ -20,6 +20,7 @@
 #include "tile.h"
 #include "utils.h"
 #include "interaction_requests.h"
+#include "interaction_resolver.h"
 
 // 前向声明避免循环依赖
 class ThreadPool;
@@ -165,16 +166,8 @@ private:
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
 
-    // RaceBase 状态
-    std::unordered_map<RaceBase*, double> race_energy_changes;
-    std::unordered_set<RaceBase*> race_marked_for_death;
-
-    // ThingBase 状态
-    std::unordered_map<ThingBase*, double> thing_energy_changes;
-    std::unordered_set<ThingBase*> thing_marked_for_death;
-    // 标记待出生的新物种的父代指针。
-    std::vector<std::shared_ptr<RaceBase>> reproduction_parents;
-    std::vector<std::shared_ptr<ThingBase>> thing_reproduction_parents;
+    InteractionResolutionState m_resolution_state;
+    InteractionResolver m_interaction_resolver;
 
     std::vector<Tile> m_world_grid;
     std::vector<std::shared_ptr<ThingBase>> m_all_things;
@@ -189,6 +182,7 @@ private:
     // 线程局部的活动请求队列指针，指向当前线程应该使用的请求队列。
     static thread_local std::vector<InteractionRequest>* tls_active_queue;
 
+    void merge_worker_queues();
     // 激活并返回一个新的请求队列，同时保存前一个队列。
     std::vector<InteractionRequest>* activate_request_queue(std::vector<InteractionRequest>* queue);
     // 恢复到前一个请求队列。

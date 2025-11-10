@@ -17,10 +17,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <stdexcept>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -39,8 +37,7 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
                 spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
                 m_world_grid(static_cast<std::size_t>(std::max(0, config.world_width)) *
                                          static_cast<std::size_t>(std::max(0, config.world_height))),
-                m_all_things(),
-                thing_reproduction_parents() {
+                m_all_things() {
     initialize_populations();
 }
 
@@ -354,12 +351,7 @@ void EcosystemState::prepare_for_update() {
     current_phase = UpdatePhase::Prepare;
     staged_requests.clear();      // 清空暂存的交互请求
     main_thread_requests.clear(); // 清空主线程处理的请求
-    race_energy_changes.clear();  // 清空能量变化记录
-    race_marked_for_death.clear();     // 清空待移除的生物体列表
-    thing_energy_changes.clear();
-    thing_marked_for_death.clear();
-    reproduction_parents.clear(); // 清空待新生的父代列表
-    thing_reproduction_parents.clear();
+    m_resolution_state.clear();   // 重置上一周期的交互解决结果
 
     if (!spatial_grid) {
         return;
@@ -475,178 +467,50 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     pool.submit_bulk(std::move(master_task_list));
 }
 
-/**
- * @brief 解决在决策阶段产生的所有交互请求。
- *
- * 此函数是并发更新的第二阶段（交互解决阶段）。它首先将所有工作线程的
- * 本地请求队列中的请求移动到一个统一的 `staged_requests` 队列中，
- * 然后遍历这些请求，并根据请求类型（如捕食、繁殖）更新相关的状态
- * （如标记死亡、记录能量变化、标记出生）。
- *
- * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
- */
-void EcosystemState::resolve_interactions() {
-    // 标记当前阶段为交互解决阶段
-    current_phase = UpdatePhase::Resolve;
-    // 清空上一轮的暂存请求。
+// Consolidate per-thread queues into the shared staging buffer.
+void EcosystemState::merge_worker_queues() {
     staged_requests.clear();
-    // 将所有工作线程的本地请求队列中的请求移动到统一的 `staged_requests` 队列中。
-    // 使用 `std::make_move_iterator` 可以高效地转移请求，避免不必要的拷贝。
+
     for (auto& queue : worker_request_queues) {
-        if (!queue.empty()) {
-            staged_requests.insert(staged_requests.end(),
-                                   std::make_move_iterator(queue.begin()),
-                                   std::make_move_iterator(queue.end()));
-            queue.clear();
+        if (queue.empty()) {
+            continue;
         }
+        staged_requests.insert(staged_requests.end(),
+                               std::make_move_iterator(queue.begin()),
+                               std::make_move_iterator(queue.end()));
+        queue.clear();
     }
 
-    // 如果主线程（或单线程模式）也有请求，同样移入暂存队列。
     if (!main_thread_requests.empty()) {
         staged_requests.insert(staged_requests.end(),
                                std::make_move_iterator(main_thread_requests.begin()),
                                std::make_move_iterator(main_thread_requests.end()));
         main_thread_requests.clear();
     }
+}
+
+/**
+ * @brief 解决在决策阶段产生的所有交互请求。
+ *
+ * 此函数是并发更新的第二阶段（交互解决阶段）。它首先将所有工作线程的
+ * 本地请求队列中的请求移动到一个统一的 `staged_requests` 队列中，并清理上
+ * 一轮的解析状态，然后将请求批次交给 `InteractionResolver` 处理，后者负责根
+ * 据请求类型更新本轮的死亡标记、能量变化和繁殖登记等结果。
+ *
+ * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
+ */
+void EcosystemState::resolve_interactions() {
+    // 标记当前阶段为交互解决阶段
+    current_phase = UpdatePhase::Resolve;
+    merge_worker_queues();
+    m_resolution_state.clear();
 
     // 如果没有需要处理的请求，则提前返回。
     if (staged_requests.empty()) {
         return;
     }
 
-    // 遍历所有暂存的请求，并根据其类型进行处理。
-    for (auto& request : staged_requests) {
-        // 使用 `std::visit` 和 `std::variant` 来处理不同类型的请求。
-        std::visit([this](auto&& req) {
-            using RequestType = std::decay_t<decltype(req)>;
-            if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
-                auto& initiator = req.initiator;
-                auto& target = req.target;
-                if (!initiator || !target) return;
-                if (!initiator->alive || !target->alive) return;
-                auto logger = spdlog::get("ecosim");
-                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) {
-                    if (logger) {
-                        logger->info("[Resolve EatThing] Duplicate request ignored: initiator='{}' target='{}' pos=({:.1f},{:.1f})",
-                                     initiator->species_name, target->species_name,
-                                     target->position.x, target->position.y);
-                    }
-                    return;
-                }
-
-                thing_marked_for_death.insert(target.get());
-                {
-                    // 引入能量利用率：吃草获得能量按 initiator.energy_efficiency 比例计算
-                    double efficiency = 1.0;
-                    if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
-                        efficiency = std::max(0.0, a->energy_efficiency);
-                    }
-                    race_energy_changes[initiator.get()] += (target->energy * efficiency);
-                }
-                if (logger) {
-                    logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
-                                 initiator->species_name, target->species_name,
-                                 target->position.x, target->position.y,
-                                 target->energy);
-                }
-                target->die_from_predation(initiator->species_name);
-            } else if constexpr (std::is_same_v<RequestType, DamageRaceRequest>) {
-                auto& attacker = req.attacker;
-                auto& target = req.target;
-                const double dmg = std::max(0.0, req.damage);
-                if (!attacker || !target) return;
-                if (!attacker->alive || !target->alive) return;
-
-                // 若已被标记为死亡，则忽略重复伤害
-                if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
-
-                // 应用伤害；若死亡，由 take_damage 设置 alive=false
-                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-                // 在伤害前缓存能量，用于致死结算，避免后续状态变更影响
-                const double pre_death_energy = target->energy;
-                double efficiency = 1.0;
-                if (auto* a = dynamic_cast<Animal*>(attacker.get())) {
-                    efficiency = std::max(0.0, a->energy_efficiency);
-                }
-                target->take_damage(dmg, source);
-
-                // 若目标已死亡，加入统一死亡标记，等待注册表变更阶段处理
-                if (!target->alive) {
-                    race_marked_for_death.insert(target.get());
-                    // 结算能量：按攻击者能量效率比例，从被击杀目标获取能量
-                    race_energy_changes[attacker.get()] += (pre_death_energy * efficiency);
-                    if (auto logger = spdlog::get("ecosim")) {
-                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f}",
-                                     source, dmg, target->species_name, (pre_death_energy * efficiency));
-                    }
-                } else {
-                    if (auto logger = spdlog::get("ecosim")) {
-                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' (hp={:.1f}/{:.1f})",
-                                     source, dmg, target->species_name, target->hp_current, target->hp_max);
-                    }
-                }
-            } else if constexpr (std::is_same_v<RequestType, DamageThingRequest>) {
-                auto& attacker = req.attacker;
-                auto& target = req.target;
-                if (!attacker || !target) return;
-                if (!attacker->alive || !target->alive) return;
-
-                // 若已被标记为死亡，则忽略重复伤害
-                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
-
-                // 目前 ThingBase 没有 HP，伤害视为摧毁
-                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-                thing_marked_for_death.insert(target.get());
-                target->die("Destroyed by " + source);
-                if (auto logger = spdlog::get("ecosim")) {
-                    logger->info("[Resolve DamageThing] '{}' destroyed '{}' at ({:.1f},{:.1f})",
-                                 source, target->species_name, target->position.x, target->position.y);
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
-                if (req.parent && req.parent->alive) {
-                    reproduction_parents.push_back(std::move(req.parent));
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceThingRequest>) {
-                if (req.parent && req.parent->alive) {
-                    thing_reproduction_parents.push_back(std::move(req.parent));
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
-                auto& female = req.female;
-                auto& male = req.male;
-
-                const bool female_alive = (female && female->alive);
-                const bool male_alive = (male && male->alive);
-                const bool female_can = (female && female->can_reproduce());
-                const bool male_can = (male && male->can_reproduce());
-                const double dist = (female && male)
-                    ? female->position.distance_to(male->position)
-                    : std::numeric_limits<double>::quiet_NaN();
-
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                    "AttemptToMateRequest: female_alive={}, male_alive={}, female_can={}, male_can={}, dist={:.2f}",
-                    female_alive, male_alive, female_can, male_can, dist);
-
-                if (female_alive && male_alive && female_can && male_can) {
-                    female->begin_mating_with(male);
-                    male->begin_mating_with(female);
-                    female->become_pregnant();
-                    male->start_reproduction_cooldown();
-                    female->energy -= female->reproduction_energy_cost;
-                    male->energy -= male->reproduction_energy_cost;
-
-                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                        "Mating accepted: male(age={},energy={:.1f}) female(age={},energy={:.1f}) dist={:.2f}",
-                        male ? male->age : -1, male ? male->energy : 0.0,
-                        female ? female->age : -1, female ? female->energy : 0.0,
-                        dist);
-                } else {
-                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                        "Mating rejected: conditions not met (female_alive={}, male_alive={}, female_can={}, male_can={})",
-                        female_alive, male_alive, female_can, male_can);
-                }
-            }
-        }, request);
-    }
+    m_interaction_resolver.process_requests(staged_requests, *this, m_resolution_state);
 }
 
 /**
@@ -735,6 +599,11 @@ void EcosystemState::apply_registry_changes() {
     current_phase = UpdatePhase::Finalize;
     // --- 阶段 3/4：应用变更 --- 
     // 遍历所有物种，处理繁殖、死亡和能量变化。
+
+    auto& reproduction_parents = m_resolution_state.reproduction_parents;
+    auto& thing_reproduction_parents = m_resolution_state.thing_reproduction_parents;
+    auto& race_marked_for_death = m_resolution_state.race_marked_for_death;
+    auto& race_energy_changes = m_resolution_state.race_energy_changes;
 
     // 用于临时存储本轮出生的新个体。
     std::unordered_map<std::string, std::vector<std::shared_ptr<RaceBase>>> newborns_by_species;
@@ -893,16 +762,10 @@ void EcosystemState::apply_registry_changes() {
         }
     }
 
-    thing_reproduction_parents.clear();
-
     // --- 清理状态 ---
     // 清理本轮的状态标记，为下一轮更新做准备。
-    race_marked_for_death.clear();
-    thing_marked_for_death.clear();
-    race_energy_changes.clear();
-    thing_energy_changes.clear();
+    m_resolution_state.clear();
     staged_requests.clear();
-    reproduction_parents.clear();
 
     // 重置为 Idle，准备进入下一轮更新
     current_phase = UpdatePhase::Idle;
@@ -1029,11 +892,7 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     // 清理并发更新相关的状态
     staged_requests.clear();
     main_thread_requests.clear();
-    race_energy_changes.clear();
-    race_marked_for_death.clear();
-    thing_energy_changes.clear();
-    thing_marked_for_death.clear();
-    reproduction_parents.clear();
+    m_resolution_state.clear();
     m_thing_counts.clear();
     const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
     spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);

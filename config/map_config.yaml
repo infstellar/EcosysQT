@@ -14,9 +14,9 @@ simulation:
   ticks_per_hour: 125
   max_thing_placement_attempts: 16
   # 年/季度参数（可以只配置其中一部分；未配置的按默认计算）
-  days_per_year: 60
+  days_per_year: 40
   quadrums_per_year: 4
-  days_per_quadrum: 15
+  days_per_quadrum: 10
 
 # 可选的分区结构（演示用途）：
 #populations:

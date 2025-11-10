@@ -54,8 +54,9 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 
 // 生长逻辑：根据邻居密度计算 pending_growth
 void Producer::compute_growth(const EcosystemState& ecosystem_state) {
+
     // base_growth_rate的单位是1250tick，所以我们需要
-    base_growth_rate = base_growth_rate * GROWTH_CHECK_INTERVAL / 1250;
+    interval_growth_rate = base_growth_rate * GROWTH_CHECK_INTERVAL / 1250;
     const auto neighbor_offsets = Producer::build_neighbor_offsets();
     int nearby_same_species = 0; // 周围同种种子的数量
     // 遍历所有邻居位置
@@ -91,8 +92,8 @@ void Producer::compute_growth(const EcosystemState& ecosystem_state) {
         competition_factor = 1.0 - (std::pow(density, 0.3) * max_competition_effect);
     }
     // 调整生长速率
-    double adjusted_growth_rate = base_growth_rate * competition_factor;
-    double min_growth_rate = base_growth_rate * min_growth_factor; // 最小生长速率
+    double adjusted_growth_rate = interval_growth_rate * competition_factor;
+    double min_growth_rate = interval_growth_rate * min_growth_factor; // 最小生长速率
     // 计算待处理的生长量
     
     
