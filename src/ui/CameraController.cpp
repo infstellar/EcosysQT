@@ -41,13 +41,20 @@ void CameraController::handleWheelEvent(QWheelEvent *event, const QSize& screenS
     } else {
         m_zoomFactor /= zoomStep;
     }
-    m_zoomFactor = std::clamp(m_zoomFactor, 0.1, 20.0);
+    // 计算允许的最小缩放（以便整张地图可见）并 clamp
+    double minZoom = computeMinZoom(screenSize);
+    const double maxZoom = 20.0;
+    if (minZoom <= 0.0) minZoom = 0.1; // 安全保护
+    if (minZoom > maxZoom) minZoom = maxZoom;
+    m_zoomFactor = std::clamp(m_zoomFactor, minZoom, maxZoom);
 
     // 3. 记录缩放后的世界坐标
     const QPointF worldPosAfterZoom = toWorldCoords(mousePos, screenSize);
 
     // 4. 移动视图中心，以保持鼠标下的点位置不变
     m_viewCenter += (worldPosBeforeZoom - worldPosAfterZoom);
+    // 确保视图中心不超出地图边界
+    clampToBounds(screenSize);
 }
 
 /**
@@ -78,6 +85,8 @@ void CameraController::handleMouseMoveEventForPan(QMouseEvent *event, const QSiz
     m_viewCenter -= QPointF(worldDeltaX, worldDeltaY);
 
     m_lastMousePos = event->localPos();
+    // 限制视图中心，防止看到地图外的空白
+    clampToBounds(screenSize);
 }
 
 /**
@@ -141,4 +150,51 @@ QPointF CameraController::toWorldCoords(const QPointF& screenPos, const QSize& s
     double relativeY = (screenPos.y() / screenSize.height()) * visibleWorldHeight;
 
     return QPointF(viewLeft + relativeX, viewTop + relativeY);
+}
+
+double CameraController::computeMinZoom(const QSize& screenSize) const {
+    if (m_worldSize.width() <= 0 || m_worldSize.height() <= 0) return 0.1;
+    if (screenSize.width() <= 0 || screenSize.height() <= 0) return 0.1;
+
+    // 要看到完整地图，需要同时满足可见宽度 >= worldWidth 和可见高度 >= worldHeight
+    // visibleWorldWidth = m_worldSize.width() / zoom
+    // visibleWorldHeight = visibleWorldWidth / screenAspect
+    // 约束可得：zoom <= 1.0 （由宽度） 和 zoom <= worldWidth / (worldHeight * screenAspect) （由高度）
+    double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+    double byWidth = 1.0; // 当 zoom == 1，可见宽度恰为 worldWidth
+    double byHeight = (m_worldSize.width() / (m_worldSize.height() * screenAspect));
+    double minZoom = std::min(byWidth, byHeight);
+    if (minZoom <= 0.0) minZoom = 0.1;
+    return minZoom;
+}
+
+void CameraController::clampToBounds(const QSize& screenSize) {
+    if (m_worldSize.width() <= 0 || m_worldSize.height() <= 0) return;
+    if (screenSize.width() <= 0 || screenSize.height() <= 0) return;
+
+    // 计算当前可见世界尺寸
+    double visibleWorldWidth = m_worldSize.width() / m_zoomFactor;
+    double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+    double visibleWorldHeight = visibleWorldWidth / screenAspect;
+
+    // 限制视图中心范围
+    double halfW = visibleWorldWidth / 2.0;
+    double halfH = visibleWorldHeight / 2.0;
+
+    double minCenterX = halfW;
+    double maxCenterX = m_worldSize.width() - halfW;
+    double minCenterY = halfH;
+    double maxCenterY = m_worldSize.height() - halfH;
+
+    // 如果可见尺寸大于世界尺寸，则中心必须固定在世界中心
+    if (minCenterX > maxCenterX) {
+        minCenterX = maxCenterX = m_worldSize.width() / 2.0;
+    }
+    if (minCenterY > maxCenterY) {
+        minCenterY = maxCenterY = m_worldSize.height() / 2.0;
+    }
+
+    double cx = std::clamp(m_viewCenter.x(), minCenterX, maxCenterX);
+    double cy = std::clamp(m_viewCenter.y(), minCenterY, maxCenterY);
+    m_viewCenter = QPointF(cx, cy);
 }

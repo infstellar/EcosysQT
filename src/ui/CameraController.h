@@ -31,6 +31,10 @@ public:
     const QPointF& getViewCenter() const;
     void setViewCenter(const QPointF& center);
     void setZoomFactor(double zoom);
+    // 将当前缩放和平移限制在地图边界内（需要屏幕尺寸来计算可见世界尺寸）
+    void clampToBounds(const QSize& screenSize);
+    // 计算在给定屏幕尺寸下允许的最小缩放因子（即最远视角，能看到整张地图）
+    double computeMinZoom(const QSize& screenSize) const;
 
     // --- 坐标转换 ---
     QPointF toScreenCoords(const QPointF& worldPos, const QSize& screenSize) const;

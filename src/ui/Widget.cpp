@@ -125,6 +125,15 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
         // 初始化时获取一次数据，确保相机和统计数据被正确设置
         updateFrame();
     }
+
+    // --- 新增：设置相机初始视图为世界中心的 1/4（zoom = 4） ---
+    if (m_cameraController && m_currentData) {
+        // 初始缩放因子：显示地图的 1/4
+        m_cameraController->setZoomFactor(4.0);
+        m_cameraController->setViewCenter(QPointF(m_currentData->world_width / 2.0, m_currentData->world_height / 2.0));
+        // 在构造时尝试 clamp（若窗口尺寸可用）
+        m_cameraController->clampToBounds(size());
+    }
 }
 
 Widget::~Widget()
@@ -410,4 +419,13 @@ std::optional<SelectableEntity> Widget::findEntityAtScreenPos(const QPointF& scr
     }
 
     return foundEntity;
+}
+
+void Widget::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    if (m_cameraController) {
+        m_cameraController->clampToBounds(event->size());
+    }
+    update();
 }
