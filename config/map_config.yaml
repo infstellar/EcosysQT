@@ -1,0 +1,28 @@
+world:
+  width: 1600
+  height: 900
+
+# 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
+initial_populations:
+  grass: 10
+  cow: 20
+  tiger: 3
+
+# 可选的分区结构（演示用途）：
+#populations:
+#  races:
+#    cow: 20
+#    tiger: 3
+#  things:
+#    grass: 10
+
+# 支持两种结构：
+# 1) 扁平：
+#    world: { width: <int>, height: <int> }
+#    initial_populations: { grass: 10, cow: 20, tiger: 3 }
+# 2) 分区（兼容旧规划）：
+#    world: { width, height }
+#    populations:
+#      races: { cow: 20, tiger: 3 }
+#      things: { grass: 10 }
+# 两者会合并到 EcosystemConfig.initial_populations。

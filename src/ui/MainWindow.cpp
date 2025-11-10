@@ -7,18 +7,17 @@
 #include <QMediaPlayer>     // <-- 新增
 #include <QMediaPlaylist>   // <-- 新增
 #include <QUrl>             // <-- 新增
+#include "map_config_loader.h"
+#include <spdlog/spdlog.h>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_isMusicPlaying(true) // 默认音乐开启
 {
-    // 1. 创建后端控制器 (这是程序中唯一创建 Controller 的地方)
-    EcosystemConfig config(1600, 900); 
-    config.initial_populations = {
-        {"grass", 10},
-        {"cow", 20},
-        {"tiger", 3},
-    };
+    // 1. 创建后端控制器：加载 YAML 地图配置
+    EcosystemConfig config = load_map_config_from_yaml("config/map_config.yaml");
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[UI] Loaded map config: {}x{} ({} species counts)",
+                       config.world_width, config.world_height, config.initial_populations.size());
     m_controller = std::make_unique<SimulationController>(config);
 
     // 2. 创建各个界面
@@ -32,7 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 4. 将 QStackedWidget 设置为中央控件
     setCentralWidget(m_stackedWidget);
-    resize(1600, 900); // 设置一个合适的窗口大小
+    resize(config.world_width, config.world_height); // 根据配置设置窗口大小
     setWindowTitle("生态系统模拟");
 
     // 5. 连接信号和槽，实现界面切换

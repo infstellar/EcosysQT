@@ -12,6 +12,7 @@
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include "map_config_loader.h"
 
 /**
  * 构造函数实现
@@ -287,10 +288,7 @@ void Widget::onRestartClicked()
 {
     if (!m_controller) return;
     qDebug() << "请求重新开始模拟...";
-    EcosystemConfig newConfig(8000, 6000);
-    newConfig.initial_populations = {
-        {"grass", 800}, {"cow", 3}, {"tiger", 0},
-    };
+    EcosystemConfig newConfig = load_map_config_from_yaml("config/map_config.yaml");
     qDebug() << "创建新配置: 世界尺寸 " << newConfig.world_width << "x" << newConfig.world_height;
     for (const auto& pair : newConfig.initial_populations) {
         qDebug() << " - 初始种群: " << QString::fromStdString(pair.first) << ", 数量: " << pair.second;

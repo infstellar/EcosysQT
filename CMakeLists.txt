@@ -117,6 +117,7 @@ add_executable(MyQtApp
     backend/models/race_factory.cpp
     backend/models/thing_factory.cpp
     backend/models/species_config_provider_yaml.cpp
+    backend/models/map_config_loader.cpp
     backend/engine/logging.cpp
     # 前端 UI 模块
     src/ui/Widget.cpp

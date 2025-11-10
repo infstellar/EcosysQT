@@ -1008,7 +1008,8 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     time_step = 0;
-    races_registry.clear_all();
+    // 重新构造注册表以应用新的初始数量
+    races_registry = RacesRegistry(config);
     births.reset();
     deaths.reset();
     population_history.clear();
