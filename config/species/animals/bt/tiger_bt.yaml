@@ -47,7 +47,7 @@ BehaviorTreeDef:
           - type: PrioritySelector
             children:
               - type: Action
-                action: hunt_nearby_race
+                action: hunt_target_race
                 kind: cow
                 range_param: hunting_range
                 success_rate_param: hunting_success_rate
