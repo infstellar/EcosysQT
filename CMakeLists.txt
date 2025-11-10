@@ -51,13 +51,8 @@ if(TARGET TracyClient)
 else()
     message(WARNING "TracyClient 目标未找到，请确认 external/tracy 已正确加入并生成该目标")
 endif()
-find_package(Qt5 COMPONENTS 
-    Core 
-    Gui 
-    Widgets 
-    Multimedia
-    REQUIRED
-)
+
+find_package(Qt5 COMPONENTS Core Gui Widgets Multimedia REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -105,34 +100,38 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/ui
 )# --- 添加源文件 ---
 # 定义可执行文件及其源文件
-add_executable(MyQtApp
-  main.cpp
-  backend/engine/simulation.cpp
-  backend/engine/thread_pool.cpp
-  backend/models/ecosystem.cpp
+add_executable(MyQtApp 
+    main.cpp
+    backend/engine/simulation.cpp
+    backend/engine/thread_pool.cpp
+    backend/models/ecosystem.cpp
     backend/models/spatial_grid.cpp
-        backend/models/races_registry.cpp
+    backend/models/races_registry.cpp
     backend/models/species_statistics.cpp
-  backend/models/race_base.cpp
-  backend/models/thing_base.cpp
-  backend/models/producer.cpp
-  backend/models/animal.cpp
-  backend/models/animal_behavior.cpp
-  backend/models/bt_actions.cpp
+    backend/models/race_base.cpp
+    backend/models/thing_base.cpp
+    backend/models/producer.cpp
+    backend/models/animal.cpp
+    backend/models/animal_behavior.cpp
+    backend/models/bt_actions.cpp
     backend/models/race_factory.cpp
     backend/models/thing_factory.cpp
-  backend/models/species_config_provider_yaml.cpp
+    backend/models/species_config_provider_yaml.cpp
     backend/engine/logging.cpp
-  # 前端 UI 模块
-  src/ui/Widget.cpp
-  src/ui/Widget.h
-  src/ui/MainWindow.h
-  src/ui/MainWindow.cpp
-  src/ui/StartScreenWidget.h
-  src/ui/StartScreenWidget.cpp
-  # 资源文件（AUTORCC）
-  
-  resources/app.qrc)
+    # 前端 UI 模块
+    src/ui/Widget.cpp
+    src/ui/Widget.h
+    src/ui/MainWindow.h
+    src/ui/MainWindow.cpp
+    src/ui/StartScreenWidget.h
+    src/ui/StartScreenWidget.cpp
+    src/ui/CameraController.h
+    src/ui/CameraController.cpp
+    src/ui/SimulationRenderer.h
+    src/ui/SimulationRenderer.cpp
+    # 资源文件（AUTORCC）
+
+    resources/app.qrc)
 
 # --- 链接库 ---
 # 将你的可执行文件与所需库链接起来
