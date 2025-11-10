@@ -20,6 +20,9 @@ public:
     Position position;
     double energy;
     double max_energy;
+    // 战斗相关：生命值（当前与上限）
+    double hp_current;
+    double hp_max;
     int age;
     int max_age;
     bool alive;
@@ -33,14 +36,16 @@ public:
     RaceBase(Position pos,
              double energy = 100,
              int max_age = 100,
-             double reproduction_energy_cost = 50);
+             double reproduction_energy_cost = 50,
+             double hp_max_ = 100);
 
     // 新增构造函数：允许在构造时指定物种名，便于下游按物种加载配置/YAML
     RaceBase(Position pos,
              const std::string& species_name_,
              double energy,
              int max_age,
-             double reproduction_energy_cost);
+             double reproduction_energy_cost,
+             double hp_max_ = 100);
 
     virtual ~RaceBase() = default;
 
@@ -62,6 +67,9 @@ public:
     virtual void die_from_old_age();
     virtual void die_from_starvation();
     virtual void die_from_predation(const std::string& predator_name);
+
+    // 基础伤害接口：扣减生命值并在耗尽时死亡
+    virtual void take_damage(double amount, const std::string& source = "Unknown");
 
     std::optional<Position> consume_pending_spawn_position();
 };

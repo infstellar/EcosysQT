@@ -363,7 +363,10 @@ bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const double rate = bb_get_double(ctx.blackboard, rate_key, self.hunting_success_rate);
 
     if (hunt_dist(rng_local) < rate * desire) {
-        world->submit_interaction_request(AttemptToEatRaceRequest{self.shared_from_this(), target_in_range});
+        // 读取伤害参数：支持从黑板键覆盖或使用默认键 'attack_damage'
+        const std::string dmg_key = params["damage_param"] ? params["damage_param"].as<std::string>() : std::string("attack_damage");
+        const double damage = bb_get_double(ctx.blackboard, dmg_key, 10.0);
+        world->submit_interaction_request(DamageRaceRequest{self.shared_from_this(), target_in_range, damage});
         self.start_hunting_cooldown();
         self.set_skip_movement(true);
         return Status::Success;

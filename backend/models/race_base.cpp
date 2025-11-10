@@ -10,10 +10,12 @@ RaceBase 通用实现
 #include <optional>
 #include <random>
 
-RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_)
+RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_, double hp_max_)
     : position(pos),
       energy(energy_),
       max_energy(energy_ * 4),
+      hp_current(hp_max_),
+      hp_max(hp_max_),
       age(0),
       max_age(max_age_),
       alive(true),
@@ -27,10 +29,13 @@ RaceBase::RaceBase(Position pos,
                    const std::string& species_name_,
                    double energy_,
                    int max_age_,
-                   double reproduction_energy_cost_)
+                   double reproduction_energy_cost_,
+                   double hp_max_)
     : position(pos),
       energy(energy_),
       max_energy(energy_ * 4),
+      hp_current(hp_max_),
+      hp_max(hp_max_),
       age(0),
       max_age(max_age_),
       alive(true),
@@ -95,6 +100,16 @@ void RaceBase::die(const std::string& reason) {
 void RaceBase::die_from_old_age() { die("Old age"); }
 void RaceBase::die_from_starvation() { die("Starvation"); }
 void RaceBase::die_from_predation(const std::string& predator_name) { die("Predation by " + predator_name); }
+
+void RaceBase::take_damage(double amount, const std::string& source) {
+    if (!alive) return;
+    const double dmg = std::max(0.0, amount);
+    hp_current -= dmg;
+    if (hp_current <= 0.0) {
+        hp_current = 0.0;
+        die("Killed by " + source);
+    }
+}
 
 std::optional<Position> RaceBase::consume_pending_spawn_position() {
     if (!pending_spawn_position.has_value()) {

@@ -24,7 +24,7 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
 
 // 主构造：在构造时设置物种名，便于立即加载 YAML 行为树
 Animal::Animal(Position pos, const std::string& species_name, const AnimalParams& params, std::mt19937& rng)
-        : RaceBase(pos, species_name, params.energy, params.max_age, params.reproduction_energy_cost),
+        : RaceBase(pos, species_name, params.energy, params.max_age, params.reproduction_energy_cost, params.hp_max),
             base_movement_speed(params.movement_speed),
             movement_speed(params.movement_speed),
             base_energy_consumption(params.energy_consumption),
@@ -315,6 +315,10 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     // 注入浮点参数
     for (const auto& kv : params.bt_params_doubles) {
         bb.doubles[kv.first] = kv.second;
+    }
+    // 确保攻击伤害存在于黑板（若 YAML 未提供，则使用物种默认值）
+    if (bb.doubles.find("attack_damage") == bb.doubles.end()) {
+        bb.doubles["attack_damage"] = params.attack_damage;
     }
     // 注入字符串参数
     for (const auto& kv : params.bt_params_strings) {

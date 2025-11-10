@@ -330,6 +330,11 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
             }
             infoText += QString("\n状态: %1").arg(QString::fromStdString(status));
 
+            // 显示生命值（HP）
+            infoText += QString("\n生命: %1 / %2")
+                .arg(QString::number(ui.hp_current, 'f', 0))
+                .arg(QString::number(ui.hp_max, 'f', 0));
+
             QString hungerStr = "普通";
             if (ui.hunger_state == 0) {
                 hungerStr = "饱足";

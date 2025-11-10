@@ -506,25 +506,7 @@ void EcosystemState::resolve_interactions() {
         // 使用 `std::visit` 和 `std::variant` 来处理不同类型的请求。
         std::visit([this](auto&& req) {
             using RequestType = std::decay_t<decltype(req)>;
-            if constexpr (std::is_same_v<RequestType, AttemptToEatRaceRequest>) {
-                auto& initiator = req.initiator;
-                auto& target = req.target;
-                if (!initiator || !target) return;
-                if (!initiator->alive || !target->alive) return;
-
-                if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
-
-                race_marked_for_death.insert(target.get());
-                {
-                    // 引入能量利用率：捕食获得能量按 initiator.energy_efficiency 比例计算
-                    double efficiency = 1.0;
-                    if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
-                        efficiency = std::max(0.0, a->energy_efficiency);
-                    }
-                    race_energy_changes[initiator.get()] += (target->energy * efficiency);
-                }
-                target->die_from_predation(initiator->species_name);
-            } else if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
+            if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
                 auto& initiator = req.initiator;
                 auto& target = req.target;
                 if (!initiator || !target) return;
@@ -555,6 +537,58 @@ void EcosystemState::resolve_interactions() {
                                  target->energy);
                 }
                 target->die_from_predation(initiator->species_name);
+            } else if constexpr (std::is_same_v<RequestType, DamageRaceRequest>) {
+                auto& attacker = req.attacker;
+                auto& target = req.target;
+                const double dmg = std::max(0.0, req.damage);
+                if (!attacker || !target) return;
+                if (!attacker->alive || !target->alive) return;
+
+                // 若已被标记为死亡，则忽略重复伤害
+                if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
+
+                // 应用伤害；若死亡，由 take_damage 设置 alive=false
+                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
+                // 在伤害前缓存能量，用于致死结算，避免后续状态变更影响
+                const double pre_death_energy = target->energy;
+                double efficiency = 1.0;
+                if (auto* a = dynamic_cast<Animal*>(attacker.get())) {
+                    efficiency = std::max(0.0, a->energy_efficiency);
+                }
+                target->take_damage(dmg, source);
+
+                // 若目标已死亡，加入统一死亡标记，等待注册表变更阶段处理
+                if (!target->alive) {
+                    race_marked_for_death.insert(target.get());
+                    // 结算能量：按攻击者能量效率比例，从被击杀目标获取能量
+                    race_energy_changes[attacker.get()] += (pre_death_energy * efficiency);
+                    if (auto logger = spdlog::get("ecosim")) {
+                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f}",
+                                     source, dmg, target->species_name, (pre_death_energy * efficiency));
+                    }
+                } else {
+                    if (auto logger = spdlog::get("ecosim")) {
+                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' (hp={:.1f}/{:.1f})",
+                                     source, dmg, target->species_name, target->hp_current, target->hp_max);
+                    }
+                }
+            } else if constexpr (std::is_same_v<RequestType, DamageThingRequest>) {
+                auto& attacker = req.attacker;
+                auto& target = req.target;
+                if (!attacker || !target) return;
+                if (!attacker->alive || !target->alive) return;
+
+                // 若已被标记为死亡，则忽略重复伤害
+                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
+
+                // 目前 ThingBase 没有 HP，伤害视为摧毁
+                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
+                thing_marked_for_death.insert(target.get());
+                target->die("Destroyed by " + source);
+                if (auto logger = spdlog::get("ecosim")) {
+                    logger->info("[Resolve DamageThing] '{}' destroyed '{}' at ({:.1f},{:.1f})",
+                                 source, target->species_name, target->position.x, target->position.y);
+                }
             } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
                 if (req.parent && req.parent->alive) {
                     reproduction_parents.push_back(std::move(req.parent));

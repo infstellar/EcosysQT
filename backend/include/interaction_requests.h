@@ -8,14 +8,22 @@ class RaceBase;
 class ThingBase;
 class Animal;
 
-struct AttemptToEatRaceRequest {
-    std::shared_ptr<RaceBase> initiator;
-    std::shared_ptr<RaceBase> target;
-};
-
 struct AttemptToEatThingRequest {
     std::shared_ptr<RaceBase> initiator;
     std::shared_ptr<ThingBase> target;
+};
+
+// 新伤害系统：对实体造成伤害（Race/Thing）
+struct DamageRaceRequest {
+    std::shared_ptr<RaceBase> attacker;
+    std::shared_ptr<RaceBase> target;
+    double damage = 0.0;
+};
+
+struct DamageThingRequest {
+    std::shared_ptr<RaceBase> attacker;
+    std::shared_ptr<ThingBase> target;
+    double damage = 0.0;
 };
 
 struct AttemptToReproduceRaceRequest {
@@ -32,8 +40,9 @@ struct AttemptToMateRequest {
 };
 
 using InteractionRequest = std::variant<
-    AttemptToEatRaceRequest,
     AttemptToEatThingRequest,
+    DamageRaceRequest,
+    DamageThingRequest,
     AttemptToReproduceRaceRequest,
     AttemptToReproduceThingRequest,
     AttemptToMateRequest

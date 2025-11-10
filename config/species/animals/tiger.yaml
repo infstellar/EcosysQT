@@ -1,23 +1,24 @@
 schema_version: 1
 parent: base_animal
 species:
-  energy: 4000
+  energy: 1000
   max_age: 8000
   reproduction_energy_cost: 1000
 animal:
   movement_speed: 4.0
   energy_consumption: 1
   hunting_range: 2
-  hunting_success_rate: 0.2
+  hunting_success_rate: 0.4
+  attack_damage: 33.0
   detection_range: 300.0
-  wander_radius: 120.0
+  wander_radius: 100.0
   food_types:
     - cow
   use_bt: true
   # 行为树黑板默认逃离倍率配置
   bt_params:
     doubles:
-      hunting_range: 2          # <--- 在这里添加这一行
+      hunting_range: 10          # <--- 在这里添加这一行
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       wander_speed_multiplier: 0.9
@@ -30,7 +31,7 @@ animal:
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
     ints: {}
-  hunting_cooldown_duration: 4
+  hunting_cooldown_duration: 2
   min_reproduction_age: 30
   reproduction_cooldown: 800
   satisfied_threshold_ratio: 0.7

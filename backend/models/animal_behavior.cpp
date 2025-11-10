@@ -315,6 +315,8 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
                 + bb_get_int(&bb, "perceived_food_things_count", 0);
             snapshot.wander_current_ticks = bb_get_int(&bb, "wander_current_ticks", 0);
             snapshot.wander_total_ticks = bb_get_int(&bb, "wander_total_ticks", 50);
+            snapshot.hp_current = self.hp_current;
+            snapshot.hp_max = self.hp_max;
             self.update_ui_snapshot(snapshot);
         }
 #endif
