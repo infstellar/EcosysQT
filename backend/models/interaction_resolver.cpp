@@ -6,6 +6,7 @@
 #include "thing_base.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <string>
 
@@ -53,13 +54,15 @@ void InteractionResolver::handle_request(const AttemptToEatThingRequest& req,
     if (auto* animal = dynamic_cast<Animal*>(initiator.get())) {
         efficiency = std::max(0.0, animal->energy_efficiency);
     }
-    results.race_energy_changes[initiator.get()] += (target->energy * efficiency);
+    const double nutrition = target->get_nutrition_value();
+    const double gained = nutrition * efficiency;
+    results.race_energy_changes[initiator.get()] += gained;
 
     if (logger) {
         logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
                      initiator->species_name, target->species_name,
                      target->position.x, target->position.y,
-                     target->energy);
+                     nutrition);
     }
 
     target->die_from_predation(initiator->species_name);
@@ -78,7 +81,8 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
     if (results.race_marked_for_death.find(target.get()) != results.race_marked_for_death.end()) return;
 
     const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-    const double pre_death_energy = target->energy;
+    // 在伤害前缓存“营养值”，用于致死结算，避免后续状态变更影响
+    const double pre_death_nutrition = target->get_nutrition_value();
 
     double efficiency = 1.0;
     if (auto* animal = dynamic_cast<Animal*>(attacker.get())) {
@@ -90,10 +94,22 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
     auto logger = spdlog::get("ecosim");
     if (!target->alive) {
         results.race_marked_for_death.insert(target.get());
-        results.race_energy_changes[attacker.get()] += (pre_death_energy * efficiency);
+        // 结算能量：基础营养值 + ENERGY加成，再乘能量利用率
+        double bonus = 0.0;
+        double saturation = 0.0;
+        if (target->max_energy > 0.0) {
+            saturation = std::clamp(target->energy / target->max_energy, 0.0, 1.0);
+        }
+        if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
+            const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);
+            const double bonus_max = std::max(0.0, predator->nutrition_bonus_max);
+            bonus = bonus_max * std::pow(saturation, alpha);
+        }
+        const double gained = (pre_death_nutrition + bonus) * efficiency;
+        results.race_energy_changes[attacker.get()] += gained;
         if (logger) {
-            logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f}",
-                         source, damage, target->species_name, (pre_death_energy * efficiency));
+            logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, eff={:.2f})",
+                         source, damage, target->species_name, gained, pre_death_nutrition, bonus, efficiency);
         }
     } else {
         if (logger) {
