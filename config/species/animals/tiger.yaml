@@ -56,10 +56,10 @@ animal:
   nutrition_bonus_max: 1.0 # 相当于最多额外获得猎物当前的power1倍
   nutrition_bonus_curve_alpha: 2.0 # 2.0就相当于二次曲线，从高power的牛那里获得更多能量
   # HP恢复基础值
-  hp_regen_base_per_day: 50.0
+  hp_regen_base_per_day: 500.0
   # HP恢复的状态加成：
   hp_regen_mul_satisfied: 2.0
   hp_regen_mul_normal: 1.0
-  hp_regen_mul_starving: 0.25
+  hp_regen_mul_starving: 0.1
   # HP恢复周期（0-1天）
-  regan_interval_ratio: 0.01
+  regan_interval_ratio: 0.002

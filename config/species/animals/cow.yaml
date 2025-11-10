@@ -15,7 +15,7 @@ animal:
   # 行为树黑板参数：吃草的总持续tick数，可被 ProgressDecorator 读取
   bt_params:
     ints:
-      eat_grass_total_ticks: 20
+      eat_grass_total_ticks: 10
     doubles:
       flee_speed_multiplier: 1.2
       flee_energy_multiplier: 1.2
@@ -56,10 +56,10 @@ animal:
   nutrition_bonus_max: 0.5 # 相当于最多额外获得猎物当前的power0.5倍
   nutrition_bonus_curve_alpha: 1.0 # 1.0就相当于线性获得猎物当前的power
   # HP恢复基础速率
-  hp_regen_base_per_day: 50.0
+  hp_regen_base_per_day: 500.0
   # HP恢复的状态加成：
   hp_regen_mul_satisfied: 2.0
   hp_regen_mul_normal: 1.0
-  hp_regen_mul_starving: 0.25
+  hp_regen_mul_starving: 0.1
   # HP恢复周期（0-1天）
-  regan_interval_ratio: 0.01
+  regan_interval_ratio: 0.002
