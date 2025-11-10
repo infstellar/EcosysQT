@@ -17,10 +17,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <stdexcept>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
@@ -31,16 +29,14 @@ thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue =
 // 生态系统状态管理器 (模拟核心)
 EcosystemState::EcosystemState(const EcosystemConfig& config)
             : config(config),
-                time_step(0),
                 races_registry(config),
                 births(),
                 deaths(),
                 population_history(),
                 spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
-                m_world_grid(static_cast<std::size_t>(std::max(0, config.world_width)) *
-                                         static_cast<std::size_t>(std::max(0, config.world_height))),
-                m_all_things(),
-                thing_reproduction_parents() {
+                m_world_grid(config.world_width, config.world_height),
+                m_all_things() {
+    m_clock.attach_config(&this->config);
     initialize_populations();
 }
 
@@ -49,14 +45,8 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
-    const auto expected_size = static_cast<std::size_t>(std::max(0, config.world_width)) *
-                               static_cast<std::size_t>(std::max(0, config.world_height));
-    if (m_world_grid.size() != expected_size) {
-        m_world_grid.assign(expected_size, Tile{});
-    }
-    for (auto& tile : m_world_grid) {
-        tile.things.clear();
-    }
+    m_world_grid.resize(config.world_width, config.world_height);
+    m_world_grid.clear_things();
     m_all_things.clear();
     m_thing_counts.clear();
     // 动物初始化块
@@ -117,7 +107,7 @@ void EcosystemState::initialize_populations() {
                     ++attempts;
                     int tile_x = dist_tile_x(rng);
                     int tile_y = dist_tile_y(rng);
-                    Tile& tile = get_tile(tile_x, tile_y);
+                    Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
                     if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
                         continue;
                     }
@@ -157,47 +147,21 @@ void EcosystemState::initialize_populations() {
     init_things();
 }
 
-/*
-使用getter函数算出时间
-*/
-int EcosystemState::get_current_day() const {
-    return (time_step / config.ticks_per_day) + 1;
-}
-
-int EcosystemState::get_current_year() const {
-    return ((get_current_day() - 1) / config.days_per_year) + 1;
-}
-
-int EcosystemState::get_current_quadrum() const {
-    int day_of_year = ((get_current_day() - 1) % config.days_per_year) + 1;
-    return ((day_of_year - 1) / config.days_per_quadrum) + 1;
-}
-int EcosystemState::get_current_hour() const {
-    // 获取当天已经过的步数
-    const int ticks_in_day = time_step % config.ticks_per_day;
-    return ticks_in_day / config.ticks_per_hour;
-}
-int EcosystemState::get_current_minute() const {
-    // 获取当前小时已经过的步数
-    const int ticks_in_hour = (time_step % config.ticks_per_day) % config.ticks_per_hour;
-    // 将小时内的步数比例映射到 0-59 分钟
-    return static_cast<int>((static_cast<double>(ticks_in_hour) / static_cast<double>(config.ticks_per_hour)) * 60.0);
-}
-
-std::string EcosystemState::get_current_quadrum_name() const {
-    int quadrum_index = get_current_quadrum() - 1;
-    if (quadrum_index < 0) {
-        spdlog::get("ecosim")->warn("get_current_quadrum_name 返回了未知值，请检查时间计算逻辑");
-        return "Unknown";
+void EcosystemState::attach_thing_to_world(const std::shared_ptr<ThingBase>& thing) {
+    if (!thing) {
+        return;
     }
-    if (config.quadrums_per_year == 4) {
-        static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
-        if (quadrum_index < 4) {
-            return quadrum_names[quadrum_index];
-        }
+    m_world_grid.add_thing_to_tile(thing.get());
+    m_all_things.push_back(thing);
+    if (thing->alive) {
+        ++m_thing_counts[thing->species_name];
     }
-    // 通用命名：Q1, Q2, ...
-    return std::string("Q") + std::to_string(quadrum_index + 1);
+}
+
+void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
+    m_world_grid.remove_thing_from_tile(thing);
+    thing.m_grid_x = -1;
+    thing.m_grid_y = -1;
 }
 
 /*
@@ -207,13 +171,13 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     EcosystemStateData state;
     state.world_width = config.world_width;
     state.world_height = config.world_height;
-    state.time_step = time_step;
-    state.current_day = get_current_day();
-    state.current_quadrum = get_current_quadrum();
-    state.current_year = get_current_year();
-    state.current_quadrum_name = get_current_quadrum_name();
-    state.current_hour = get_current_hour();
-    state.current_minute = get_current_minute();
+    state.time_step = m_clock.time_step();
+    state.current_day = m_clock.current_day();
+    state.current_quadrum = m_clock.current_quadrum();
+    state.current_year = m_clock.current_year();
+    state.current_quadrum_name = m_clock.current_quadrum_name();
+    state.current_hour = m_clock.current_hour();
+    state.current_minute = m_clock.current_minute();
     // 填充 race_lists
     for (const auto& species_name : races_registry.get_all_species_names()) {
         const auto& race_list = races_registry.get_species_list(species_name);
@@ -271,7 +235,7 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
 */
 void EcosystemState::update_one_tick() {
     // 离散锁步：每次调用推进一个整数tick
-    time_step++;
+    m_clock.advance_tick();
 }
 
 /*
@@ -283,60 +247,6 @@ void EcosystemState::update_statistics() {
     population_history.push_back(snapshot);
     if (population_history.size() > 100)
         population_history.erase(population_history.begin(), population_history.end() - 100);
-}
-
-std::size_t EcosystemState::get_grid_index(int x, int y) const {
-    if (!is_valid_grid_coord(x, y)) {
-        throw std::out_of_range("Grid coordinate out of range");
-    }
-    return static_cast<std::size_t>(y) * static_cast<std::size_t>(config.world_width) + static_cast<std::size_t>(x);
-}
-
-bool EcosystemState::is_valid_grid_coord(int x, int y) const {
-    return x >= 0 && x < config.world_width && y >= 0 && y < config.world_height;
-}
-
-Tile& EcosystemState::get_tile(int x, int y) {
-    if (!is_valid_grid_coord(x, y)) {
-        throw std::out_of_range("Grid coordinate out of range");
-    }
-    return m_world_grid[get_grid_index(x, y)];
-}
-
-const Tile& EcosystemState::get_tile(int x, int y) const {
-    if (!is_valid_grid_coord(x, y)) {
-        throw std::out_of_range("Grid coordinate out of range");
-    }
-    return m_world_grid[get_grid_index(x, y)];
-}
-
-void EcosystemState::attach_thing_to_world(const std::shared_ptr<ThingBase>& thing) {
-    if (!thing) {
-        return;
-    }
-    if (!is_valid_grid_coord(thing->m_grid_x, thing->m_grid_y)) {
-        throw std::out_of_range("Thing grid coordinate out of range");
-    }
-    Tile& tile = get_tile(thing->m_grid_x, thing->m_grid_y);
-    tile.things.push_back(thing.get());
-    m_all_things.push_back(thing);
-    // 更新存活计数器（仅对存活对象计数）
-    if (thing->alive) {
-        ++m_thing_counts[thing->species_name];
-    }
-}
-
-void EcosystemState::detach_thing_from_tile(ThingBase& thing) {
-    if (!is_valid_grid_coord(thing.m_grid_x, thing.m_grid_y)) {
-        return;
-    }
-    Tile& tile = get_tile(thing.m_grid_x, thing.m_grid_y);
-    auto it = std::remove(tile.things.begin(), tile.things.end(), &thing);
-    if (it != tile.things.end()) {
-        tile.things.erase(it, tile.things.end());
-    }
-    thing.m_grid_x = -1;
-    thing.m_grid_y = -1;
 }
 
 /**
@@ -354,12 +264,7 @@ void EcosystemState::prepare_for_update() {
     current_phase = UpdatePhase::Prepare;
     staged_requests.clear();      // 清空暂存的交互请求
     main_thread_requests.clear(); // 清空主线程处理的请求
-    race_energy_changes.clear();  // 清空能量变化记录
-    race_marked_for_death.clear();     // 清空待移除的生物体列表
-    thing_energy_changes.clear();
-    thing_marked_for_death.clear();
-    reproduction_parents.clear(); // 清空待新生的父代列表
-    thing_reproduction_parents.clear();
+    m_resolution_state.clear();   // 重置上一周期的交互解决结果
 
     if (!spatial_grid) {
         return;
@@ -475,192 +380,50 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     pool.submit_bulk(std::move(master_task_list));
 }
 
-/**
- * @brief 解决在决策阶段产生的所有交互请求。
- *
- * 此函数是并发更新的第二阶段（交互解决阶段）。它首先将所有工作线程的
- * 本地请求队列中的请求移动到一个统一的 `staged_requests` 队列中，
- * 然后遍历这些请求，并根据请求类型（如捕食、繁殖）更新相关的状态
- * （如标记死亡、记录能量变化、标记出生）。
- *
- * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
- */
-void EcosystemState::resolve_interactions() {
-    // 标记当前阶段为交互解决阶段
-    current_phase = UpdatePhase::Resolve;
-    // 清空上一轮的暂存请求。
+// Consolidate per-thread queues into the shared staging buffer.
+void EcosystemState::merge_worker_queues() {
     staged_requests.clear();
-    // 将所有工作线程的本地请求队列中的请求移动到统一的 `staged_requests` 队列中。
-    // 使用 `std::make_move_iterator` 可以高效地转移请求，避免不必要的拷贝。
+
     for (auto& queue : worker_request_queues) {
-        if (!queue.empty()) {
-            staged_requests.insert(staged_requests.end(),
-                                   std::make_move_iterator(queue.begin()),
-                                   std::make_move_iterator(queue.end()));
-            queue.clear();
+        if (queue.empty()) {
+            continue;
         }
+        staged_requests.insert(staged_requests.end(),
+                               std::make_move_iterator(queue.begin()),
+                               std::make_move_iterator(queue.end()));
+        queue.clear();
     }
 
-    // 如果主线程（或单线程模式）也有请求，同样移入暂存队列。
     if (!main_thread_requests.empty()) {
         staged_requests.insert(staged_requests.end(),
                                std::make_move_iterator(main_thread_requests.begin()),
                                std::make_move_iterator(main_thread_requests.end()));
         main_thread_requests.clear();
     }
+}
+
+/**
+ * @brief 解决在决策阶段产生的所有交互请求。
+ *
+ * 此函数是并发更新的第二阶段（交互解决阶段）。它首先将所有工作线程的
+ * 本地请求队列中的请求移动到一个统一的 `staged_requests` 队列中，并清理上
+ * 一轮的解析状态，然后将请求批次交给 `InteractionResolver` 处理，后者负责根
+ * 据请求类型更新本轮的死亡标记、能量变化和繁殖登记等结果。
+ *
+ * 这是一个同步点，确保在进入下一阶段（应用阶段）之前，所有交互都已解决。
+ */
+void EcosystemState::resolve_interactions() {
+    // 标记当前阶段为交互解决阶段
+    current_phase = UpdatePhase::Resolve;
+    merge_worker_queues();
+    m_resolution_state.clear();
 
     // 如果没有需要处理的请求，则提前返回。
     if (staged_requests.empty()) {
         return;
     }
 
-    // 遍历所有暂存的请求，并根据其类型进行处理。
-    for (auto& request : staged_requests) {
-        // 使用 `std::visit` 和 `std::variant` 来处理不同类型的请求。
-        std::visit([this](auto&& req) {
-            using RequestType = std::decay_t<decltype(req)>;
-            if constexpr (std::is_same_v<RequestType, AttemptToEatThingRequest>) {
-                auto& initiator = req.initiator;
-                auto& target = req.target;
-                if (!initiator || !target) return;
-                if (!initiator->alive || !target->alive) return;
-                auto logger = spdlog::get("ecosim");
-                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) {
-                    if (logger) {
-                        logger->info("[Resolve EatThing] Duplicate request ignored: initiator='{}' target='{}' pos=({:.1f},{:.1f})",
-                                     initiator->species_name, target->species_name,
-                                     target->position.x, target->position.y);
-                    }
-                    return;
-                }
-
-                thing_marked_for_death.insert(target.get());
-                {
-                    // 植物被食用结算：使用目标的“营养值”而非当前 energy
-                    // 引入能量利用率：吃草获得能量按 initiator.energy_efficiency 比例计算
-                    double efficiency = 1.0;
-                    if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
-                        efficiency = std::max(0.0, a->energy_efficiency);
-                    }
-                    const double nutrition = target->get_nutrition_value();
-                    const double gained = nutrition * efficiency;
-                    race_energy_changes[initiator.get()] += gained;
-                }
-                if (logger) {
-                    logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
-                                 initiator->species_name, target->species_name,
-                                 target->position.x, target->position.y,
-                                 target->get_nutrition_value());
-                }
-                target->die_from_predation(initiator->species_name);
-            } else if constexpr (std::is_same_v<RequestType, DamageRaceRequest>) {
-                auto& attacker = req.attacker;
-                auto& target = req.target;
-                const double dmg = std::max(0.0, req.damage);
-                if (!attacker || !target) return;
-                if (!attacker->alive || !target->alive) return;
-
-                // 若已被标记为死亡，则忽略重复伤害
-                if (race_marked_for_death.find(target.get()) != race_marked_for_death.end()) return;
-
-                // 应用伤害；若死亡，由 take_damage 设置 alive=false
-                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-                // 在伤害前缓存“营养值”，用于致死结算，避免后续状态变更影响
-                const double pre_death_nutrition = target->get_nutrition_value();
-                double efficiency = 1.0;
-                if (auto* a = dynamic_cast<Animal*>(attacker.get())) {
-                    efficiency = std::max(0.0, a->energy_efficiency);
-                }
-                target->take_damage(dmg, source);
-
-                // 若目标已死亡，加入统一死亡标记，等待注册表变更阶段处理
-                if (!target->alive) {
-                    race_marked_for_death.insert(target.get());
-                    // 结算能量：基础营养值 + ENERGY加成
-                    double bonus = 0.0;
-                    double saturation = 0.0;
-                    if (target->max_energy > 0.0) {
-                        saturation = std::clamp(target->energy / target->max_energy, 0.0, 1.0);
-                    }
-                    if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
-                        const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);
-                        const double bonus_max = std::max(0.0, predator->nutrition_bonus_max);
-                        bonus = bonus_max * std::pow(saturation, alpha);
-                    }
-                    const double gained = (pre_death_nutrition + bonus) * efficiency;
-                    race_energy_changes[attacker.get()] += gained;
-                    if (auto logger = spdlog::get("ecosim")) {
-                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, eff={:.2f})",
-                                     source, dmg, target->species_name, gained, pre_death_nutrition, bonus, efficiency);
-                    }
-                } else {
-                    if (auto logger = spdlog::get("ecosim")) {
-                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' (hp={:.1f}/{:.1f})",
-                                     source, dmg, target->species_name, target->hp_current, target->hp_max);
-                    }
-                }
-            } else if constexpr (std::is_same_v<RequestType, DamageThingRequest>) {
-                auto& attacker = req.attacker;
-                auto& target = req.target;
-                if (!attacker || !target) return;
-                if (!attacker->alive || !target->alive) return;
-
-                // 若已被标记为死亡，则忽略重复伤害
-                if (thing_marked_for_death.find(target.get()) != thing_marked_for_death.end()) return;
-
-                // 目前 ThingBase 没有 HP，伤害视为摧毁
-                const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-                thing_marked_for_death.insert(target.get());
-                target->die("Destroyed by " + source);
-                if (auto logger = spdlog::get("ecosim")) {
-                    logger->info("[Resolve DamageThing] '{}' destroyed '{}' at ({:.1f},{:.1f})",
-                                 source, target->species_name, target->position.x, target->position.y);
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceRaceRequest>) {
-                if (req.parent && req.parent->alive) {
-                    reproduction_parents.push_back(std::move(req.parent));
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToReproduceThingRequest>) {
-                if (req.parent && req.parent->alive) {
-                    thing_reproduction_parents.push_back(std::move(req.parent));
-                }
-            } else if constexpr (std::is_same_v<RequestType, AttemptToMateRequest>) {
-                auto& female = req.female;
-                auto& male = req.male;
-
-                const bool female_alive = (female && female->alive);
-                const bool male_alive = (male && male->alive);
-                const bool female_can = (female && female->can_reproduce());
-                const bool male_can = (male && male->can_reproduce());
-                const double dist = (female && male)
-                    ? female->position.distance_to(male->position)
-                    : std::numeric_limits<double>::quiet_NaN();
-
-                SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                    "AttemptToMateRequest: female_alive={}, male_alive={}, female_can={}, male_can={}, dist={:.2f}",
-                    female_alive, male_alive, female_can, male_can, dist);
-
-                if (female_alive && male_alive && female_can && male_can) {
-                    female->begin_mating_with(male);
-                    male->begin_mating_with(female);
-                    female->become_pregnant();
-                    male->start_reproduction_cooldown();
-                    female->energy -= female->reproduction_energy_cost;
-                    male->energy -= male->reproduction_energy_cost;
-
-                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                        "Mating accepted: male(age={},energy={:.1f}) female(age={},energy={:.1f}) dist={:.2f}",
-                        male ? male->age : -1, male ? male->energy : 0.0,
-                        female ? female->age : -1, female ? female->energy : 0.0,
-                        dist);
-                } else {
-                    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                        "Mating rejected: conditions not met (female_alive={}, male_alive={}, female_can={}, male_can={})",
-                        female_alive, male_alive, female_can, male_can);
-                }
-            }
-        }, request);
-    }
+    m_interaction_resolver.process_requests(staged_requests, *this, m_resolution_state);
 }
 
 /**
@@ -747,178 +510,9 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
 void EcosystemState::apply_registry_changes() {
     // 标记当前阶段为最终化阶段
     current_phase = UpdatePhase::Finalize;
-    // --- 阶段 3/4：应用变更 --- 
-    // 遍历所有物种，处理繁殖、死亡和能量变化。
-
-    // 用于临时存储本轮出生的新个体。
-    std::unordered_map<std::string, std::vector<std::shared_ptr<RaceBase>>> newborns_by_species;
-    newborns_by_species.reserve(reproduction_parents.size());
-    std::unordered_map<std::string, int> thing_birth_counts;
-    std::unordered_map<std::string, int> thing_death_counts;
-    auto logger = spdlog::get("ecosim");
-
-    // --- 出生处理 ---
-    for (auto& parent : reproduction_parents) {
-        if (!parent || !parent->alive) {
-            continue;
-        }
-
-        const auto spawn_position = parent->consume_pending_spawn_position();
-        if (!spawn_position.has_value()) {
-            continue;
-        }
-
-        // 调用工厂时，传入 get_thread_local_rng()
-        auto offspring_unique = g_race_factory.create(parent->species_name, spawn_position.value(), get_thread_local_rng());
-        if (!offspring_unique) {
-            continue;
-        }
-
-        std::shared_ptr<RaceBase> offspring = std::move(offspring_unique);
-        offspring->position = spawn_position.value();
-        newborns_by_species[parent->species_name].push_back(std::move(offspring));
-    }
-
-    for (const auto& name : races_registry.get_all_species_names()) {
-        auto& list = races_registry.get_species_list(name);
-
-        int dead_count = 0;
-        for (auto& individual : list) {
-            if (!individual) {
-                continue;
-            }
-
-            if (race_marked_for_death.find(individual.get()) != race_marked_for_death.end()) {
-                if (individual->alive) {
-                    individual->alive = false;
-                    ++dead_count;
-                }
-                continue;
-            }
-
-            if (auto energy_it = race_energy_changes.find(individual.get());
-                energy_it != race_energy_changes.end()) {
-                individual->energy += energy_it->second;
-            }
-        }
-
-        if (dead_count > 0) {
-            deaths.increment(name, dead_count);
-            spdlog::get("ecosim")->info("💀 {} {} individuals died", dead_count, name);
-        }
-
-        races_registry.filter_alive(name);
-
-        auto newborn_it = newborns_by_species.find(name);
-        if (newborn_it != newborns_by_species.end() && !newborn_it->second.empty()) {
-            races_registry.extend_individuals(name, newborn_it->second);
-            births.increment(name, static_cast<int>(newborn_it->second.size()));
-            spdlog::get("ecosim")->info("{} {} new {} individuals born",
-                (name == "grass" ? "🌱" : name == "cow" ? "🐄" : "🐅"),
-                newborn_it->second.size(), name);
-        }
-    }
-
-    auto remove_it = std::remove_if(m_all_things.begin(), m_all_things.end(),
-        [this, &thing_death_counts](const std::shared_ptr<ThingBase>& thing) {
-            if (!thing) {
-                return true;
-            }
-            if (thing->alive) {
-                return false;
-            }
-            // 目标已死亡，从计数器中减去
-            auto it = m_thing_counts.find(thing->species_name);
-            if (it != m_thing_counts.end() && it->second > 0) {
-                --(it->second);
-            }
-            ++thing_death_counts[thing->species_name];
-            if (auto logger = spdlog::get("ecosim")) {
-                logger->info("[Finalize] Removing '{}' at ({:.1f},{:.1f})",
-                             thing->species_name, thing->position.x, thing->position.y);
-            }
-            detach_thing_from_tile(*thing);
-            return true;
-        });
-    m_all_things.erase(remove_it, m_all_things.end());
-
-    if (config.world_width > 0 && config.world_height > 0) {
-        const int max_x = config.world_width - 1;
-        const int max_y = config.world_height - 1;
-        for (auto& parent : thing_reproduction_parents) {
-            if (!parent || !parent->alive) {
-                continue;
-            }
-            const auto spawn_position = parent->consume_pending_spawn_position();
-            if (!spawn_position.has_value()) {
-                continue;
-            }
-
-            int tile_x = static_cast<int>(std::floor(spawn_position->x));
-            int tile_y = static_cast<int>(std::floor(spawn_position->y));
-            tile_x = std::clamp(tile_x, 0, max_x);
-            tile_y = std::clamp(tile_y, 0, max_y);
-
-            if (!is_valid_grid_coord(tile_x, tile_y)) {
-                continue;
-            }
-
-            Tile& tile = get_tile(tile_x, tile_y);
-            const bool tile_available = std::none_of(tile.things.begin(), tile.things.end(),
-                [](ThingBase* existing) {
-                    return existing != nullptr && existing->alive;
-                });
-            if (!tile_available) {
-                continue;
-            }
-
-            Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
-            auto offspring_unique = g_thing_factory.create(parent->species_name, world_pos, get_thread_local_rng());
-            if (!offspring_unique) {
-                continue;
-            }
-
-            std::shared_ptr<ThingBase> offspring(std::move(offspring_unique));
-            offspring->position = world_pos;
-            offspring->m_grid_x = tile_x;
-            offspring->m_grid_y = tile_y;
-            attach_thing_to_world(offspring);
-            ++thing_birth_counts[parent->species_name];
-        }
-    }
-
-    for (const auto& [species, count] : thing_birth_counts) {
-        if (count <= 0) {
-            continue;
-        }
-        births.increment(species, count);
-        if (logger) {
-            logger->info("🌱 {} new {} things born", count, species);
-        }
-    }
-
-    for (const auto& [species, count] : thing_death_counts) {
-        if (count <= 0) {
-            continue;
-        }
-        deaths.increment(species, count);
-        if (logger) {
-            logger->info("🥀 {} {} things removed", count, species);
-        }
-    }
-
-    thing_reproduction_parents.clear();
-
-    // --- 清理状态 ---
-    // 清理本轮的状态标记，为下一轮更新做准备。
-    race_marked_for_death.clear();
-    thing_marked_for_death.clear();
-    race_energy_changes.clear();
-    thing_energy_changes.clear();
+    m_population_manager.apply_changes(*this);
+    m_resolution_state.clear();
     staged_requests.clear();
-    reproduction_parents.clear();
-
-    // 重置为 Idle，准备进入下一轮更新
     current_phase = UpdatePhase::Idle;
 }
 
@@ -1034,7 +628,8 @@ SpeciesPopulationData EcosystemState::get_species_data() const {
  */
 void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
-    time_step = 0;
+    m_clock.attach_config(&config);
+    m_clock.reset();
     // 重新构造注册表以应用新的初始数量
     races_registry = RacesRegistry(config);
     births.reset();
@@ -1043,11 +638,7 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     // 清理并发更新相关的状态
     staged_requests.clear();
     main_thread_requests.clear();
-    race_energy_changes.clear();
-    race_marked_for_death.clear();
-    thing_energy_changes.clear();
-    thing_marked_for_death.clear();
-    reproduction_parents.clear();
+    m_resolution_state.clear();
     m_thing_counts.clear();
     const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
     spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);
@@ -1097,99 +688,81 @@ std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_nearby_races_broad(
 std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
     const Position& center,
     double radius) const {
-    std::vector<std::shared_ptr<ThingBase>> nearby;
-    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
-        return nearby;
+    return m_world_grid.get_nearby_things_broad(center, radius);
+}
+
+std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
+    const std::vector<std::string>& species_names,
+    const Position& center,
+    double radius) const {
+    if (radius < 0.0 || species_names.empty()) {
+        return {};
     }
 
+    const auto nearby_races = get_nearby_races_broad(center, radius);
+    std::vector<std::shared_ptr<RaceBase>> results;
+    results.reserve(nearby_races.size());
     const double radius_sq = radius * radius;
 
-    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
-    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
-    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
-    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
+    for (const auto& race : nearby_races) {
+        if (!race || !race->alive) {
+            continue;
+        }
+        if (std::find(species_names.begin(), species_names.end(), race->species_name) == species_names.end()) {
+            continue;
+        }
 
-    for (int y = min_y; y <= max_y; ++y) {
-        for (int x = min_x; x <= max_x; ++x) {
-            const Tile& tile = get_tile(x, y);
-            for (ThingBase* thing_ptr : tile.things) {
-                if (!thing_ptr || !thing_ptr->alive) {
-                    continue;
-                }
-
-                const double dx = thing_ptr->position.x - center.x;
-                const double dy = thing_ptr->position.y - center.y;
-                if ((dx * dx + dy * dy) <= radius_sq) {
-                    nearby.push_back(thing_ptr->shared_from_this());
-                }
-            }
+        const double dx = race->position.x - center.x;
+        const double dy = race->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            results.push_back(race);
         }
     }
 
-    return nearby;
+    return results;
+}
+
+std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
+    const std::vector<std::string>& species_names,
+    const Position& center,
+    double radius) const {
+    if (radius < 0.0 || species_names.empty()) {
+        return {};
+    }
+
+    const auto nearby_things = get_nearby_things_broad(center, radius);
+    std::vector<std::shared_ptr<ThingBase>> results;
+    results.reserve(nearby_things.size());
+    const double radius_sq = radius * radius;
+
+    for (const auto& thing : nearby_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        if (std::find(species_names.begin(), species_names.end(), thing->species_name) == species_names.end()) {
+            continue;
+        }
+
+        const double dx = thing->position.x - center.x;
+        const double dy = thing->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            results.push_back(thing);
+        }
+    }
+
+    return results;
 }
 
 std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
     const std::string& species_name,
     const Position& center,
     double radius) const {
-    std::vector<std::shared_ptr<RaceBase>> result;
-    if (!races_registry.has_species(species_name)) {
-        return result;
-    }
-
-    const auto& list = races_registry.get_species_list(species_name);
-    const double radius_sq = radius * radius;
-    result.reserve(list.size());
-    for (const auto& individual : list) {
-        if (!individual || !individual->alive) {
-            continue;
-        }
-        const double dx = individual->position.x - center.x;
-        const double dy = individual->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            result.push_back(individual);
-        }
-    }
-
-    return result;
+    return get_races_in_range(std::vector<std::string>{species_name}, center, radius);
 }
 
 std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     const std::string& species_name,
     const Position& center,
     double radius) const {
-    std::vector<std::shared_ptr<ThingBase>> result;
-    if (radius < 0.0 || config.world_width <= 0 || config.world_height <= 0) {
-        return result;
-    }
-
-    const double radius_sq = radius * radius;
-
-    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, config.world_width - 1);
-    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, config.world_width - 1);
-    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, config.world_height - 1);
-    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, config.world_height - 1);
-
-    for (int y = min_y; y <= max_y; ++y) {
-        for (int x = min_x; x <= max_x; ++x) {
-            const Tile& tile = get_tile(x, y);
-            for (ThingBase* thing_ptr : tile.things) {
-                if (!thing_ptr || !thing_ptr->alive) {
-                    continue;
-                }
-                if (thing_ptr->species_name != species_name) {
-                    continue;
-                }
-
-                const double dx = thing_ptr->position.x - center.x;
-                const double dy = thing_ptr->position.y - center.y;
-                if ((dx * dx + dy * dy) <= radius_sq) {
-                    result.push_back(thing_ptr->shared_from_this());
-                }
-            }
-        }
-    }
-
-    return result;
+    return get_things_in_range(std::vector<std::string>{species_name}, center, radius);
 }

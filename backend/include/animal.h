@@ -22,7 +22,7 @@
 // 前向声明
 class EcosystemState;
 struct AnimalParams;
-class ThingBase;
+// 不再需要 ThingBase 缓存，移除前向声明
 
 // 动物饱食状态枚举
 enum class HungerState {
@@ -132,10 +132,8 @@ public:
     void clear_sensor_caches();
     void cache_mate(const std::shared_ptr<Animal>& mate);
     void cache_food_race(const std::shared_ptr<RaceBase>& race);
-    void cache_food_thing(const std::shared_ptr<ThingBase>& thing);
     std::vector<std::weak_ptr<Animal>> get_cached_mates_snapshot() const;
     std::vector<std::weak_ptr<RaceBase>> get_cached_food_races_snapshot() const;
-    std::vector<std::weak_ptr<ThingBase>> get_cached_food_things_snapshot() const;
     // 目标/路径管理
     void set_current_target(const std::optional<Position>& p);
     std::optional<Position> get_current_target() const;
@@ -202,7 +200,6 @@ protected:
 
     // 本 tick 感知缓存（弱引用，避免循环与跨帧残留）
     std::vector<std::weak_ptr<RaceBase>> cached_food_races;
-    std::vector<std::weak_ptr<ThingBase>> cached_food_things;
     std::vector<std::weak_ptr<Animal>> cached_mates;
 
     // 饱食状态更新与属性调整

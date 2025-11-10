@@ -5,7 +5,6 @@
 
 #include "animal.h"
 #include "race_base.h"
-#include "thing_base.h"
 #include "species_params.h"
 #include "ecosystem.h"
 #include "behavior_tree.h"
@@ -187,15 +186,12 @@ bool Animal::get_skip_movement() const { return skip_movement; }
 void Animal::set_skip_movement(bool v) { skip_movement = v; }
 void Animal::clear_sensor_caches() {
     cached_food_races.clear();
-    cached_food_things.clear();
     cached_mates.clear();
 }
 void Animal::cache_mate(const std::shared_ptr<Animal>& mate) { cached_mates.emplace_back(mate); }
 void Animal::cache_food_race(const std::shared_ptr<RaceBase>& race) { cached_food_races.emplace_back(race); }
-void Animal::cache_food_thing(const std::shared_ptr<ThingBase>& thing) { cached_food_things.emplace_back(thing); }
 std::vector<std::weak_ptr<Animal>> Animal::get_cached_mates_snapshot() const { return cached_mates; }
 std::vector<std::weak_ptr<RaceBase>> Animal::get_cached_food_races_snapshot() const { return cached_food_races; }
-std::vector<std::weak_ptr<ThingBase>> Animal::get_cached_food_things_snapshot() const { return cached_food_things; }
 void Animal::set_current_target(const std::optional<Position>& p) { current_target = p; }
 std::optional<Position> Animal::get_current_target() const { return current_target; }
 void Animal::clear_current_target() { current_target.reset(); }

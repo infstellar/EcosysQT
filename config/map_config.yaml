@@ -1,6 +1,6 @@
 world:
-  width: 1600
-  height: 900
+  width: 3200
+  height: 1800
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
@@ -14,9 +14,9 @@ simulation:
   ticks_per_hour: 125
   max_thing_placement_attempts: 16
   # 年/季度参数（可以只配置其中一部分；未配置的按默认计算）
-  days_per_year: 60
+  days_per_year: 40
   quadrums_per_year: 4
-  days_per_quadrum: 15
+  days_per_quadrum: 10
 
 # 可选的分区结构（演示用途）：
 #populations:

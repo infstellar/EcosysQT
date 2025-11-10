@@ -457,11 +457,11 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         }
     },
     {
-        "eat_nearby_thing",
+        "eat_target_thing",
         [](const YAML::Node& params, Animal& self) -> std::shared_ptr<Node> {
             YAML::Node p = params;
             auto act = std::make_shared<Action>([&self, p](TickContext& ctx){
-                return behavior::actions::EatNearbyThing(self, ctx, p);
+                return behavior::actions::EatTargetThing(self, ctx, p);
             });
             // 若 YAML 指定吃的是 grass：使用“循环进度装饰器”，每 tick 执行子节点；
             // - 远距子节点返回 Failure，装饰器也返回 Failure（不推进度），允许后续分支执行移动

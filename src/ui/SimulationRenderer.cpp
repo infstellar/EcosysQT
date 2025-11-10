@@ -8,6 +8,8 @@
 #endif
 #include <QDebug>
 #include <algorithm>
+#include <QDateTime>
+#include <unordered_set>
 
 // DrawableEntity 结构体只在渲染时使用，所以定义在这里
 struct DrawableEntity {
@@ -39,6 +41,31 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     m_tigerManTexture.load(":/images/tiger_man.png");
     if (m_tigerManTexture.isNull()) {
         qDebug() << "警告: 雄性老虎贴图加载失败";
+    }
+    // 尝试加载新提供的老虎精灵表（4行 × 7帧）并切片
+    QPixmap tigerSheet;
+    tigerSheet.load(":/images/grass_variants_backup/tiger_new.png");
+    if (!tigerSheet.isNull()) {
+        // 如果成功加载，切片为 m_tigerFrames[direction][frame]
+        QImage img = tigerSheet.toImage();
+        int rows = m_tigerDirections;
+        int cols = m_tigerFramesPerDir;
+        if (rows > 0 && cols > 0 && img.width() >= cols && img.height() >= rows) {
+            int frameW = img.width() / cols;
+            int frameH = img.height() / rows;
+            m_tigerFrames.assign(rows, std::vector<QPixmap>(cols));
+            for (int r = 0; r < rows; ++r) {
+                for (int c = 0; c < cols; ++c) {
+                    QImage sub = img.copy(c * frameW, r * frameH, frameW, frameH);
+                    m_tigerFrames[r][c] = QPixmap::fromImage(sub);
+                }
+            }
+            qDebug() << "信息: 成功加载并切片 tiger_new.png 为" << rows << "x" << cols << "帧";
+        } else {
+            qDebug() << "警告: tiger_new.png 大小异常，跳过切片";
+        }
+    } else {
+        qDebug() << "信息: 未找到 tiger_new.png，继续使用旧的 tiger.png/tiger_man.png 作为回退";
     }
     // 加载三张草贴图
     m_grassTextures[0].load(":/images/grass_0.png");
@@ -177,16 +204,79 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
                 texture = (animal_ptr && animal_ptr->sex == Sex::MALE) ? &m_bullTexture : &m_cowTexture;
             } else if (name == "tiger") {
+                // 如果加载了切片，则使用动画帧，否则回退到静态纹理
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
-                texture = (animal_ptr && animal_ptr->sex == Sex::MALE) ? &m_tigerManTexture : &m_tigerTexture;
+                if (!m_tigerFrames.empty()) {
+                    // per-instance 动画状态机
+                    const RaceBase* key = individual_base.get();
+                    auto& state = m_tigerAnimStates[key];
+                    qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                    if (m_lastUpdateMs == 0) m_lastUpdateMs = nowMs;
+                    double dtMs = static_cast<double>(nowMs - m_lastUpdateMs);
+                    // 注意：不要在这里更新 m_lastUpdateMs（将在循环外更新一次）
+
+                    Position curPos = individual_base->position;
+                    if (!state.initialized) {
+                        state.last_pos = curPos;
+                        state.initialized = true;
+                        state.current_frame = 0;
+                        state.anim_timer_ms = 0.0;
+                        state.direction = 0;
+                    }
+
+                    double dx = curPos.x - state.last_pos.x;
+                    double dy = curPos.y - state.last_pos.y;
+                    double moved = std::sqrt(dx*dx + dy*dy);
+                    const double idleThreshold = 0.01; // 世界单位，小到视为静止
+
+                    if (moved < idleThreshold) {
+                        // 静止：显示第一帧（idle）
+                        state.current_frame = 0;
+                        state.anim_timer_ms = 0.0;
+                    } else {
+                        // 根据 dx,dy 的符号映射到用户提供的4个朝向（行）
+                        // 用户说明行从上到下分别是：左下(0), 右下(1), 右上(2), 左上(3)
+                        int dir = 0;
+                        if (dx >= 0 && dy >= 0) dir = 1; // 右下
+                        else if (dx < 0 && dy >= 0) dir = 0; // 左下
+                        else if (dx >= 0 && dy < 0) dir = 2; // 右上
+                        else if (dx < 0 && dy < 0) dir = 3; // 左上
+                        state.direction = dir;
+
+                        // 推进帧计时器
+                        state.anim_timer_ms += dtMs;
+                        if (state.anim_timer_ms >= m_tigerFrameIntervalMs) {
+                            int steps = static_cast<int>(state.anim_timer_ms / m_tigerFrameIntervalMs);
+                            state.current_frame = (state.current_frame + steps) % m_tigerFramesPerDir;
+                            state.anim_timer_ms -= steps * m_tigerFrameIntervalMs;
+                        }
+                    }
+
+                    // 选择对应帧
+                    int dirIndex = std::clamp(state.direction, 0, m_tigerDirections - 1);
+                    int frameIndex = state.current_frame % m_tigerFramesPerDir;
+                    texture = &m_tigerFrames[dirIndex][frameIndex];
+
+                    // 更新 last_pos 与 last_seen
+                    state.last_pos = curPos;
+                    state.last_seen_ms = nowMs;
+                } else {
+                    texture = (animal_ptr && animal_ptr->sex == Sex::MALE) ? &m_tigerManTexture : &m_tigerTexture;
+                }
             }
 
             if (!texture || texture->isNull()) continue;
 
             QPointF screenPos = camera.toScreenCoords(QPointF(individual_base->position.x, individual_base->position.y), m_parentWidget->size());
             
-            const double size = animalSizeOnScreen;
-            QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
+            // 支持针对不同物种的长宽比调整（例如老虎略矮）
+            double widthOnScreen = animalSizeOnScreen;
+            double heightOnScreen = animalSizeOnScreen;
+            if (name == "tiger") {
+                // 用户要求将老虎的宽高比例从 1:1 改为 1:0.7（height = 0.7 * width）
+                heightOnScreen = animalSizeOnScreen * 0.7;
+            }
+            QRectF targetRectF(screenPos.x() - widthOnScreen / 2, screenPos.y() - heightOnScreen / 2, widthOnScreen, heightOnScreen);
             
             entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
         }
@@ -242,6 +332,27 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     // 循环 3: 按排序后的顺序绘制所有实体
     for (const auto& entity : entitiesToDraw) {
         painter.drawPixmap(entity.targetRect, *entity.texture);
+    }
+
+    // 更新 m_lastUpdateMs（放在绘制结束后，以便上面用到的 dtMs 合理）
+    m_lastUpdateMs = QDateTime::currentMSecsSinceEpoch();
+
+    // 清理已移除/不在列表中的老虎动画状态，避免无限增长
+    if (!m_tigerAnimStates.empty()) {
+        std::unordered_set<const RaceBase*> aliveTigers;
+        auto it = data->race_lists.find("tiger");
+        if (it != data->race_lists.end()) {
+            for (const auto& r : it->second) {
+                aliveTigers.insert(r.get());
+            }
+        }
+        // 移除 map 中 key 不在 aliveTigers 的条目
+        std::vector<const RaceBase*> toErase;
+        toErase.reserve(m_tigerAnimStates.size());
+        for (const auto& kv : m_tigerAnimStates) {
+            if (aliveTigers.find(kv.first) == aliveTigers.end()) toErase.push_back(kv.first);
+        }
+        for (const auto& k : toErase) m_tigerAnimStates.erase(k);
     }
 }
 
