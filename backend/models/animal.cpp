@@ -46,7 +46,8 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             satisfied_threshold(params.energy * params.satisfied_threshold_ratio),
             starving_threshold(params.energy * params.starving_threshold_ratio),
             wander_radius(params.wander_radius),
-            mating_desire_probability(params.mating_desire_probability) {
+            mating_desire_probability(params.mating_desire_probability),
+            nutrition_value(params.nutrition_value) {
     // 交配/怀孕相关参数初始化
     mating_duration = params.mating_duration;
     pregnancy_duration = params.pregnancy_duration;
@@ -59,6 +60,22 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
         "[Animal Ctor] '{}' created: pregnancy_speed_penalty={:.2f}, movement_speed={:.2f}",
         species_name, pregnancy_speed_penalty, movement_speed);
+
+    // energy加成 ~ https://doi.org/10.1093/conphys/coac083
+    // 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
+    // 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
+    nutrition_bonus_max = std::max(0.0, params.nutrition_bonus_max);
+    nutrition_bonus_curve_alpha = std::max(0.0, params.nutrition_bonus_curve_alpha);
+
+    // 基础生命恢复量
+    hp_regen_base_per_day = std::max(0.0, params.hp_regen_base_per_day);
+    // 各状态恢复倍率
+    hp_regen_mul_satisfied = std::max(0.0, params.hp_regen_mul_satisfied);
+    hp_regen_mul_normal    = std::max(0.0, params.hp_regen_mul_normal);
+    hp_regen_mul_starving  = std::max(0.0, params.hp_regen_mul_starving);
+    // 恢复触发间隔比例
+    regan_interval_ratio   = std::clamp(params.regan_interval_ratio, 0.0, 1.0);
+    ticks_since_last_regen = 0;
 
     // 使用传递进来的 rng，而不是线程本地的
     std::uniform_int_distribution<> dist(0, 1);
@@ -102,6 +119,9 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
         return;
     }
 
+    // 每 tick 执行 HP 恢复
+    apply_hp_regen(ecosystem_state);
+
     // 当使用行为树时，移动与消耗由 BT Action 执行；此处不再运行旧移动分支
     if (use_bt) {
         return;
@@ -109,8 +129,39 @@ void Animal::apply(const EcosystemState& ecosystem_state) {
 
     // 非 BT 路径：不再包含旧的 Path/Wander 移动逻辑，仅处理基础能量结算
     energy -= energy_consumption;
-    if (energy <= 0.0) {
-        die_from_starvation();
+    if (energy < 0.0) energy = 0.0; // 统一：不直接死亡，改由饥饿伤害扣 HP
+}
+
+// 根据当前饥饿状态恢复生命
+void Animal::apply_hp_regen(const EcosystemState& ecosystem_state) {
+    update_hunger_state();
+    const int tpd = std::max(1, ecosystem_state.config.ticks_per_day);
+    const double base_per_tick = hp_regen_base_per_day / static_cast<double>(tpd);
+    double hunger_mul = 0.0;
+    switch (hunger_state) {
+        // 满足：快速恢复
+        case HungerState::SATISFIED: hunger_mul = hp_regen_mul_satisfied; break;
+        // 正常：基础值
+        case HungerState::NORMAL:    hunger_mul = hp_regen_mul_normal; break;
+        // 饥饿：恢复缓慢
+        case HungerState::STARVING:  hunger_mul = hp_regen_mul_starving; break;
+        default: hunger_mul = 0.0; break;
+    }
+    // 根据比例计算触发间隔的 tick 数（至少为 1）
+    const int interval_ticks = std::max(1, static_cast<int>(std::floor(std::max(0.0, regan_interval_ratio) * static_cast<double>(tpd))));
+    // 自增计时器；当达到间隔后批量结算该段累计的恢复量
+    ticks_since_last_regen++;
+    if (ticks_since_last_regen < interval_ticks) {
+        return;
+    }
+    // 批量恢复：保持每日期望不变（按间隔汇总 base_per_tick * ticks）
+    const double regen_amount = base_per_tick * hunger_mul * static_cast<double>(ticks_since_last_regen);
+    ticks_since_last_regen = 0;
+    if (regen_amount > 0.0 && hp_current < hp_max) {
+        hp_current = std::min(hp_max, hp_current + regen_amount);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+            "[HP Regen] '{}' +{:.3f} (tpd={}, interval_ticks={}, base/day={:.2f}, hunger_mul={:.2f})",
+            species_name, regen_amount, tpd, interval_ticks, hp_regen_base_per_day, hunger_mul);
     }
 }
 
@@ -325,6 +376,14 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
         bb.strings[kv.first] = kv.second;
     }
 
+    // 饥饿伤害参数（若 YAML 未在 bt_params 指定，则回退到 species 默认值）
+    if (bb.doubles.find("starvation_damage") == bb.doubles.end()) {
+        bb.doubles["starvation_damage"] = std::max(0.0, params.starvation_damage);
+    }
+    if (bb.doubles.find("starvation_damage_interval_ratio") == bb.doubles.end()) {
+        bb.doubles["starvation_damage_interval_ratio"] = std::max(0.0, std::min(1.0, params.starvation_damage_interval_ratio));
+    }
+
     // 注入游荡总时长到黑板，供进度装饰器读取（若 YAML 未提供则使用 species_params 默认值）
     if (params.wandering_duration > 0) {
         bb.ints["wander_total_ticks"] = params.wandering_duration;
@@ -358,9 +417,12 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
 void Animal::consume_energy(double multiplier) {
     const double m = std::max(0.0, multiplier);
     energy -= (static_cast<double>(energy_consumption) * m);
-    if (energy <= 0.0) {
-        die_from_starvation();
-    }
+    // 统一生命机制：能量耗尽不直接死亡，改由行为树 Update 里的饥饿伤害扣 HP
+    if (energy < 0.0) energy = 0.0;
+}
+
+double Animal::get_nutrition_value() const {
+    return std::max(0.0, nutrition_value);
 }
 
 // 通用一步移动 + 能量结算内核：由调用者提供具体推进实现

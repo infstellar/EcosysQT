@@ -34,11 +34,32 @@ animal:
   hunting_cooldown_duration: 2
   min_reproduction_age: 30
   reproduction_cooldown: 800
-  satisfied_threshold_ratio: 0.7
-  starving_threshold_ratio: 0.25
+
   wandering_duration: 50
-  energy_efficiency: 0.3
+  
   pregnancy_duration: 110  
   mating_range: 12.0       
   pregnancy_speed_penalty: 0.5
   mating_desire_probability: 0.5
+
+  # 营养值
+  nutrition_value: 300.0
+  # 饥饿相关
+  starvation_damage: 33.0
+  starvation_damage_interval_ratio: 0.1
+  satisfied_threshold_ratio: 0.7
+  starving_threshold_ratio: 0.25
+  energy_efficiency: 0.3
+  # energy加成 ~ https://doi.org/10.1093/conphys/coac083
+  # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
+  # 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
+  nutrition_bonus_max: 1.0 # 相当于最多额外获得猎物当前的power1倍
+  nutrition_bonus_curve_alpha: 2.0 # 2.0就相当于二次曲线，从高power的牛那里获得更多能量
+  # HP恢复基础值
+  hp_regen_base_per_day: 50.0
+  # HP恢复的状态加成：
+  hp_regen_mul_satisfied: 2.0
+  hp_regen_mul_normal: 1.0
+  hp_regen_mul_starving: 0.25
+  # HP恢复周期（0-1天）
+  regan_interval_ratio: 0.01

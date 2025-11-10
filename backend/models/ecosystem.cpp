@@ -536,18 +536,21 @@ void EcosystemState::resolve_interactions() {
 
                 thing_marked_for_death.insert(target.get());
                 {
+                    // 植物被食用结算：使用目标的“营养值”而非当前 energy
                     // 引入能量利用率：吃草获得能量按 initiator.energy_efficiency 比例计算
                     double efficiency = 1.0;
                     if (auto* a = dynamic_cast<Animal*>(initiator.get())) {
                         efficiency = std::max(0.0, a->energy_efficiency);
                     }
-                    race_energy_changes[initiator.get()] += (target->energy * efficiency);
+                    const double nutrition = target->get_nutrition_value();
+                    const double gained = nutrition * efficiency;
+                    race_energy_changes[initiator.get()] += gained;
                 }
                 if (logger) {
                     logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
                                  initiator->species_name, target->species_name,
                                  target->position.x, target->position.y,
-                                 target->energy);
+                                 target->get_nutrition_value());
                 }
                 target->die_from_predation(initiator->species_name);
             } else if constexpr (std::is_same_v<RequestType, DamageRaceRequest>) {
@@ -562,8 +565,8 @@ void EcosystemState::resolve_interactions() {
 
                 // 应用伤害；若死亡，由 take_damage 设置 alive=false
                 const std::string source = attacker ? attacker->species_name : std::string("Unknown");
-                // 在伤害前缓存能量，用于致死结算，避免后续状态变更影响
-                const double pre_death_energy = target->energy;
+                // 在伤害前缓存“营养值”，用于致死结算，避免后续状态变更影响
+                const double pre_death_nutrition = target->get_nutrition_value();
                 double efficiency = 1.0;
                 if (auto* a = dynamic_cast<Animal*>(attacker.get())) {
                     efficiency = std::max(0.0, a->energy_efficiency);
@@ -573,11 +576,22 @@ void EcosystemState::resolve_interactions() {
                 // 若目标已死亡，加入统一死亡标记，等待注册表变更阶段处理
                 if (!target->alive) {
                     race_marked_for_death.insert(target.get());
-                    // 结算能量：按攻击者能量效率比例，从被击杀目标获取能量
-                    race_energy_changes[attacker.get()] += (pre_death_energy * efficiency);
+                    // 结算能量：基础营养值 + ENERGY加成
+                    double bonus = 0.0;
+                    double saturation = 0.0;
+                    if (target->max_energy > 0.0) {
+                        saturation = std::clamp(target->energy / target->max_energy, 0.0, 1.0);
+                    }
+                    if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
+                        const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);
+                        const double bonus_max = std::max(0.0, predator->nutrition_bonus_max);
+                        bonus = bonus_max * std::pow(saturation, alpha);
+                    }
+                    const double gained = (pre_death_nutrition + bonus) * efficiency;
+                    race_energy_changes[attacker.get()] += gained;
                     if (auto logger = spdlog::get("ecosim")) {
-                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f}",
-                                     source, dmg, target->species_name, (pre_death_energy * efficiency));
+                        logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, eff={:.2f})",
+                                     source, dmg, target->species_name, gained, pre_death_nutrition, bonus, efficiency);
                     }
                 } else {
                     if (auto logger = spdlog::get("ecosim")) {

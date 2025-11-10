@@ -111,6 +111,11 @@ void RaceBase::take_damage(double amount, const std::string& source) {
     }
 }
 
+double RaceBase::get_nutrition_value() const {
+    // 默认回退：以当前 energy 作为营养提供基数
+    return std::max(0.0, energy);
+}
+
 std::optional<Position> RaceBase::consume_pending_spawn_position() {
     if (!pending_spawn_position.has_value()) {
         return std::nullopt;

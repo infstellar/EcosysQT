@@ -38,6 +38,25 @@ struct AnimalParams : SpeciesBaseParams {
     // 战斗：攻击伤害
     double attack_damage = 10.0;
 
+    // 捕食结算：营养值（与当前 energy 脱钩，用于被击杀后的能量提供）
+    double nutrition_value = 100.0;
+    // 捕食ENERGY加成
+    double nutrition_bonus_max = 0.0;           // 最高额外营养加成
+    double nutrition_bonus_curve_alpha = 1.0;   // 幂次曲线形状（>=0）
+
+    // 饥饿伤害配置（外化到 YAML）
+    double starvation_damage = 1.0;                    // 饥饿状态下的周期性伤害（扣 HP）
+    double starvation_damage_interval_ratio = 0.25;    // 伤害触发周期（天）
+
+    // --- 生命恢复机制 ---
+    double hp_regen_base_per_day = 2.0;         // 基础恢复量
+    // 按饥饿状态的生命恢复倍数
+    double hp_regen_mul_satisfied = 2.0;        // 吃饱状态恢复倍数
+    double hp_regen_mul_normal = 1.0;           // 正常状态恢复倍数
+    double hp_regen_mul_starving = 0.25;        // 饥饿状态恢复倍数
+    // 恢复触发周期（天）
+    double regan_interval_ratio = 0.25;
+
     // --- 新增：交配与怀孕参数 ---
     int mating_duration = 30;      // 交配持续时间 (ticks)
     int pregnancy_duration = 100;  // 怀孕持续时间 (ticks)
@@ -62,13 +81,15 @@ struct PlantParams : SpeciesBaseParams {
     // 新增：引入 delta_time 相关与可调竞争因子
     double expansion_boost = 1.0;         // 低密度扩张加成（原固定2.0）
     double min_growth_factor = 0.001;     // 最低生长比例（原固定0.001）
+    // 被食用时提供的基础营养值（独立于 energy）
+    double nutrition_value = 100.0;
 };
 
 // 为自动匹配提供成员名与继承关系描述（一次性声明，保持 DRY）
 BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, reproduction_energy_cost, hp_max))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
-    (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius, attack_damage, mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
+    (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius, attack_damage, nutrition_value, nutrition_bonus_max, nutrition_bonus_curve_alpha, starvation_damage, starvation_damage_interval_ratio, hp_regen_base_per_day, hp_regen_mul_satisfied, hp_regen_mul_normal, hp_regen_mul_starving, regan_interval_ratio, mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty,
     mating_desire_probability, bt_params_ints, bt_params_doubles, bt_params_strings))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
-    (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor))
+    (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor, nutrition_value))

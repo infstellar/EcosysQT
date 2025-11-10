@@ -22,3 +22,21 @@ animal:
   mating_range: 5.0        
   pregnancy_speed_penalty: 0.5
   mating_desire_probability: 0.6
+  # 被击杀后提供的基础营养（与当前能量脱钩）
+  nutrition_value: 100.0
+  # 饥饿伤害与周期配置
+  starvation_damage: 1.0
+  starvation_damage_interval_ratio: 0.25
+  # energy加成 ~ https://doi.org/10.1093/conphys/coac083
+  # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
+  # 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
+  nutrition_bonus_max: 1.0 # 1.0就相当于最多获得猎物当前的power1倍
+  nutrition_bonus_curve_alpha: 1.0 # 1.0就相当于线性获得猎物当前的power
+  # HP恢复基础值
+  hp_regen_base_per_day: 5.0
+  # HP恢复的状态加成：
+  hp_regen_mul_satisfied: 2.0
+  hp_regen_mul_normal: 1.0
+  hp_regen_mul_starving: 0.25
+  # HP恢复周期（0-1天）
+  regan_interval_ratio: 0.25

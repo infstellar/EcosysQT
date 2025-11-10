@@ -58,6 +58,13 @@ public:
     double eating_range;
     double energy_efficiency;
 
+    // 捕食结算用营养值（与当前 energy 脱钩）
+    double get_nutrition_value() const override;
+
+    // 捕食energy加成参数
+    double nutrition_bonus_max{0.0};
+    double nutrition_bonus_curve_alpha{1.0};
+
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     AnimalUiSnapshot get_ui_snapshot() const;
     void update_ui_snapshot(const AnimalUiSnapshot& snapshot);
@@ -171,6 +178,19 @@ protected:
     double step_distance_per_tick;
     double current_step_distance;
 
+    // 用于被击杀时提供捕食能量的营养值
+    double nutrition_value;
+
+    // --- HP 恢复参数 ---
+    double hp_regen_base_per_day{0.0};
+    double hp_regen_mul_satisfied{2.0};
+    double hp_regen_mul_normal{1.0};
+    double hp_regen_mul_starving{0.25};
+    // HP 恢复触发间隔（按天比例），仿照饥饿伤害间隔
+    double regan_interval_ratio{0.25};
+    // 自增计时器：自上次恢复以来的 tick 数
+    int ticks_since_last_regen{0};
+
     // 交配相关配置
     int mating_duration;
     int pregnancy_duration;
@@ -195,6 +215,9 @@ protected:
     void perform_step_move_common(double speed_multiplier, double energy_multiplier,
                                   const char* log_tag,
                                   const std::function<void()>& advance_fn);
+
+    // 每 tick 执行 HP 恢复逻辑
+    void apply_hp_regen(const EcosystemState& ecosystem_state);
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     mutable std::mutex m_ui_snapshot_mutex;

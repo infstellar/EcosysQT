@@ -193,6 +193,26 @@ template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     clamp(params.hunting_success_rate, 0.0, 1.0);
     if (params.movement_speed < 0.0) params.movement_speed = 0.0;
     if (params.energy_consumption < 0) params.energy_consumption = 0;
+    // 饥饿伤害与间隔比例、营养值
+    if (params.starvation_damage < 0.0) params.starvation_damage = 0.0;
+    clamp(params.starvation_damage_interval_ratio, 0.0, 1.0);
+    if (params.nutrition_value < 0.0) params.nutrition_value = 0.0;
+    //ENERGY加成参数：
+    if (params.nutrition_bonus_max < 0.0) params.nutrition_bonus_max = 0.0;
+    if (params.nutrition_bonus_curve_alpha < 0.0) params.nutrition_bonus_curve_alpha = 0.0;
+    // 生命恢复：基础恢复量
+    if (params.hp_regen_base_per_day < 0.0) params.hp_regen_base_per_day = 0.0;
+    // 生命恢复：状态倍数
+    if (params.hp_regen_mul_satisfied < 0.0) params.hp_regen_mul_satisfied = 0.0;
+    if (params.hp_regen_mul_normal < 0.0) params.hp_regen_mul_normal = 0.0;
+    if (params.hp_regen_mul_starving < 0.0) params.hp_regen_mul_starving = 0.0;
+    // 生命恢复：触发间隔比例
+    clamp(params.regan_interval_ratio, 0.0, 1.0);
+}
+
+template <> inline void postprocess_params<PlantParams>(PlantParams& params) {
+    // 植物营养值非负
+    if (params.nutrition_value < 0.0) params.nutrition_value = 0.0;
 }
 
 YamlSpeciesConfigProvider::YamlSpeciesConfigProvider(std::string config_root_dir)
