@@ -31,6 +31,8 @@ public:
     int m_grid_x = -1;
     int m_grid_y = -1;
     std::optional<Position> pending_spawn_position;
+    // 可选的渲染变体索引（由后端在创建时随机分配，例如草的贴图变体 0..2）
+    int variant_index = -1;
 
     // 构造函数
     ThingBase(Position pos,

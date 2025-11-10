@@ -40,9 +40,30 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (m_tigerManTexture.isNull()) {
         qDebug() << "警告: 雄性老虎贴图加载失败";
     }
-    m_grassTexture.load(":/images/grass.png");
-    if (m_grassTexture.isNull()) {
-        qDebug() << "警告: 草贴图加载失败";
+    // 加载三张草贴图
+    m_grassTextures[0].load(":/images/grass_0.png");
+    if (m_grassTextures[0].isNull()) {
+        qDebug() << "警告: 草贴图 grass_0.png 加载失败";
+    }
+    m_grassTextures[1].load(":/images/grass_1.png");
+    if (m_grassTextures[1].isNull()) {
+        qDebug() << "警告: 草贴图 grass_1.png 加载失败";
+    }
+
+    // 兼容旧的资源配置：如果三张变体都没被打包到资源中，尝试加载旧的单张草贴图作为回退
+    bool anyValid = false;
+    for (int i = 0; i < 3; ++i) {
+        if (!m_grassTextures[i].isNull()) { anyValid = true; break; }
+    }
+    if (!anyValid) {
+        m_grassTextures[0].load(":/images/grass.png");
+        if (!m_grassTextures[0].isNull()) {
+            qDebug() << "信息: 使用回退草贴图 :/images/grass.png";
+        }
+    }
+    m_grassTextures[2].load(":/images/grass_2.png");
+    if (m_grassTextures[2].isNull()) {
+        qDebug() << "警告: 草贴图 grass_2.png 加载失败";
     }
 }
 
@@ -174,23 +195,41 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     // 循环 2: 收集 Things (植物)
     for (const auto& [name, individuals] : data->thing_lists) {
         if (name == "grass") {
-            if (m_grassTexture.isNull()) continue;
-            
+            // 确保至少一张草贴图可用
+            bool hasValid = false;
+            for (int i = 0; i < 3; ++i) if (!m_grassTextures[i].isNull()) { hasValid = true; break; }
+            if (!hasValid) continue;
+
             const double grassWorldSize = 100.0;
             const double size = grassWorldSize * pixelsPerWorldUnit;
-            
+
             for (const auto& individual : individuals) {
                 if (!individual || !individual->alive) continue;
 
-                // --- 核心优化：视野剔除 ---
+                // --- 视野剔除 ---
                 if (!visibleWorldRect.contains(individual->position.x, individual->position.y)) {
                     continue;
                 }
-                // --- 优化结束 ---
+
+                // 使用后端分配的 variant_index（若无效则回退到伪随机或0）
+                int variant = -1;
+                if (individual->variant_index >= 0 && individual->variant_index < 3) {
+                    variant = individual->variant_index;
+                } else {
+                    // 回退策略：基于位置的哈希，保证稳定性
+                    int posHash = static_cast<int>(individual->position.x * 73856093) ^ 
+                                  static_cast<int>(individual->position.y * 19349663);
+                    variant = std::abs(posHash) % 3;
+                }
+
+                const QPixmap* tex = &m_grassTextures[variant];
+                if (tex->isNull()) {
+                    for (int i = 0; i < 3; ++i) if (!m_grassTextures[i].isNull()) { tex = &m_grassTextures[i]; break; }
+                }
 
                 QPointF screenPos = camera.toScreenCoords(QPointF(individual->position.x, individual->position.y), m_parentWidget->size());
                 QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
-                entitiesToDraw.push_back({&m_grassTexture, targetRectF.toRect(), individual->position.y});
+                entitiesToDraw.push_back({tex, targetRectF.toRect(), individual->position.y});
             }
         }
     }
