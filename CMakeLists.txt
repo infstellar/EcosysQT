@@ -105,6 +105,10 @@ add_executable(MyQtApp
     backend/engine/simulation.cpp
     backend/engine/thread_pool.cpp
     backend/models/ecosystem.cpp
+    backend/models/population_manager.cpp
+    backend/models/world_grid.cpp
+    backend/models/world_clock.cpp
+    backend/models/interaction_resolver.cpp
     backend/models/spatial_grid.cpp
     backend/models/races_registry.cpp
     backend/models/species_statistics.cpp

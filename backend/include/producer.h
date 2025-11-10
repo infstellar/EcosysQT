@@ -24,6 +24,7 @@ public:
     double competition_radius;
     double max_competition_effect;
     int base_reproduction_cooldown;
+    double interval_growth_rate;
     // 参数化竞争与时间缩放（通用）
     double expansion_boost;
     double min_growth_factor;
