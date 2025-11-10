@@ -58,8 +58,27 @@ private:
     QPixmap m_backgroundImage;
     QPixmap m_cowTexture;
     QPixmap m_bullTexture;
+    // 静态回退贴图（若未切片则使用）
     QPixmap m_tigerTexture;
     QPixmap m_tigerManTexture;
+
+    // 老虎动画帧：按 [direction][frame]
+    std::vector<std::vector<QPixmap>> m_tigerFrames;
+    // 每个老虎实例的动画状态（缓存上一次位置以判断朝向并推进帧）
+    struct TigerAnimState {
+        Position last_pos{0,0};
+        double anim_timer_ms = 0.0;
+        int current_frame = 0;
+        int direction = 0;
+        qint64 last_seen_ms = 0; // 用于清理失效条目
+        bool initialized = false;
+    };
+    std::unordered_map<const RaceBase*, TigerAnimState> m_tigerAnimStates;
+    // 配置项
+    int m_tigerDirections = 4;
+    int m_tigerFramesPerDir = 7;
+    double m_tigerFrameIntervalMs = 120.0; // 每帧时长，毫秒
+    qint64 m_lastUpdateMs = 0; // 用于计算渲染间隔
     QPixmap m_grassTextures[3];
     // UI 层缓存：为每个 ThingBase 指针分配的草贴图变体（确保稳定但随机）
     std::unordered_map<const ThingBase*, int> m_grassVariantMap;
