@@ -17,10 +17,9 @@ animal:
     ints:
       eat_grass_total_ticks: 20
     doubles:
-      flee_speed_multiplier: 5
+      flee_speed_multiplier: 1.2
       flee_energy_multiplier: 1.2
-      flee_target_distance_ratio: 2
-      wander_speed_multiplier: 0.7
+      wander_speed_multiplier: 0.5
       wander_energy_multiplier: 0.5
       chase_speed_multiplier: 1.0
       chase_energy_multiplier: 1.0

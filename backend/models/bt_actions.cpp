@@ -6,7 +6,6 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <random>
-#include <cmath>
 
 namespace behavior::actions {
 
@@ -36,61 +35,20 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     const std::string speed_key = params["speed_multiplier_param"] ? params["speed_multiplier_param"].as<std::string>() : std::string("flee_speed_multiplier");
     const std::string energy_key = params["energy_multiplier_param"] ? params["energy_multiplier_param"].as<std::string>() : std::string("flee_energy_multiplier");
 
-    // 逃跑目标距离比例：支持 YAML params 或黑板键覆盖，默认 0.75
-    double default_ratio = 0.75;
-    double flee_ratio = default_ratio;
-    if (params["distance_ratio_param"]) {
-        const std::string ratio_key = params["distance_ratio_param"].as<std::string>();
-        flee_ratio = bb_get_double(&bb, ratio_key, bb_get_double(&bb, "flee_target_distance_ratio", default_ratio));
-    } else if (params["distance_ratio"]) {
-        try { flee_ratio = params["distance_ratio"].as<double>(); } catch (...) { flee_ratio = default_ratio; }
-    } else {
-        flee_ratio = bb_get_double(&bb, "flee_target_distance_ratio", default_ratio);
-    }
-    if (!std::isfinite(flee_ratio)) flee_ratio = default_ratio;
-    flee_ratio = std::max(0.0, std::min(flee_ratio, 10.0));
-
-    // 若尚未存在长期逃跑目标，则创建一个
-    bool has_flee_target = (bb.doubles.find("flee_target_pos_x") != bb.doubles.end());
-    if (!has_flee_target) {
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Flee] '{}' starting a new flee plan.", self.species_name);
-
-        const double tx = bb_get_double(&bb, posx_key, self.position.x);
-        const double ty = bb_get_double(&bb, posy_key, self.position.y);
-        Position threat{tx, ty};
-
-        Position dir{ self.position.x - threat.x, self.position.y - threat.y };
-        const double len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-        if (len > 1e-6) {
-            dir.x /= len;
-            dir.y /= len;
-        } else {
-            auto& rng_local = world->get_thread_local_rng();
-            std::uniform_real_distribution<> angle_dist(0.0, 6.283185307179586);
-            const double angle = angle_dist(rng_local);
-            dir.x = std::cos(angle);
-            dir.y = std::sin(angle);
-        }
-
-        const double flee_distance = self.get_detection_range() * flee_ratio;
-        Position flee_target{
-            self.position.x + dir.x * flee_distance,
-            self.position.y + dir.y * flee_distance
-        };
-        flee_target.x = std::max(0.0, std::min(static_cast<double>(world->config.world_width), flee_target.x));
-        flee_target.y = std::max(0.0, std::min(static_cast<double>(world->config.world_height), flee_target.y));
-
-        bb.doubles["flee_target_pos_x"] = flee_target.x;
-        bb.doubles["flee_target_pos_y"] = flee_target.y;
-    }
-
-    // 持续向既定逃跑目标推进，并写入通用 target_pos 供 UI/调试
-    Position target_pos{
-        bb.doubles.at("flee_target_pos_x"),
-        bb.doubles.at("flee_target_pos_y")
+    const double tx = bb_get_double(&bb, posx_key, self.position.x);
+    const double ty = bb_get_double(&bb, posy_key, self.position.y);
+    Position threat{tx, ty};
+    Position dir{ self.position.x - threat.x, self.position.y - threat.y };
+    const double inv_len = 1.0 / std::max(1e-9, std::sqrt(dir.x*dir.x + dir.y*dir.y));
+    dir.x *= inv_len;
+    dir.y *= inv_len;
+    const double flee_step = std::max(self.get_step_distance_per_tick(), self.movement_speed);
+    Position safe_spot{
+        std::max(0.0, std::min(static_cast<double>(world->config.world_width), self.position.x + dir.x * flee_step)),
+        std::max(0.0, std::min(static_cast<double>(world->config.world_height), self.position.y + dir.y * flee_step))
     };
-    bb.doubles["target_pos_x"] = target_pos.x;
-    bb.doubles["target_pos_y"] = target_pos.y;
+    bb.doubles["target_pos_x"] = safe_spot.x;
+    bb.doubles["target_pos_y"] = safe_spot.y;
 
     const double base_mul = bb_get_double(&bb, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(&bb, speed_key, 1.5);
@@ -101,9 +59,8 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
             "[Move Flee] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
             base_mul, speed_mul, base_mul * speed_mul);
     }
-    self.perform_step_move_to(target_pos, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
+    self.perform_step_move_to(safe_spot, world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
 
-    // 保持与原实现一致的清理，避免并行目标干扰
     self.clear_current_target();
     self.clear_path();
     self.clear_wander_target();
@@ -113,12 +70,6 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     bb.doubles.erase("mate_target_pos_y");
     bb.ints.erase("mating_timer_ticks");
 
-    const double arrival_threshold = std::max(0.5, self.get_current_step_distance());
-    if (self.position.distance_to(target_pos) <= arrival_threshold) {
-        bb.doubles.erase("flee_target_pos_x");
-        bb.doubles.erase("flee_target_pos_y");
-        return Status::Success;
-    }
     return Status::Running;
 }
 

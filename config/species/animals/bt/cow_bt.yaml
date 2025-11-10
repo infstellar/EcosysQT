@@ -7,7 +7,7 @@ BehaviorTreeDef:
       # ========== 逃跑（高优先级） ==========
       - type: TickIntervalDecorator  # 每帧评估，确保快速逃离
         name: Flee
-        interval: 1
+        interval: 0
         child:
           type: Sequence
           children:
