@@ -5,6 +5,8 @@
 #include "thing_base.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <memory>
+#include <limits>
 #include <random>
 
 namespace behavior::actions {
@@ -167,54 +169,75 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 
 bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
     auto* world = static_cast<EcosystemState*>(ctx.world);
-    if (!world || !self.alive) return Status::Failure;
-    if (self.get_skip_movement()) return Status::Failure;
-    // 若交配计时器仍在进行，避免重复提交导致每 tick 停动
-    if (self.mating_timer > 0) {
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[ApproachOrMate] Mating in progress (timer={}), skipping action",
-            self.mating_timer);
+    if (!world || !self.alive || self.get_skip_movement() || !ctx.blackboard) {
         return Status::Failure;
     }
+
+    if (self.mating_timer > 0) {
+        return Status::Failure;
+    }
+
+    auto& bb = *ctx.blackboard;
+    if (bb.doubles.find("mate_target_pos_x") == bb.doubles.end()) {
+        return Status::Failure;
+    }
+
+    Position target_pos{
+        bb_get_double(&bb, "mate_target_pos_x", 0.0),
+        bb_get_double(&bb, "mate_target_pos_y", 0.0)
+    };
+
     const std::string range_key = params["mating_range_param"] ? params["mating_range_param"].as<std::string>() : std::string("mating_range");
-
-    auto nearest_mate_opt = self.find_available_mate(*world);
-    if (!nearest_mate_opt.has_value()) return Status::Failure;
-    auto mate = nearest_mate_opt.value();
-    if (!mate || !mate->alive) return Status::Failure;
-
-    if (ctx.blackboard) {
-        ctx.blackboard->doubles["mate_target_pos_x"] = mate->position.x;
-        ctx.blackboard->doubles["mate_target_pos_y"] = mate->position.y;
-    }
-
     const double range = bb_get_double(ctx.blackboard, range_key, self.get_mating_range());
-    const double dist = self.position.distance_to(mate->position);
-    if (dist <= range) {
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-            "Submitting mate request: male pos=({:.1f},{:.1f}), female pos=({:.1f},{:.1f}), dist={:.2f}, range={:.2f}",
-            self.position.x, self.position.y, mate->position.x, mate->position.y, dist, range);
-        world->submit_interaction_request(AttemptToMateRequest{mate, std::dynamic_pointer_cast<Animal>(self.shared_from_this())});
-        
-        return Status::Success;
+    const double dist_to_target = self.position.distance_to(target_pos);
+
+    if (dist_to_target <= range) {
+        auto females_in_range = world->get_races_in_range(self.species_name, self.position, range);
+        std::shared_ptr<Animal> target_to_mate;
+        for (const auto& race : females_in_range) {
+            if (!race || race.get() == &self) continue;
+            auto potential_mate = std::dynamic_pointer_cast<Animal>(race);
+            if (potential_mate && potential_mate->sex == Sex::FEMALE && potential_mate->can_reproduce()) {
+                target_to_mate = potential_mate;
+                break;
+            }
+        }
+
+        if (target_to_mate) {
+            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+                "Submitting mate request (cached target): male pos=({:.1f},{:.1f}), female pos=({:.1f},{:.1f}), dist={:.2f}, range={:.2f}",
+                self.position.x, self.position.y, target_to_mate->position.x, target_to_mate->position.y, dist_to_target, range);
+
+            world->submit_interaction_request(AttemptToMateRequest{target_to_mate, std::dynamic_pointer_cast<Animal>(self.shared_from_this())});
+
+            bb.doubles.erase("mate_target_pos_x");
+            bb.doubles.erase("mate_target_pos_y");
+            self.clear_current_target();
+            self.clear_mating_target();
+            return Status::Success;
+        }
+
+        bb.doubles.erase("mate_target_pos_x");
+        bb.doubles.erase("mate_target_pos_y");
+        self.clear_current_target();
+        self.clear_mating_target();
+        return Status::Failure;
     }
 
-    self.set_mating_target(mate->position);
+    self.set_mating_target(target_pos);
     self.set_current_target(self.get_mating_target());
     self.plan_path_to_target(*world, self.get_current_target());
-    if (ctx.blackboard && self.get_current_target().has_value()) {
-        ctx.blackboard->doubles["target_pos_x"] = self.get_current_target()->x;
-        ctx.blackboard->doubles["target_pos_y"] = self.get_current_target()->y;
+
+    if (self.get_current_target().has_value()) {
+        bb.doubles["target_pos_x"] = self.get_current_target()->x;
+        bb.doubles["target_pos_y"] = self.get_current_target()->y;
     }
+
     const double base_mul = bb_get_double(ctx.blackboard, "current_speed_multiplier", 1.0);
     const double speed_mul = bb_get_double(ctx.blackboard, "mate_speed_multiplier", 1.0);
     const double energy_mul = bb_get_double(ctx.blackboard, "mate_energy_multiplier", 1.0);
     const double base_energy_mul = bb_get_double(ctx.blackboard, "current_energy_multiplier", 1.0);
-    if (self.is_pregnant) {
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-            "[Move Mate] Pregnant speed: base_mul={:.2f} speed_mul={:.2f} final_mul={:.2f}",
-            base_mul, speed_mul, base_mul * speed_mul);
-    }
+
     self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
     return Status::Running;
 }
@@ -276,15 +299,24 @@ bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     return Status::Failure;
 }
 
-bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
     auto* world = static_cast<EcosystemState*>(ctx.world);
-    if (!world || !self.alive) return Status::Failure;
-    if (self.get_skip_movement()) return Status::Failure;
+    if (!world || !self.alive || self.get_skip_movement() || !ctx.blackboard) {
+        return Status::Failure;
+    }
+
+    auto& bb = *ctx.blackboard;
+    if (bb.doubles.find("target_pos_x") == bb.doubles.end()) {
+        return Status::Failure;
+    }
+
+    Position target_pos{
+        bb_get_double(&bb, "target_pos_x", 0.0),
+        bb_get_double(&bb, "target_pos_y", 0.0)
+    };
 
     const std::string race = params["race"] ? params["race"].as<std::string>() : (params["kind"] ? params["kind"].as<std::string>() : std::string("cow"));
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("hunting_range");
-    const std::string rate_key = params["success_rate_param"] ? params["success_rate_param"].as<std::string>() : std::string("hunting_success_rate");
-
     const double range = bb_get_double(ctx.blackboard, range_key, self.hunting_range);
     const double desire = self.get_hunting_desire();
 
@@ -292,38 +324,38 @@ bt::Status HuntNearbyRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         return Status::Failure;
     }
 
-    // Sticky hunting: remember the first valid target within range.
-    std::shared_ptr<RaceBase> target_in_range;
-    for (auto& wptr : self.get_cached_food_races_snapshot()) {
-        auto r = wptr.lock();
-        if (!r || !r->alive) continue;
-        if (r.get() == &self) continue;
-        if (r->species_name != race) continue;
-        if (self.position.distance_to(r->position) <= range) {
-            target_in_range = r;
-            break;
-        }
-    }
-
-    if (!target_in_range) {
+    if (self.position.distance_to(target_pos) > range) {
         return Status::Failure;
     }
 
+    auto targets_in_range = world->get_races_in_range(race, self.position, range);
+    if (targets_in_range.empty()) {
+        return Status::Failure;
+    }
+
+    auto target_to_attack = targets_in_range.front();
+
     auto& rng_local = world->get_thread_local_rng();
     std::uniform_real_distribution<> hunt_dist(0.0, 1.0);
+    const std::string rate_key = params["success_rate_param"] ? params["success_rate_param"].as<std::string>() : std::string("hunting_success_rate");
     const double rate = bb_get_double(ctx.blackboard, rate_key, self.hunting_success_rate);
 
     if (hunt_dist(rng_local) < rate * desire) {
-        // 读取伤害参数：支持从黑板键覆盖或使用默认键 'attack_damage'
         const std::string dmg_key = params["damage_param"] ? params["damage_param"].as<std::string>() : std::string("attack_damage");
         const double damage = bb_get_double(ctx.blackboard, dmg_key, 10.0);
-        world->submit_interaction_request(DamageRaceRequest{self.shared_from_this(), target_in_range, damage});
+
+        world->submit_interaction_request(DamageRaceRequest{self.shared_from_this(), target_to_attack, damage});
+
         self.start_hunting_cooldown();
         self.set_skip_movement(true);
+
+        bb.doubles.erase("target_pos_x");
+        bb.doubles.erase("target_pos_y");
+        self.clear_current_target();
+
         return Status::Success;
     }
 
-    // Miss: keep the attack node active so the selector stays on P1.
     return Status::Running;
 }
 
@@ -333,40 +365,61 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
 
-    std::optional<Position> nearest_food;
+    std::shared_ptr<RaceBase> nearest_race_target;
+    std::shared_ptr<ThingBase> nearest_thing_target;
     double min_distance = std::numeric_limits<double>::max();
     const double detect_range = self.get_detection_range();
-    for (auto& wptr : self.get_cached_food_races_snapshot()) {
-        auto race = wptr.lock();
+
+    const auto nearby_races = world->get_nearby_races_broad(self.position, detect_range);
+    for (const auto& race : nearby_races) {
         if (!race || !race->alive) continue;
         if (std::find(self.food_types.begin(), self.food_types.end(), race->species_name) == self.food_types.end()) continue;
+
         double distance = self.position.distance_to(race->position);
         if (distance <= detect_range && distance < min_distance) {
             min_distance = distance;
-            nearest_food = race->position;
-        }
-    }
-    for (auto& wptr : self.get_cached_food_things_snapshot()) {
-        auto thing = wptr.lock();
-        if (!thing || !thing->alive) continue;
-        if (std::find(self.food_types.begin(), self.food_types.end(), thing->species_name) == self.food_types.end()) continue;
-        double distance = self.position.distance_to(thing->position);
-        if (distance <= detect_range && distance < min_distance) {
-            min_distance = distance;
-            nearest_food = thing->position;
+            nearest_race_target = race;
+            nearest_thing_target.reset();
         }
     }
 
-    if (nearest_food.has_value()) {
-        self.set_current_target(nearest_food.value());
+    const auto nearby_things = world->get_nearby_things_broad(self.position, detect_range);
+    for (const auto& thing : nearby_things) {
+        if (!thing || !thing->alive) continue;
+        if (std::find(self.food_types.begin(), self.food_types.end(), thing->species_name) == self.food_types.end()) continue;
+
+        double distance = self.position.distance_to(thing->position);
+        if (distance <= detect_range && distance < min_distance) {
+            min_distance = distance;
+            nearest_thing_target = thing;
+            nearest_race_target.reset();
+        }
+    }
+
+    if (nearest_race_target) {
+        self.set_current_target(nearest_race_target->position);
         if (ctx.blackboard) {
-            ctx.blackboard->doubles["target_pos_x"] = nearest_food->x;
-            ctx.blackboard->doubles["target_pos_y"] = nearest_food->y;
+            ctx.blackboard->doubles["target_pos_x"] = nearest_race_target->position.x;
+            ctx.blackboard->doubles["target_pos_y"] = nearest_race_target->position.y;
         }
         return Status::Success;
     }
+
+    if (nearest_thing_target) {
+        self.set_current_target(nearest_thing_target->position);
+        if (ctx.blackboard) {
+            ctx.blackboard->doubles["target_pos_x"] = nearest_thing_target->position.x;
+            ctx.blackboard->doubles["target_pos_y"] = nearest_thing_target->position.y;
+        }
+        return Status::Success;
+    }
+
     self.clear_current_target();
     self.clear_path();
+    if (ctx.blackboard) {
+        ctx.blackboard->doubles.erase("target_pos_x");
+        ctx.blackboard->doubles.erase("target_pos_y");
+    }
     return Status::Failure;
 }
 

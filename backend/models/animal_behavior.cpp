@@ -78,8 +78,6 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
             self.set_skip_movement(false);
             SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT {}] Update: reset skip_movement=false for '{}'", source_tag, self.species_name);
-            self.clear_sensor_caches();
-
             // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
             self.refresh_hunger_state();
 
@@ -218,47 +216,6 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                         source_tag, self.get_pregnancy_speed_penalty(), base_speed_multiplier, self.movement_speed);
                 }
             }
-
-            {
-                ZoneScopedN("BT::Update::CacheMates");
-                const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
-                for (const auto& r : nearby_races) {
-                    if (!r || !r->alive) continue;
-                    if (r.get() == &self) continue;
-                    if (r->species_name != self.species_name) continue;
-                    auto female = std::dynamic_pointer_cast<Animal>(r);
-                    if (!female) continue;
-                    if (female->sex != Sex::FEMALE || !female->can_reproduce()) continue;
-                    if (self.position.distance_to(female->position) > self.get_detection_range()) continue;
-                    self.cache_mate(female);
-                }
-                bb.ints["perceived_mates_count"] = static_cast<int>(self.get_cached_mates_snapshot().size());
-            }
-
-            {
-                ZoneScopedN("BT::Update::CacheFood");
-                {
-                    const auto nearby_races = world->get_nearby_races_broad(self.position, self.get_detection_range());
-                    for (const auto& r : nearby_races) {
-                        if (!r || !r->alive) continue;
-                        if (std::find(self.food_types.begin(), self.food_types.end(), r->species_name) == self.food_types.end()) continue;
-                        if (self.position.distance_to(r->position) > self.get_detection_range()) continue;
-                        self.cache_food_race(r);
-                    }
-                }
-                {
-                    const auto nearby_things = world->get_nearby_things_broad(self.position, self.get_detection_range());
-                    for (const auto& t : nearby_things) {
-                        if (!t || !t->alive) continue;
-                        if (std::find(self.food_types.begin(), self.food_types.end(), t->species_name) == self.food_types.end()) continue;
-                        if (self.position.distance_to(t->position) > self.get_detection_range()) continue;
-                        self.cache_food_thing(t);
-                    }
-                }
-                bb.ints["perceived_food_races_count"] = static_cast<int>(self.get_cached_food_races_snapshot().size());
-                bb.ints["perceived_food_things_count"] = static_cast<int>(self.get_cached_food_things_snapshot().size());
-            }
-
             {
                 ZoneScopedN("BT::Update::State");
                 const double base_range = bb_get_double(&bb, "stop_range_base_range", 0.0);
@@ -495,11 +452,11 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         }
     },
     {
-        "hunt_nearby_race",
+        "hunt_target_race",
         [](const YAML::Node& params, Animal& self){
             YAML::Node p = params;
             return std::make_shared<Action>([&self, p](TickContext& ctx){
-                return behavior::actions::HuntNearbyRace(self, ctx, p);
+                return behavior::actions::HuntTargetRace(self, ctx, p);
             });
         }
     },
