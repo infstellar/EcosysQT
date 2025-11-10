@@ -71,6 +71,13 @@ static void scan_and_register_plants(const std::string& directory_path) {
             PlantParams params = yaml_provider->get_plant_params(def_name);
             auto instance = std::make_unique<Producer>(pos, params, rng);
             instance->species_name = def_name;
+            // 如果是草（grass），在创建时为其随机分配一个贴图变体 0..2
+            if (def_name == "grass") {
+                std::uniform_int_distribution<int> dist(0, 2);
+                instance->variant_index = dist(rng);
+            } else {
+                instance->variant_index = -1;
+            }
             return instance;
         });
         SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered plant '{}'", def_name);

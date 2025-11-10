@@ -4,7 +4,7 @@ world:
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
-  grass: 10
+  grass: 1000
   cow: 20
   tiger: 3
 

@@ -1,6 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file>images/background.png</file>
+        <!-- 草贴图变体 -->
+        <file>images/grass_0.png</file>
+        <file>images/grass_1.png</file>
+        <file>images/grass_2.png</file>
+        <!-- 备用单张草贴图（保留以兼容旧资源） -->
         <file>images/grass.png</file>
         <file>images/cow.png</file>
         <file>images/bull.png</file>
