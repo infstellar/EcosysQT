@@ -242,61 +242,87 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     return Status::Running;
 }
 
-bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
     auto* world = static_cast<EcosystemState*>(ctx.world);
-    if (!world || !self.alive) return Status::Failure;
-    if (self.get_skip_movement()) return Status::Failure;
-
-    const std::string thing = params["thing"] ? params["thing"].as<std::string>() : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
-    const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
-    const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
-    // Short-circuit: if chase already inside the hard stop range, fail so downstream nodes can act.
-    const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
-    // 调试：打印吃草进度 current/total 与范围（降噪为 DEBUG）
-    {
-        int total = bb_get_int(ctx.blackboard, "eat_grass_total_ticks", -1);
-        int current = bb_get_int(ctx.blackboard, "eat_grass_current_ticks", 0);
-        double pct = (total > 0) ? (static_cast<double>(current) / static_cast<double>(total) * 100.0) : 0.0;
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[EatNearbyThing] '{}' thing={} eat_range={:.1f} progress={}/{} ({:.0f}%)",
-            self.species_name, thing, eat_range, current, total, pct);
+    if (!world || !self.alive || !ctx.blackboard) {
+        return Status::Failure;
     }
-    if (eat_range <= 0.0) return Status::Failure;
 
-    auto nearby_things = world->get_things_in_range(thing, self.position, eat_range);
-    // 选择最近的草，并计算硬停止半径（仅当足够接近才停止移动）
-    std::shared_ptr<ThingBase> nearest;
-    double nearest_dist = std::numeric_limits<double>::max();
-    for (const auto& t : nearby_things) {
-        if (!t || !t->alive) continue;
-        double d = self.position.distance_to(t->position);
-        if (d < nearest_dist) { nearest_dist = d; nearest = t; }
+    // 0. 若本帧已由其他动作设置了跳过移动，则不能吃草（与捕食一致）
+    if (self.get_skip_movement()) {
+        return Status::Failure;
     }
-    if (nearest) {
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[EatNearbyThing] nearest_dist={:.2f} eat_range={:.1f} stop_range={:.1f}",
-            nearest_dist, eat_range, stop_range);
 
-        // 仅当足够接近时才提交吃草请求并停止移动；不够近则返回 Failure 以允许移动分支执行
-    if (nearest_dist <= stop_range) {
-            world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), nearest});
-            self.set_skip_movement(true);
-            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                "[BT Action] {} eat within stop_range ({:.1f}); submit request, skip_movement=true",
-                self.species_name, stop_range);
-            // 成功提交进食请求：重置最近进食计时并施加轻微冷却
-            if (ctx.blackboard) {
-                ctx.blackboard->ints["ticks_since_last_meal"] = 0;
-            }
-            return Status::Success;
-        } else {
-            SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
-                "[BT Action] {} see grass but outside stop_range ({:.1f}); return Failure to keep moving",
-                self.species_name, stop_range);
-            return Status::Failure;
-        }
+    auto& bb = *ctx.blackboard;
+
+    // 1. 目标锁定：必须存在黑板上的缓存目标位置
+    if (bb.doubles.find("target_pos_x") == bb.doubles.end()) {
+        return Status::Failure;
     }
-    return Status::Failure;
+
+    Position target_pos{
+        bb_get_double(&bb, "target_pos_x", 0.0),
+        bb_get_double(&bb, "target_pos_y", 0.0)
+    };
+
+    // 2. 停止范围读取：优先使用预计算的 eat_hard_stop_range；否则按 base*factor 计算
+    double stop_range = bb_get_double(&bb, "eat_hard_stop_range", 0.0);
+    if (stop_range <= 0.0) {
+        const double base_range = bb_get_double(&bb, "stop_range_base_range", 1.0);
+        const double factor = bb_get_double(&bb, "stop_range_factor", 0.5);
+        stop_range = std::max(0.0, base_range * factor);
+    }
+    if (stop_range <= 0.0) {
+        return Status::Failure;
+    }
+
+    // 3. 范围检查：未到达停止范围则返回 Failure，让追逐分支生效
+    if (self.position.distance_to(target_pos) > stop_range) {
+        return Status::Failure;
+    }
+
+    // 4. 本地“去幽灵化”验证：在小范围内寻找真实存在的目标实体
+    const std::string thing = params["thing"] ? params["thing"].as<std::string>()
+                            : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
+    auto targets_in_range = world->get_things_in_range(thing, self.position, stop_range);
+    if (targets_in_range.empty()) {
+        // 目标可能已死亡或被其他实体消耗：清理黑板与当前目标
+        bb.doubles.erase("target_pos_x");
+        bb.doubles.erase("target_pos_y");
+        self.clear_current_target();
+        return Status::Failure;
+    }
+    auto target_to_eat = targets_in_range.front();
+
+    // 5. 与进度装饰器协作：仅在第0帧提交吃草请求，最后一帧完成后清理目标
+    const int current_ticks = bb_get_int(&bb, "eat_grass_current_ticks", 0);
+    const int total_ticks = bb_get_int(&bb, "eat_grass_total_ticks", 20);
+
+    if (current_ticks == 0) {
+        world->submit_interaction_request(AttemptToEatThingRequest{self.shared_from_this(), target_to_eat});
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+            "[BT Action] {} started eating (frame 0); submit request.",
+            self.species_name);
+    }
+
+    if (current_ticks >= (total_ticks - 1)) {
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+            "[BT Action] {} finished eating (frame {}); clear target.",
+            self.species_name, current_ticks);
+
+        bb.doubles.erase("target_pos_x");
+        bb.doubles.erase("target_pos_y");
+        self.clear_current_target();
+
+        // 重置最近进食计时
+        bb.ints["ticks_since_last_meal"] = 0;
+    }
+
+    // 6. 处于吃草过程中的每一帧都跳过移动
+    self.set_skip_movement(true);
+
+    // 7. 返回 Success，让 ProgressLoopDecorator 推进/完成计时
+    return Status::Success;
 }
 
 bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {

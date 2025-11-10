@@ -50,7 +50,7 @@ BehaviorTreeDef:
           - type: PrioritySelector
             children:
               - type: Action
-                action: eat_nearby_thing
+                action: eat_target_thing
                 kind: grass
                 range_param: eating_range
                 status_name: "Eating"

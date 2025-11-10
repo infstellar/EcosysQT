@@ -21,8 +21,8 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 // 选择可用配偶并在范围内提交交配请求；否则锁定意图并向配偶位置前进
 bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
-// 近场吃东西（如 grass）：在范围内提交吃东西请求并跳过移动
-bt::Status EatNearbyThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+// 吃黑板上的目标（如 grass）：在范围内提交吃东西请求并跳过移动
+bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
 // 捕食指定物种：依赖黑板目标，在攻击范围内完成本地验证后提交请求
 bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
