@@ -57,7 +57,7 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
 void Producer::compute_growth(const EcosystemState& ecosystem_state) {
 
     // base_growth_rate的单位是1250tick，所以我们需要
-    interval_growth_rate = base_growth_rate * GROWTH_CHECK_INTERVAL / 1250;
+    interval_growth_rate = base_growth_rate * GROWTH_CHECK_INTERVAL;
     const auto neighbor_offsets = Producer::build_neighbor_offsets();
     int nearby_same_species = 0; // 周围同种种子的数量
     // 遍历所有邻居位置
