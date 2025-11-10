@@ -18,9 +18,12 @@
 #include "species_statistics.h"
 #include "spatial_grid.h"
 #include "tile.h"
+#include "world_grid.h"
+#include "world_clock.h"
 #include "utils.h"
 #include "interaction_requests.h"
 #include "interaction_resolver.h"
+#include "population_manager.h"
 
 // 前向声明避免循环依赖
 class ThreadPool;
@@ -72,7 +75,6 @@ struct EcosystemConfig {
 class EcosystemState {
 public:
     EcosystemConfig config;
-    int time_step;
     RacesRegistry races_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
@@ -80,13 +82,8 @@ public:
 
     EcosystemState(const EcosystemConfig& config);
 
-    // 用于实时计算时间的 getter 函数
-    int get_current_day() const;
-    int get_current_quadrum() const;
-    int get_current_year() const;
-    int get_current_hour() const;
-    int get_current_minute() const;
-    std::string get_current_quadrum_name() const;
+    WorldClock& clock() { return m_clock; }
+    const WorldClock& clock() const { return m_clock; }
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
@@ -121,10 +118,8 @@ public:
     void reset(const EcosystemConfig& config);
     std::vector<std::string> check_extinction() const;
 
-    std::size_t get_grid_index(int x, int y) const;
-    Tile& get_tile(int x, int y);
-    const Tile& get_tile(int x, int y) const;
-    bool is_valid_grid_coord(int x, int y) const;
+    WorldGrid& world_grid() { return m_world_grid; }
+    const WorldGrid& world_grid() const { return m_world_grid; }
 
     std::vector<std::shared_ptr<RaceBase>> get_nearby_races_broad(
         const Position& center,
@@ -151,6 +146,8 @@ public:
     int get_grid_height() const { return spatial_grid->get_height(); }
     
 private:
+    friend class PopulationManager;
+
     // --- 更新阶段标记 ---
     // 用于在并发更新循环中标识当前所处阶段，便于加守卫确保请求仅在决策阶段提交。
     enum class UpdatePhase { Idle, Prepare, Decision, Resolve, Apply, Finalize };
@@ -168,8 +165,8 @@ private:
 
     InteractionResolutionState m_resolution_state;
     InteractionResolver m_interaction_resolver;
+    PopulationManager m_population_manager;
 
-    std::vector<Tile> m_world_grid;
     std::vector<std::shared_ptr<ThingBase>> m_all_things;
 
     // --- 新增：Thing 计数器 ---
@@ -188,10 +185,12 @@ private:
     // 恢复到前一个请求队列。
     void restore_request_queue(std::vector<InteractionRequest>* previous_queue);
 
-    void attach_thing_to_world(const std::shared_ptr<ThingBase>& thing);
-    void detach_thing_from_tile(ThingBase& thing);
-
     // --- 空间网格封装 ---
     std::unique_ptr<SpatialGrid> spatial_grid;
+    WorldGrid m_world_grid;
+    WorldClock m_clock;
+
+    void attach_thing_to_world(const std::shared_ptr<ThingBase>& thing);
+    void detach_thing_from_tile(ThingBase& thing);
 };
 #endif // ECOSYSTEM_H

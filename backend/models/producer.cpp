@@ -41,12 +41,13 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     ThingBase::decide(ecosystem_state, rng); // 调用基类的决策逻辑
     if (!alive) return; // 如果已经死亡，则不执行任何操作
 
+    const int current_tick = ecosystem_state.clock().time_step();
     // 生长逻辑：根据邻居密度计算 pending_growth
-    if ((ecosystem_state.time_step + m_tick_offset) % GROWTH_CHECK_INTERVAL == 0) {
+    if ((current_tick + m_tick_offset) % GROWTH_CHECK_INTERVAL == 0) {
         compute_growth(ecosystem_state);
     }
     
-    if ((ecosystem_state.time_step + m_tick_offset) % REPRODUCTION_CHECK_INTERVAL == 0) {
+    if ((current_tick + m_tick_offset) % REPRODUCTION_CHECK_INTERVAL == 0) {
         attempt_reproduction(ecosystem_state, rng);
     }
     
@@ -64,10 +65,10 @@ void Producer::compute_growth(const EcosystemState& ecosystem_state) {
         const int nx = m_grid_x + dx; // 计算邻居的x坐标
         const int ny = m_grid_y + dy; // 计算邻居的y坐标
         // 检查坐标是否有效
-        if (!ecosystem_state.is_valid_grid_coord(nx, ny)) {
+        if (!ecosystem_state.world_grid().is_valid_coord(nx, ny)) {
             continue;
         }
-        const Tile& tile = ecosystem_state.get_tile(nx, ny); // 获取对应的地块
+        const Tile& tile = ecosystem_state.world_grid().get_tile(nx, ny); // 获取对应的地块
         // 遍历地块上的所有物体
         for (ThingBase* occupant : tile.things) {
             if (!occupant || !occupant->alive || occupant == this) {
@@ -115,10 +116,10 @@ void Producer::attempt_reproduction(EcosystemState& ecosystem_state, std::mt1993
                 const int nx = m_grid_x + dx; // 计算邻居的x坐标
                 const int ny = m_grid_y + dy; // 计算邻居的y坐标
                 // 检查坐标是否有效
-                if (!ecosystem_state.is_valid_grid_coord(nx, ny)) {
+                if (!ecosystem_state.world_grid().is_valid_coord(nx, ny)) {
                     continue;
                 }
-                const Tile& tile = ecosystem_state.get_tile(nx, ny); // 获取对应的地块
+                const Tile& tile = ecosystem_state.world_grid().get_tile(nx, ny); // 获取对应的地块
                 // 检查地块是否为陆地
                 if (tile.terrain != TerrainType::LAND) {
                     continue;
