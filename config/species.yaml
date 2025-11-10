@@ -1,0 +1,6 @@
+schema_version: 1
+species:
+  species:
+    energy: 100.0
+    max_age: 100
+    reproduction_energy_cost: 50.0

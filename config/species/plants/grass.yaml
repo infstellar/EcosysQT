@@ -1,0 +1,7 @@
+schema_version: 1
+parent: base_plant
+species:
+  energy: 40
+  max_age: 2000
+  reproduction_energy_cost: 20
+plant: {}
