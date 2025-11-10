@@ -1,6 +1,6 @@
 world:
-  width: 1600
-  height: 900
+  width: 3200
+  height: 1800
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:

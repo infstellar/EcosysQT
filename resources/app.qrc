@@ -11,6 +11,8 @@
         <file>images/bull.png</file>
         <file>images/tiger.png</file>
         <file>images/tiger_man.png</file>
+    <!-- 新的老虎精灵表（4 行 × 7 帧），按用户提供路径存放在子目录中 -->
+    <file>images/grass_variants_backup/tiger_new.png</file>
         <file>music/background_music.mp3</file>
         <file>images/background_start.png</file>
     </qresource>
