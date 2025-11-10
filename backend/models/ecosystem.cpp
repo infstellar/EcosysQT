@@ -59,132 +59,145 @@ void EcosystemState::initialize_populations() {
     }
     m_all_things.clear();
     m_thing_counts.clear();
-
-    auto race_names = races_registry.get_all_species_names();
-    if (logger) {
-        logger->info("[Init] Initializing populations for {} races", race_names.size());
-    }
-    for (const auto& name : race_names) {
-        int initial_count = races_registry.get_initial_count(name);
+    // 动物初始化块
+    auto init_animals = [&]() {
+        auto race_names = races_registry.get_all_species_names();
         if (logger) {
-            logger->info("[Init] '{}' initial count: {}", name, initial_count);
+            logger->info("[Init] Initializing populations for {} races", race_names.size());
         }
-        for (int i = 0; i < initial_count; ++i) {
-            // 使用 get_thread_local_rng() 保证高质量随机数
-            std::uniform_real_distribution<> distX(0, config.world_width);
-            std::uniform_real_distribution<> distY(0, config.world_height);
-            int x = distX(get_thread_local_rng());
-            int y = distY(get_thread_local_rng());
-            try {
-                // 调用工厂时，传入 get_thread_local_rng()
-                auto new_individual = g_race_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
-                races_registry.add_individual(name, std::move(new_individual));
-            } catch (const std::exception& e) {
-                if (logger) {
-                    logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
+        for (const auto& name : race_names) {
+            int initial_count = races_registry.get_initial_count(name);
+            if (logger) {
+                logger->info("[Init] '{}' initial count: {}", name, initial_count);
+            }
+            for (int i = 0; i < initial_count; ++i) {
+                std::uniform_real_distribution<> distX(0, config.world_width);
+                std::uniform_real_distribution<> distY(0, config.world_height);
+                int x = distX(get_thread_local_rng());
+                int y = distY(get_thread_local_rng());
+                try {
+                    auto new_individual = g_race_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
+                    races_registry.add_individual(name, std::move(new_individual));
+                } catch (const std::exception& e) {
+                    if (logger) {
+                        logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
+                    }
+                    throw;
                 }
-                throw; // 上层捕获并报告
             }
         }
-    }
+    };
 
-    auto thing_names = g_thing_factory.get_all_species_names();
-    if (logger) {
-        logger->info("[Init] Initializing things for {} species", thing_names.size());
-    }
+    // 事物初始化块
+    auto init_things = [&]() {
+        auto thing_names = g_thing_factory.get_all_species_names();
+        if (logger) {
+            logger->info("[Init] Initializing things for {} species", thing_names.size());
+        }
+
+        std::mt19937& rng = get_thread_local_rng();
+        std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+        std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+
+        for (const auto& name : thing_names) {
+            int initial_count = 0;
+            auto it = config.initial_populations.find(name);
+            if (it != config.initial_populations.end()) {
+                initial_count = it->second;
+            }
+            if (logger) {
+                logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
+            }
+
+            int attempts = 0;
+            for (int i = 0; i < initial_count; ++i) {
+                const int kMaxPlacementAttempts = config.max_thing_placement_attempts;
+                bool placed = false;
+                while (!placed && attempts < kMaxPlacementAttempts * initial_count) {
+                    ++attempts;
+                    int tile_x = dist_tile_x(rng);
+                    int tile_y = dist_tile_y(rng);
+                    Tile& tile = get_tile(tile_x, tile_y);
+                    if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
+                        continue;
+                    }
+
+                    Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
+                    auto thing_unique = g_thing_factory.create(name, world_pos, rng);
+                    if (!thing_unique) {
+                        if (logger) {
+                            logger->warn("[Init] Thing factory returned null for '{}'", name);
+                        }
+                        break;
+                    }
+
+                    std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                    thing->position = world_pos;
+                    thing->m_grid_x = tile_x;
+                    thing->m_grid_y = tile_y;
+                    attach_thing_to_world(thing);
+                    placed = true;
+                }
+
+                if (!placed && logger) {
+                    logger->warn("[Init] Unable to place initial '{}' after {} attempts", name, attempts);
+                }
+            }
+        }
+    };
+
+    // 执行
+    init_animals();
     if (config.world_width <= 0 || config.world_height <= 0) {
         if (logger) {
             logger->warn("[Init] World dimensions are non-positive; skipping thing initialization");
         }
         return;
     }
-
-    std::mt19937& rng = get_thread_local_rng();
-    std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
-    std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
-
-    for (const auto& name : thing_names) {
-        int initial_count = 0;
-        auto it = config.initial_populations.find(name);
-        if (it != config.initial_populations.end()) {
-            initial_count = it->second;
-        }
-        if (logger) {
-            logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
-        }
-
-        int attempts = 0;
-        for (int i = 0; i < initial_count; ++i) {
-            constexpr int kMaxPlacementAttempts = 16;
-            bool placed = false;
-            while (!placed && attempts < kMaxPlacementAttempts * initial_count) {
-                ++attempts;
-                int tile_x = dist_tile_x(rng);
-                int tile_y = dist_tile_y(rng);
-                Tile& tile = get_tile(tile_x, tile_y);
-                if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
-                    continue;
-                }
-
-                Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
-                auto thing_unique = g_thing_factory.create(name, world_pos, rng);
-                if (!thing_unique) {
-                    if (logger) {
-                        logger->warn("[Init] Thing factory returned null for '{}'", name);
-                    }
-                    break;
-                }
-
-                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
-                thing->position = world_pos;
-                thing->m_grid_x = tile_x;
-                thing->m_grid_y = tile_y;
-                attach_thing_to_world(thing);
-                placed = true;
-            }
-
-            if (!placed && logger) {
-                logger->warn("[Init] Unable to place initial '{}' after {} attempts", name, attempts);
-            }
-        }
-    }
+    init_things();
 }
 
 /*
 使用getter函数算出时间
 */
 int EcosystemState::get_current_day() const {
-    return (time_step / 3000) + 1;
+    return (time_step / config.ticks_per_day) + 1;
 }
 
 int EcosystemState::get_current_year() const {
-    return ((get_current_day() - 1) / 60) + 1;
+    return ((get_current_day() - 1) / config.days_per_year) + 1;
 }
 
 int EcosystemState::get_current_quadrum() const {
-    int day_of_year = ((get_current_day() - 1) % 60) + 1;
-    return ((day_of_year - 1) / 15) + 1;
+    int day_of_year = ((get_current_day() - 1) % config.days_per_year) + 1;
+    return ((day_of_year - 1) / config.days_per_quadrum) + 1;
 }
 int EcosystemState::get_current_hour() const {
     // 获取当天已经过的步数
-    const int ticks_in_day = time_step % 3000;
-    return ticks_in_day / 125;
+    const int ticks_in_day = time_step % config.ticks_per_day;
+    return ticks_in_day / config.ticks_per_hour;
 }
 int EcosystemState::get_current_minute() const {
     // 获取当前小时已经过的步数
-    const int ticks_in_hour = (time_step % 3000) % 125;
+    const int ticks_in_hour = (time_step % config.ticks_per_day) % config.ticks_per_hour;
     // 将小时内的步数比例映射到 0-59 分钟
-    return static_cast<int>((static_cast<double>(ticks_in_hour) / 125.0) * 60.0);
+    return static_cast<int>((static_cast<double>(ticks_in_hour) / static_cast<double>(config.ticks_per_hour)) * 60.0);
 }
 
 std::string EcosystemState::get_current_quadrum_name() const {
-    static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
     int quadrum_index = get_current_quadrum() - 1;
-    if (quadrum_index >= 0 && quadrum_index < 4) {
-        return quadrum_names[quadrum_index];
+    if (quadrum_index < 0) {
+        spdlog::get("ecosim")->warn("get_current_quadrum_name 返回了未知值，请检查时间计算逻辑");
+        return "Unknown";
     }
-    spdlog::get("ecosim")->warn("get_current_quadrum_name 返回了未知值，请检查时间计算逻辑");
-    return "Unknown"; // 安全保护
+    if (config.quadrums_per_year == 4) {
+        static const char* quadrum_names[] = {"Aprimay", "Jugust", "Septober", "Decembery"};
+        if (quadrum_index < 4) {
+            return quadrum_names[quadrum_index];
+        }
+    }
+    // 通用命名：Q1, Q2, ...
+    return std::string("Q") + std::to_string(quadrum_index + 1);
 }
 
 /*
@@ -397,7 +410,7 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     for (const auto& name : species_names) {
         auto& list = races_registry.get_species_list(name);
         all_races_to_update.insert(all_races_to_update.end(), list.begin(), list.end());
-    }
+        }
     auto races_agg = std::make_shared<std::vector<std::shared_ptr<RaceBase>>>(std::move(all_races_to_update));
 
     std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;

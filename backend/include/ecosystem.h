@@ -26,7 +26,6 @@ class ThreadPool;
 class ThingBase;
 class RaceBase;
 
-
 // 物种类型枚举已在 species.h 声明
 
 // 位置数据，用于序列化/统计 (前端使用)
@@ -50,13 +49,22 @@ struct SpeciesPopulationData {
     std::map<std::string, std::vector<BaseIndividualData>> species_data;
 };
 
-// 生态系统配置 (模拟参数)
+// 生态系统配置 (默认值)
 struct EcosystemConfig {
-    int world_width;
-    int world_height;
+    // 世界参数
+    int world_width = 800;
+    int world_height = 600;
     std::map<std::string, int> initial_populations;
-    EcosystemConfig(int w = 800, int h = 600)
-        : world_width(w), world_height(h), initial_populations() {}
+    // 模拟参数
+    int ticks_per_day = 3000;
+    int ticks_per_hour = 125;
+    int max_thing_placement_attempts = 16;
+    // 年/季度参数（可由 YAML 覆盖）
+    int days_per_year = 60;
+    int quadrums_per_year = 4;      // 一年分为多少季（Quadrum）
+    int days_per_quadrum = 15;      // 每季包含多少天
+    EcosystemConfig() = default;
+    EcosystemConfig(int w, int h) : world_width(w), world_height(h) {}
 };
 
 // 生态系统状态管理器 (模拟核心)
