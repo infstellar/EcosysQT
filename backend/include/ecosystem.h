@@ -139,6 +139,16 @@ public:
         const Position& center,
         double radius) const;
 
+    std::vector<std::shared_ptr<RaceBase>> get_races_in_range(
+        const std::vector<std::string>& species_names,
+        const Position& center,
+        double radius) const;
+
+    std::vector<std::shared_ptr<ThingBase>> get_things_in_range(
+        const std::vector<std::string>& species_names,
+        const Position& center,
+        double radius) const;
+
     // 并发只读接口：访问空间网格与参数
     const std::vector<std::vector<std::vector<std::shared_ptr<RaceBase>>>>& get_spatial_grid() const { return spatial_grid->cells(); }
     double get_cell_size() const { return spatial_grid->get_cell_size(); }

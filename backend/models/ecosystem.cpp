@@ -692,68 +692,77 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_nearby_things_broad(
 }
 
 std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
+    const std::vector<std::string>& species_names,
+    const Position& center,
+    double radius) const {
+    if (radius < 0.0 || species_names.empty()) {
+        return {};
+    }
+
+    const auto nearby_races = get_nearby_races_broad(center, radius);
+    std::vector<std::shared_ptr<RaceBase>> results;
+    results.reserve(nearby_races.size());
+    const double radius_sq = radius * radius;
+
+    for (const auto& race : nearby_races) {
+        if (!race || !race->alive) {
+            continue;
+        }
+        if (std::find(species_names.begin(), species_names.end(), race->species_name) == species_names.end()) {
+            continue;
+        }
+
+        const double dx = race->position.x - center.x;
+        const double dy = race->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            results.push_back(race);
+        }
+    }
+
+    return results;
+}
+
+std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
+    const std::vector<std::string>& species_names,
+    const Position& center,
+    double radius) const {
+    if (radius < 0.0 || species_names.empty()) {
+        return {};
+    }
+
+    const auto nearby_things = get_nearby_things_broad(center, radius);
+    std::vector<std::shared_ptr<ThingBase>> results;
+    results.reserve(nearby_things.size());
+    const double radius_sq = radius * radius;
+
+    for (const auto& thing : nearby_things) {
+        if (!thing || !thing->alive) {
+            continue;
+        }
+        if (std::find(species_names.begin(), species_names.end(), thing->species_name) == species_names.end()) {
+            continue;
+        }
+
+        const double dx = thing->position.x - center.x;
+        const double dy = thing->position.y - center.y;
+        if ((dx * dx + dy * dy) <= radius_sq) {
+            results.push_back(thing);
+        }
+    }
+
+    return results;
+}
+
+std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
     const std::string& species_name,
     const Position& center,
     double radius) const {
-    std::vector<std::shared_ptr<RaceBase>> result;
-    if (!races_registry.has_species(species_name)) {
-        return result;
-    }
-
-    const auto& list = races_registry.get_species_list(species_name);
-    const double radius_sq = radius * radius;
-    result.reserve(list.size());
-    for (const auto& individual : list) {
-        if (!individual || !individual->alive) {
-            continue;
-        }
-        const double dx = individual->position.x - center.x;
-        const double dy = individual->position.y - center.y;
-        if ((dx * dx + dy * dy) <= radius_sq) {
-            result.push_back(individual);
-        }
-    }
-
-    return result;
+    return get_races_in_range(std::vector<std::string>{species_name}, center, radius);
 }
 
 std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     const std::string& species_name,
     const Position& center,
     double radius) const {
-    std::vector<std::shared_ptr<ThingBase>> result;
-    const int grid_width = m_world_grid.width();
-    const int grid_height = m_world_grid.height();
-    if (radius < 0.0 || grid_width <= 0 || grid_height <= 0) {
-        return result;
-    }
-
-    const double radius_sq = radius * radius;
-
-    const int min_x = std::clamp(static_cast<int>(std::floor(center.x - radius)), 0, grid_width - 1);
-    const int max_x = std::clamp(static_cast<int>(std::floor(center.x + radius)), 0, grid_width - 1);
-    const int min_y = std::clamp(static_cast<int>(std::floor(center.y - radius)), 0, grid_height - 1);
-    const int max_y = std::clamp(static_cast<int>(std::floor(center.y + radius)), 0, grid_height - 1);
-
-    for (int y = min_y; y <= max_y; ++y) {
-        for (int x = min_x; x <= max_x; ++x) {
-            const Tile& tile = m_world_grid.get_tile(x, y);
-            for (ThingBase* thing_ptr : tile.things) {
-                if (!thing_ptr || !thing_ptr->alive) {
-                    continue;
-                }
-                if (thing_ptr->species_name != species_name) {
-                    continue;
-                }
-
-                const double dx = thing_ptr->position.x - center.x;
-                const double dy = thing_ptr->position.y - center.y;
-                if ((dx * dx + dy * dy) <= radius_sq) {
-                    result.push_back(thing_ptr->shared_from_this());
-                }
-            }
-        }
-    }
-
-    return result;
+    return get_things_in_range(std::vector<std::string>{species_name}, center, radius);
 }

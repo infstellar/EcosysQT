@@ -396,10 +396,9 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     double min_distance = std::numeric_limits<double>::max();
     const double detect_range = self.get_detection_range();
 
-    const auto nearby_races = world->get_nearby_races_broad(self.position, detect_range);
+    const auto nearby_races = world->get_races_in_range(self.food_types, self.position, detect_range);
     for (const auto& race : nearby_races) {
         if (!race || !race->alive) continue;
-        if (std::find(self.food_types.begin(), self.food_types.end(), race->species_name) == self.food_types.end()) continue;
 
         double distance = self.position.distance_to(race->position);
         if (distance <= detect_range && distance < min_distance) {
@@ -409,10 +408,9 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
         }
     }
 
-    const auto nearby_things = world->get_nearby_things_broad(self.position, detect_range);
+    const auto nearby_things = world->get_things_in_range(self.food_types, self.position, detect_range);
     for (const auto& thing : nearby_things) {
         if (!thing || !thing->alive) continue;
-        if (std::find(self.food_types.begin(), self.food_types.end(), thing->species_name) == self.food_types.end()) continue;
 
         double distance = self.position.distance_to(thing->position);
         if (distance <= detect_range && distance < min_distance) {
