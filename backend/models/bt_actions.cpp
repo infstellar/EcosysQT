@@ -8,6 +8,7 @@
 #include <memory>
 #include <limits>
 #include <random>
+#include "tracy/Tracy.hpp"
 
 namespace behavior::actions {
 
@@ -26,6 +27,7 @@ static inline int bb_get_int(Blackboard* bb, const std::string& key, int def_v =
 }
 
 bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::Flee");
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
@@ -76,6 +78,7 @@ bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 }
 
 bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::Wander");
     (void)params;
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
@@ -168,6 +171,7 @@ bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 }
 
 bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::ApproachOrMate");
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive || self.get_skip_movement() || !ctx.blackboard) {
         return Status::Failure;
@@ -243,6 +247,7 @@ bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 }
 
 bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::EatThing");
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive || !ctx.blackboard) {
         return Status::Failure;
@@ -326,6 +331,7 @@ bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 }
 
 bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::HuntRace");
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive || self.get_skip_movement() || !ctx.blackboard) {
         return Status::Failure;
@@ -386,6 +392,7 @@ bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 }
 
 bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::SelectTarget");
     (void)params;
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
@@ -448,6 +455,7 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
 }
 
 bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::PlanPath");
     auto* world = static_cast<EcosystemState*>(ctx.world);
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
