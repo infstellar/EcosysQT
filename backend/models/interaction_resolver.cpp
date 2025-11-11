@@ -59,10 +59,17 @@ void InteractionResolver::handle_request(const AttemptToEatThingRequest& req,
     results.race_energy_changes[initiator.get()] += gained;
 
     if (logger) {
-        logger->info("[Resolve EatThing] Accepted: '{}' eats '{}' at ({:.1f},{:.1f}); energy +{:.1f}",
-                     initiator->species_name, target->species_name,
-                     target->position.x, target->position.y,
-                     nutrition);
+        logger->info(
+            "[Resolve EatThing] '{}' id={} eats '{}' id={} at ({:.1f},{:.1f}); energy +{:.1f} (nutrition={:.1f}, eff={:.2f})",
+            initiator->species_name,
+            reinterpret_cast<std::uintptr_t>(initiator.get()),
+            target->species_name,
+            reinterpret_cast<std::uintptr_t>(target.get()),
+            target->position.x,
+            target->position.y,
+            gained,
+            nutrition,
+            efficiency);
     }
 
     target->die_from_predation(initiator->species_name);
@@ -103,7 +110,10 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
         if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
             const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);
             const double bonus_max = std::max(0.0, predator->nutrition_bonus_max);
-            bonus = bonus_max * std::pow(saturation, alpha);
+            // 将 bonus_max 视为对基础营养值的倍率上限（1.0 表示最多额外获得与基础营养值等量的加成），
+            // 并按猎物当前能量饱和度（energy/max_energy）的幂次曲线进行缩放。
+            const double bonus_ratio = std::pow(saturation, alpha);
+            bonus = bonus_max * pre_death_nutrition * bonus_ratio;
         }
         const double gained = (pre_death_nutrition + bonus) * efficiency;
         results.race_energy_changes[attacker.get()] += gained;
