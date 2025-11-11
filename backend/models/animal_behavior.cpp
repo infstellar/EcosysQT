@@ -161,6 +161,7 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 double threat_dist = std::numeric_limits<double>::max();
                 Position threat_pos = self.position;
                 {
+                    ZoneScopedN("BT::Update::Threat::Query");
                     const auto nearby = world->get_nearby_races_broad(self.position, threat_threshold);
                     for (const auto& r : nearby) {
                         if (!r || !r->alive) continue;
