@@ -69,7 +69,16 @@ void PopulationManager::apply_changes(EcosystemState& state) {
 
             if (auto energy_it = race_energy_changes.find(individual.get());
                 energy_it != race_energy_changes.end()) {
-                individual->energy += energy_it->second;
+                const double delta = energy_it->second;
+                const double prev = individual->energy;
+                individual->energy = prev + delta;
+                if (logger) {
+                    logger->info("[Finalize Energy] '{}' id={} +{:.1f} -> {:.1f}",
+                                 individual->species_name,
+                                 reinterpret_cast<std::uintptr_t>(individual.get()),
+                                 delta,
+                                 individual->energy);
+                }
             }
         }
 
