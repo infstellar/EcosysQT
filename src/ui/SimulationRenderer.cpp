@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <QDateTime>
 #include <unordered_set>
+#include <cmath>
 
 // DrawableEntity 结构体只在渲染时使用，所以定义在这里
 struct DrawableEntity {
@@ -106,6 +107,9 @@ void SimulationRenderer::render(QPainter& painter,
     painter.setRenderHint(QPainter::Antialiasing);
 
     drawBackground(painter);
+    if (m_parentWidget->isGridEnabled()) {
+        drawGrid(painter, camera, data->world_width, data->world_height);
+    }
     drawEntities(painter, data, camera);
     if (isInspectMode) {
         drawSelection(painter, camera, hovered, selected);
@@ -184,7 +188,7 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     entitiesToDraw.reserve(m_parentWidget->m_grassCount + m_parentWidget->m_cowCount + m_parentWidget->m_tigerCount); // 预分配内存以提高效率
 
     const double pixelsPerWorldUnit = m_parentWidget->width() / visibleWorldWidth;
-    const double animalWorldSize = 100.0; 
+    const double animalWorldSize = 10.0; 
     const double animalSizeOnScreen = animalWorldSize * pixelsPerWorldUnit;
 
     // 循环 1: 收集 Races (动物)
@@ -290,7 +294,7 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
             for (int i = 0; i < 3; ++i) if (!m_grassTextures[i].isNull()) { hasValid = true; break; }
             if (!hasValid) continue;
 
-            const double grassWorldSize = 100.0;
+            const double grassWorldSize = 3.0;
             const double size = grassWorldSize * pixelsPerWorldUnit;
 
             for (const auto& individual : individuals) {
@@ -563,4 +567,41 @@ QColor SimulationRenderer::getColorForName(const std::string& name) const
         return QColor(220, 20, 60);
     }
     return Qt::gray;
+}
+
+void SimulationRenderer::drawGrid(QPainter& painter, const CameraController& camera, double worldWidth, double worldHeight)
+{
+    if (worldWidth <= 0 || worldHeight <= 0) return;
+
+    const QSize screenSize = m_parentWidget->size();
+    const double visibleWorldWidth = worldWidth / camera.getZoomFactor();
+    const double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    const double viewLeft = camera.getViewCenter().x() - visibleWorldWidth / 2.0;
+    const double viewTop = camera.getViewCenter().y() - visibleWorldHeight / 2.0;
+    const double viewRight = viewLeft + visibleWorldWidth;
+    const double viewBottom = viewTop + visibleWorldHeight;
+
+    int startX = static_cast<int>(std::floor(std::max(0.0, viewLeft)));
+    int endX   = static_cast<int>(std::ceil(std::min(worldWidth, viewRight)));
+    int startY = static_cast<int>(static_cast<int>(std::floor(std::max(0.0, viewTop))));
+    int endY   = static_cast<int>(std::ceil(std::min(worldHeight, viewBottom)));
+
+    QPen thinPen(QColor(255, 255, 255, 70));
+    thinPen.setWidth(1);
+    painter.setPen(thinPen);
+
+    // 垂直网格线
+    for (int x = startX; x <= endX; ++x) {
+        QPointF top = camera.toScreenCoords(QPointF(x, viewTop), screenSize);
+        QPointF bottom = camera.toScreenCoords(QPointF(x, viewBottom), screenSize);
+        painter.drawLine(QLineF(top, bottom));
+    }
+
+    // 水平网格线
+    for (int y = startY; y <= endY; ++y) {
+        QPointF left = camera.toScreenCoords(QPointF(viewLeft, y), screenSize);
+        QPointF right = camera.toScreenCoords(QPointF(viewRight, y), screenSize);
+        painter.drawLine(QLineF(left, right));
+    }
 }

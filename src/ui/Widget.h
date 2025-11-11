@@ -40,6 +40,9 @@ public:
     explicit Widget(SimulationController* controller, QWidget *parent = nullptr);
     ~Widget();
 
+    // 网格显示开关状态查询（供渲染器使用）
+    bool isGridEnabled() const { return m_showGrid; }
+
 signals:
     void exitToStartScreen();
 
@@ -63,6 +66,8 @@ private slots:
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     void onToggleHistoryClicked();
 #endif
+    // 新增：网格显示/隐藏切换
+    void onToggleGridClicked();
 
 private:
     // ========== 核心数据和子系统 ==========
@@ -79,6 +84,7 @@ private:
     QPushButton* m_slowDownButton;
     QPushButton* m_restartButton; 
     QPushButton* m_customSpeedButton;
+    QPushButton* m_toggleGridButton; // 新增：显示/隐藏网格按钮
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     QPushButton* m_historyButton;
 #endif
@@ -106,6 +112,9 @@ private:
     int m_currentHour;
     int m_currentMinute;
     double m_current_tps;
+
+    // ========== 新增：网格显示开关 ==========
+    bool m_showGrid = false;
 
     // ========== 辅助函数 ==========
     void updateStatistics();

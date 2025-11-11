@@ -47,8 +47,8 @@ MainWindow::MainWindow(QWidget *parent)
     playlist->addMedia(QUrl("qrc:/music/background_music.mp3"));
     playlist->setPlaybackMode(QMediaPlaylist::Loop); // 设置循环播放
     m_backgroundMusic->setPlaylist(playlist);
-    m_backgroundMusic->setVolume(50); // 设置一个合适的音量 (0-100)
-    m_backgroundMusic->play();
+    m_backgroundMusic->setVolume(0); // 设置一个合适的音量 (0)
+    // m_backgroundMusic->play();
 }
 
 MainWindow::~MainWindow()
@@ -64,7 +64,7 @@ MainWindow::~MainWindow()
 void MainWindow::onToggleMusic(bool play)
 {
     if (play && !m_isMusicPlaying) {
-        m_backgroundMusic->play();
+        // m_backgroundMusic->play();
         m_isMusicPlaying = true;
         qDebug() << "音乐已开启";
     } else if (!play && m_isMusicPlaying) {

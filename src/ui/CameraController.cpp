@@ -43,7 +43,7 @@ void CameraController::handleWheelEvent(QWheelEvent *event, const QSize& screenS
     }
     // 计算允许的最小缩放（以便整张地图可见）并 clamp
     double minZoom = computeMinZoom(screenSize);
-    const double maxZoom = 20.0;
+    const double maxZoom = 60.0;
     if (minZoom <= 0.0) minZoom = 0.1; // 安全保护
     if (minZoom > maxZoom) minZoom = maxZoom;
     m_zoomFactor = std::clamp(m_zoomFactor, minZoom, maxZoom);

@@ -46,7 +46,7 @@ public:
     std::weak_ptr<Animal> mating_partner;
 
     double movement_speed;
-    int energy_consumption;
+    double energy_consumption;
     double hunting_range;
     double hunting_success_rate;
     double detection_range;

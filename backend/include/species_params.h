@@ -20,7 +20,7 @@ struct SpeciesBaseParams {
 struct AnimalParams : SpeciesBaseParams {
     bool use_bt = false;            // 是否启用行为树
     double movement_speed = 1.0;
-    int energy_consumption = 1;
+    double energy_consumption = 1.0;
     double hunting_range = 5.0;
     double hunting_success_rate = 0.5;
     double detection_range = 300.0;
