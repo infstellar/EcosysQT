@@ -24,7 +24,7 @@ animal:
     doubles:
       flee_speed_multiplier: 1.8
       flee_energy_multiplier: 1.5
-      flee_destination_radius: 80.0    # 逃逸目的地目标半径（可选）
+      flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）
       wander_speed_multiplier: 0.5
       wander_energy_multiplier: 0.5
       chase_speed_multiplier: 1.0

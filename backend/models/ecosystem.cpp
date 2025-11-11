@@ -973,7 +973,9 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
                 added_things.insert(thing_ptr);
 
                 if (results.size() >= n) {
-                    spdlog::info("find_nearest_things: {} tiles visited", cnt);
+                    if (cnt >= 100){
+                        spdlog::info("find_nearest_things: {} tiles visited", cnt);
+                    }
                     return results;
                 }
             }

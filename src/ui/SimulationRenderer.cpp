@@ -188,7 +188,7 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     entitiesToDraw.reserve(m_parentWidget->m_grassCount + m_parentWidget->m_cowCount + m_parentWidget->m_tigerCount); // 预分配内存以提高效率
 
     const double pixelsPerWorldUnit = m_parentWidget->width() / visibleWorldWidth;
-    const double animalWorldSize = 10.0; 
+    const double animalWorldSize = 6.0; 
     const double animalSizeOnScreen = animalWorldSize * pixelsPerWorldUnit;
 
     // 循环 1: 收集 Races (动物)
