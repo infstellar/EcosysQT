@@ -150,6 +150,9 @@ public:
     double get_current_step_distance() const;
     double get_step_distance_per_tick() const;
 
+    // 路径快照：返回当前规划路径的副本，供 UI 调试快照使用
+    std::vector<Position> get_planned_path_snapshot() const;
+
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式
     friend std::unique_ptr<bt::BehaviorTree> behavior::build_tree_for_animal(Animal& self);

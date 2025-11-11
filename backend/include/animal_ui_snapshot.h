@@ -4,6 +4,8 @@
 
 #include <string>
 #include <vector>
+#include <optional>
+#include "utils.h"
 
 struct InteractionLogEntry {
     int timestamp = 0;
@@ -23,6 +25,10 @@ struct AnimalUiSnapshot {
     // 生命值显示
     double hp_current = 0.0;
     double hp_max = 0.0;
+
+    // 寻路调试：当前目标与规划路径（仅 UI Debug 模式）
+    std::optional<Position> current_target;
+    std::vector<Position> planned_path;
 
     std::vector<InteractionLogEntry> interaction_history;
 };

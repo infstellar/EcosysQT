@@ -528,6 +528,29 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
                     }
                 }
             }
+
+            // 绘制寻路叠加：当前目标与规划路径（仅 UI Debug）
+            if (ui.current_target.has_value()) {
+                QPointF targetPos = camera.toScreenCoords(QPointF(ui.current_target->x, ui.current_target->y), m_parentWidget->size());
+                painter.setPen(QPen(QColor(0, 200, 255, 200), 2));
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(targetPos, 10, 10);
+                painter.drawLine(QPointF(targetPos.x() - 12, targetPos.y()), QPointF(targetPos.x() + 12, targetPos.y()));
+                painter.drawLine(QPointF(targetPos.x(), targetPos.y() - 12), QPointF(targetPos.x(), targetPos.y() + 12));
+            }
+
+            if (!ui.planned_path.empty()) {
+                QPen pathPen(QColor(255, 255, 0, 180));
+                pathPen.setWidth(2);
+                pathPen.setStyle(Qt::DashLine);
+                painter.setPen(pathPen);
+                QPointF prev = camera.toScreenCoords(QPointF(animal_ptr->position.x, animal_ptr->position.y), m_parentWidget->size());
+                for (const auto& p : ui.planned_path) {
+                    QPointF sp = camera.toScreenCoords(QPointF(p.x, p.y), m_parentWidget->size());
+                    painter.drawLine(prev, sp);
+                    prev = sp;
+                }
+            }
 #endif // ECOSIM_ENABLE_UI_DEBUG
         }
     }, entity);

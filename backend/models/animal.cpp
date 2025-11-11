@@ -206,6 +206,10 @@ void Animal::clear_path() { planned_path.clear(); planned_path_index = 0; }
 double Animal::get_current_step_distance() const { return current_step_distance; }
 double Animal::get_step_distance_per_tick() const { return step_distance_per_tick; }
 
+std::vector<Position> Animal::get_planned_path_snapshot() const {
+    return planned_path;
+}
+
 
 double Animal::get_hunting_desire() const {
     switch (hunger_state) {
