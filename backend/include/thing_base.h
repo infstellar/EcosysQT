@@ -9,6 +9,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <algorithm>
 #include "utils.h"
 
 // 前向声明
@@ -20,6 +21,8 @@ public:
     Position position;
     double energy;
     double max_energy;
+    // 植物/事物的营养值：用于被食用时提供的能量结算基数
+    double nutrition_value;
     int age;
     int max_age;
     bool alive;
@@ -57,6 +60,9 @@ public:
     virtual void die_from_old_age();
     virtual void die_from_starvation();
     virtual void die_from_predation(const std::string& predator_name);
+
+    // 被食用时的营养值访问接口（与当前 energy 脱钩）
+    virtual double get_nutrition_value() const { return std::max(0.0, nutrition_value); }
 
     std::optional<Position> consume_pending_spawn_position();
 };

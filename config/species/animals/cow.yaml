@@ -15,7 +15,7 @@ animal:
   # 行为树黑板参数：吃草的总持续tick数，可被 ProgressDecorator 读取
   bt_params:
     ints:
-      eat_grass_total_ticks: 20
+      eat_grass_total_ticks: 10
     doubles:
       flee_speed_multiplier: 1.2
       flee_energy_multiplier: 1.2
@@ -31,11 +31,35 @@ animal:
   min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖
   reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
   eating_range: 1
-  satisfied_threshold_ratio: 0.75
-  starving_threshold_ratio: 0.3
+
   wandering_duration: 50
-  energy_efficiency: 0.7
+  # 繁殖相关
   pregnancy_duration: 300         # 延长妊娠时间
   mating_range: 5.0        
   pregnancy_speed_penalty: 0.6 
   mating_desire_probability: 0.5  # 进一步降低交配意愿，避免频繁扣能量
+
+  # 基础营养值
+  nutrition_value: 300.0
+  # energy加成
+  nutrition_bonus_max: 5.0
+  nutrition_bonus_curve_alpha: 2.0
+  # 饥饿相关
+  starvation_damage: 33.0
+  starvation_damage_interval_ratio: 0.1
+  satisfied_threshold_ratio: 0.75
+  starving_threshold_ratio: 0.3
+  energy_efficiency: 0.7
+  # energy加成 ~ https://doi.org/10.1093/conphys/coac083
+  # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
+  # 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
+  nutrition_bonus_max: 0.5 # 相当于最多额外获得猎物当前的power0.5倍
+  nutrition_bonus_curve_alpha: 1.0 # 1.0就相当于线性获得猎物当前的power
+  # HP恢复基础速率
+  hp_regen_base_per_day: 500.0
+  # HP恢复的状态加成：
+  hp_regen_mul_satisfied: 2.0
+  hp_regen_mul_normal: 1.0
+  hp_regen_mul_starving: 0.1
+  # HP恢复周期（0-1天）
+  regan_interval_ratio: 0.002

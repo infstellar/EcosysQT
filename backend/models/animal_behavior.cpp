@@ -227,6 +227,35 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 // 维护滞后/冷却计数器：最近进食计时与强制游荡倒计时
                 int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
                 bb.ints["ticks_since_last_meal"] = std::max(0, meal_ticks + 1);
+
+                // 饥饿伤害：在 STARVING 状态下按间隔扣减 HP
+                {
+                    ZoneScopedN("BT::Update::StarvationDamage");
+                    const bool starving = (self.get_hunger_state() == HungerState::STARVING);
+                    const double ratio = bb_get_double(&bb, "starvation_damage_interval_ratio", 0.25);
+                    const double damage = bb_get_double(&bb, "starvation_damage", 0.0);
+                    const int tpd = world ? world->config.ticks_per_day : 3000;
+                    const double clamped_ratio = std::max(0.0, std::min(1.0, ratio));
+                    int interval = std::max(1, static_cast<int>(std::floor(clamped_ratio * static_cast<double>(tpd))));
+                    bb.ints["starvation_damage_interval_ticks"] = interval;
+
+                    int sd_ticks = (bb.ints.find("ticks_since_last_starvation_damage") != bb.ints.end())
+                        ? bb.ints["ticks_since_last_starvation_damage"]
+                        : 0;
+                    if (starving) {
+                        sd_ticks = std::max(0, sd_ticks + 1);
+                        if (damage > 0.0 && sd_ticks >= interval) {
+                            self.take_damage(damage, "Starvation");
+                            sd_ticks = 0;
+                            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                                "[BT {}] Starvation dmg: '{}' -{:.1f} every {} ticks (tpd={})",
+                                source_tag, self.species_name, damage, interval, tpd);
+                        }
+                    } else {
+                        sd_ticks = 0;
+                    }
+                    bb.ints["ticks_since_last_starvation_damage"] = sd_ticks;
+                }
             }
         }
 

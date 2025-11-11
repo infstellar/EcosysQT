@@ -71,5 +71,8 @@ public:
     // 基础伤害接口：扣减生命值并在耗尽时死亡
     virtual void take_damage(double amount, const std::string& source = "Unknown");
 
+    // 能量结算基数：用于被击杀后为捕食者提供的能量，默认返回当前 energy
+    virtual double get_nutrition_value() const;
+
     std::optional<Position> consume_pending_spawn_position();
 };

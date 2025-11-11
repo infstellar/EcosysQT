@@ -33,6 +33,8 @@ Producer::Producer(Position pos, const PlantParams& params, std::mt19937& rng)
     // 初始化随机 Tick 偏移（用于与全局 Tick 解耦）
     std::uniform_int_distribution<> dist(0, MAX_INTERVAL - 1);
     m_tick_offset = dist(rng);
+    // 植物营养值：用于被食用时的能量结算
+    nutrition_value = std::max(0.0, params.nutrition_value);
 }
 
 // Producer的决策函数，每个tick调用一次

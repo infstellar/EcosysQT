@@ -8,3 +8,5 @@ plant:
   reproduction_cooldown: 15
   expansion_boost: 1.5
   min_growth_factor: 0.0005
+  # 被食用时提供的基础营养值（独立于能量）
+  nutrition_value: 50.0
