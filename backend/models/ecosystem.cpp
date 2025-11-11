@@ -895,13 +895,19 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
     const std::unordered_set<std::string> species_filter(species_names.begin(), species_names.end());
     std::unordered_set<const ThingBase*> added_things;
 
-    // --- BFS 队列与访问集 ---
+    // --- BFS 队列与本地访问网格 ---
     std::queue<std::pair<int, int>> frontier;
-    const std::size_t width_sz = static_cast<std::size_t>(grid_width);
-    std::unordered_set<std::size_t> visited_tiles;
-    const auto index_for = [width_sz](int x, int y) {
-        return static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
-    };
+    const int radius_in_tiles = static_cast<int>(std::ceil(max_radius));
+    const int local_grid_dim = 2 * radius_in_tiles + 1;
+    const std::size_t local_total_size = static_cast<std::size_t>(local_grid_dim) * static_cast<std::size_t>(local_grid_dim);
+    std::vector<char> local_visited(local_total_size, 0); // Local grid keeps visited markers bounded by radius
+
+    int start_x = static_cast<int>(std::floor(center.x));
+    int start_y = static_cast<int>(std::floor(center.y));
+    start_x = std::clamp(start_x, 0, grid_width - 1);
+    start_y = std::clamp(start_y, 0, grid_height - 1);
+    const int local_origin_x = start_x - radius_in_tiles;
+    const int local_origin_y = start_y - radius_in_tiles;
 
     // 8方向（菱形螺旋的广义邻域）
     const std::array<std::pair<int, int>, 8> directions{{
@@ -914,11 +920,18 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
         if (x < 0 || x >= grid_width || y < 0 || y >= grid_height) {
             return;
         }
-        const auto idx = index_for(x, y);
-        if (visited_tiles.count(idx)) {
+
+        const int local_x = x - local_origin_x;
+        const int local_y = y - local_origin_y;
+        if (local_x < 0 || local_x >= local_grid_dim || local_y < 0 || local_y >= local_grid_dim) {
             return;
         }
-        visited_tiles.insert(idx);
+
+        const std::size_t local_idx = static_cast<std::size_t>(local_y) * static_cast<std::size_t>(local_grid_dim) + static_cast<std::size_t>(local_x);
+        if (local_visited[local_idx]) {
+            return;
+        }
+        local_visited[local_idx] = 1;
 
         // 半径剪枝：该地块的最近点也超出半径则跳过
         if (min_distance_sq_to_tile(center, x, y) > max_radius_sq) {
@@ -928,19 +941,20 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
         frontier.emplace(x, y);
     };
 
-    // 起始地块
-    int start_x = static_cast<int>(std::floor(center.x));
-    int start_y = static_cast<int>(std::floor(center.y));
-    start_x = std::clamp(start_x, 0, grid_width - 1);
-    start_y = std::clamp(start_y, 0, grid_height - 1);
-    try_enqueue(start_x, start_y);
+    // 起始地块（准备BFS）
+    {
+        ZoneScopedN("Setup BFS");
+        try_enqueue(start_x, start_y);
+    }
 
     // --- 螺旋（BFS）搜索 ---
-    int cnt=0;
-    while (!frontier.empty()) {
-        cnt++;
-        auto [tile_x, tile_y] = frontier.front();
-        frontier.pop();
+    int cnt = 0;
+    {
+        ZoneScopedN("Exec BFS");
+        while (!frontier.empty()) {
+            cnt++;
+            auto [tile_x, tile_y] = frontier.front();
+            frontier.pop();
 
         const Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
         for (ThingBase* thing_ptr : tile.things) {
@@ -965,8 +979,9 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
             }
         }
 
-        for (const auto& [dx, dy] : directions) {
-            try_enqueue(tile_x + dx, tile_y + dy);
+            for (const auto& [dx, dy] : directions) {
+                try_enqueue(tile_x + dx, tile_y + dy);
+            }
         }
     }
 
