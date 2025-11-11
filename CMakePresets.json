@@ -15,6 +15,36 @@
       }
     },
     {
+      "name": "debug-tracy-on",
+      "displayName": "Debug (Tracy ON)",
+      "description": "Debug build with Tracy profiling enabled",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build-tracy-on",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
+        "TRACY_ENABLE": true,
+        "TRACY_ON_DEMAND": false
+      }
+    },
+    {
+      "name": "debug-tracy-off",
+      "displayName": "Debug (Tracy OFF)",
+      "description": "Debug build with Tracy profiling disabled",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build-tracy-off",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false
+      }
+    },
+    {
       "name": "release",
       "displayName": "Qt5 MinGW (Release)",
       "description": "Release build using Qt5 MinGW",
@@ -32,6 +62,14 @@
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "debug-tracy-on",
+      "configurePreset": "debug-tracy-on"
+    },
+    {
+      "name": "debug-tracy-off",
+      "configurePreset": "debug-tracy-off"
     },
     {
       "name": "release",

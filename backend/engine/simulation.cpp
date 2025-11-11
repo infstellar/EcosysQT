@@ -130,12 +130,16 @@ void SimulationEngine::simulation_loop() {
 
                 update_ecosystem();
             }
-            {   
+            {
                 ZoneScopedN("Create Snapshot");
-                new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
-                new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+                const int ts = ecosystem->clock().time_step();
+                if (ts % 30 == 0) {
+                    new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+                    new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+                    std::atomic_store(&m_visible_data, new_snapshot);
+                }
             }
-            std::atomic_store(&m_visible_data, new_snapshot);
+            
         }
         {
             ZoneScopedN("Sleep");

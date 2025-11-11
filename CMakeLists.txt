@@ -31,6 +31,14 @@ set(CMAKE_AUTORCC ON)
 
 # 查找我们需要的库 (通过vcpkg管理)
 # 改为使用本地子模块提供的 TracyClient，避免 vcpkg 上的 MinGW 构建问题
+# 通过缓存变量控制 Tracy 的开关（由 CMakePresets 或命令行传入）。
+# 未显式设置时，默认关闭。
+if(NOT DEFINED TRACY_ENABLE)
+    set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
+endif()
+if(NOT DEFINED TRACY_ON_DEMAND)
+    set(TRACY_ON_DEMAND OFF CACHE BOOL "On-demand profiling")
+endif()
 add_subdirectory(external/tracy)
 
 # 针对 TracyClient 目标的 Windows API 修复
@@ -154,7 +162,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 target_compile_definitions(${PROJECT_NAME}
     PRIVATE
-    TRACY_ENABLE # <--- 定义这个宏来开启分析
+    $<$<BOOL:${TRACY_ENABLE}>:TRACY_ENABLE> # 通过变量控制启用
+    $<$<BOOL:${TRACY_ON_DEMAND}>:TRACY_ONDEMAND>
     NOMINMAX
     $<$<BOOL:${ECOSIM_UI_DEBUG}>:ECOSIM_ENABLE_UI_DEBUG> # 
 )
