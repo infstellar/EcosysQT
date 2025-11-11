@@ -9,7 +9,7 @@ plant:
   reproduction_chance: 0.33
   competition_radius: 1 # 没用了
   max_competition_effect: 2.0 
-  reproduction_cooldown: 3000 # 1天
+  reproduction_cooldown: 3000 # 2天
   expansion_boost: 1.5
   min_growth_factor: 0.1 # 单位是1250tick
   # 被食用时提供的基础营养值（独立于能量）

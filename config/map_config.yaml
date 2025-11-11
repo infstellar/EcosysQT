@@ -5,8 +5,8 @@ world:
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
   grass: 50000
-  cow: 400
-  tiger: 5
+  cow: 3000
+  tiger: 100
 
 # 模拟参数（可选覆盖，缺省使用默认值）
 simulation:
