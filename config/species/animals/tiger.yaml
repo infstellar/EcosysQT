@@ -1,12 +1,16 @@
 schema_version: 1
 parent: base_animal
 species:
-  energy: 1000
-  max_age: 8000
-  reproduction_energy_cost: 1000
+  # 营养需求,即一个单位一次最多储存营养值的数量。这个数值与种族体型、体型系数和摄食系数相关。
+  # 计算函数为种族体型*体型系数*摄食系数成年单位的体型系数和摄食系数均为1。
+  # 美洲狮的体型为2，ecosys转换倍率为100，综上，美洲狮的能量为 200.
+  energy: 200
+  max_age: 120000 # 1年=40*3000
+  max_age: 180000 # 6个月，6*10*3000=180000
+  reproduction_energy_cost: 100
 animal:
-  movement_speed: 2.0
-  energy_consumption: 1
+  movement_speed: 0.16
+  energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
   hunting_range: 2
   hunting_success_rate: 0.6
   attack_damage: 19.0
