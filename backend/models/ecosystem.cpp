@@ -16,14 +16,129 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
+#include <array>
+#include <queue>
 #include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
+#include <limits>
 #include <utility>
 
 thread_local std::mt19937 EcosystemState::thread_local_rng{std::random_device{}()};
 thread_local std::vector<InteractionRequest>* EcosystemState::tls_active_queue = nullptr;
+
+namespace {
+
+double squared_distance(const Position& a, const Position& b) {
+    const double dx = a.x - b.x;
+    const double dy = a.y - b.y;
+    return (dx * dx) + (dy * dy);
+}
+
+// 曼哈顿距离（L1范数）：两点间距离
+double manhattan_distance(const Position& a, const Position& b) {
+    return std::abs(a.x - b.x) + std::abs(a.y - b.y);
+}
+
+double min_distance_sq_to_rect(const Position& point,
+                               double min_x,
+                               double min_y,
+                               double max_x,
+                               double max_y) {
+    double dx = 0.0;
+    if (point.x < min_x) {
+        dx = min_x - point.x;
+    } else if (point.x > max_x) {
+        dx = point.x - max_x;
+    }
+
+    double dy = 0.0;
+    if (point.y < min_y) {
+        dy = min_y - point.y;
+    } else if (point.y > max_y) {
+        dy = point.y - max_y;
+    }
+
+    return (dx * dx) + (dy * dy);
+}
+
+// 点到矩形的最短曼哈顿距离（L1）：若在范围内则相应维度距离为0
+double min_manhattan_distance_to_rect(const Position& point,
+                                      double min_x,
+                                      double min_y,
+                                      double max_x,
+                                      double max_y) {
+    double dx = 0.0;
+    if (point.x < min_x) {
+        dx = min_x - point.x;
+    } else if (point.x > max_x) {
+        dx = point.x - max_x;
+    }
+
+    double dy = 0.0;
+    if (point.y < min_y) {
+        dy = min_y - point.y;
+    } else if (point.y > max_y) {
+        dy = point.y - max_y;
+    }
+
+    return dx + dy;
+}
+
+double min_distance_sq_to_tile(const Position& point, int tile_x, int tile_y) {
+    const double min_x = static_cast<double>(tile_x);
+    const double min_y = static_cast<double>(tile_y);
+    return min_distance_sq_to_rect(point, min_x, min_y, min_x + 1.0, min_y + 1.0);
+}
+
+double min_distance_sq_to_spatial_cell(const Position& point,
+                                       int cell_x,
+                                       int cell_y,
+                                       double cell_size) {
+    const double min_x = static_cast<double>(cell_x) * cell_size;
+    const double min_y = static_cast<double>(cell_y) * cell_size;
+    return min_distance_sq_to_rect(point, min_x, min_y, min_x + cell_size, min_y + cell_size);
+}
+
+// 点到空间网格单元（cell）的最短曼哈顿距离（L1）
+double min_manhattan_distance_to_spatial_cell(const Position& point,
+                                              int cell_x,
+                                              int cell_y,
+                                              double cell_size) {
+    const double min_x = static_cast<double>(cell_x) * cell_size;
+    const double min_y = static_cast<double>(cell_y) * cell_size;
+    return min_manhattan_distance_to_rect(point, min_x, min_y, min_x + cell_size, min_y + cell_size);
+}
+
+template <typename T>
+struct NearestCandidate {
+    double distance_sq;
+    std::shared_ptr<T> target;
+};
+
+template <typename T>
+struct FarthestFirst {
+    bool operator()(const NearestCandidate<T>& lhs, const NearestCandidate<T>& rhs) const {
+        return lhs.distance_sq < rhs.distance_sq;
+    }
+};
+
+template <typename T>
+struct NearestCandidateRaw {
+    double distance_sq;
+    T* target;
+};
+
+template <typename T>
+struct FarthestFirstRaw {
+    bool operator()(const NearestCandidateRaw<T>& lhs, const NearestCandidateRaw<T>& rhs) const {
+        return lhs.distance_sq < rhs.distance_sq;
+    }
+};
+
+} // namespace
 
 // --- EcosystemState ---
 // 生态系统状态管理器 (模拟核心)
@@ -698,7 +813,7 @@ std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(
     if (radius < 0.0 || species_names.empty()) {
         return {};
     }
-
+    ZoneScoped;
     const auto nearby_races = get_nearby_races_broad(center, radius);
     std::vector<std::shared_ptr<RaceBase>> results;
     results.reserve(nearby_races.size());
@@ -729,7 +844,7 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     if (radius < 0.0 || species_names.empty()) {
         return {};
     }
-
+    ZoneScoped;
     const auto nearby_things = get_nearby_things_broad(center, radius);
     std::vector<std::shared_ptr<ThingBase>> results;
     results.reserve(nearby_things.size());
@@ -751,6 +866,239 @@ std::vector<std::shared_ptr<ThingBase>> EcosystemState::get_things_in_range(
     }
 
     return results;
+}
+
+std::vector<std::shared_ptr<ThingBase>> EcosystemState::find_nearest_things(
+    const Position& center,
+    const std::vector<std::string>& species_names,
+    std::size_t n,
+    double max_radius) const {
+    ZoneScoped;
+
+    // --- 边界条件 ---
+    if (n == 0 || max_radius < 0.0 || species_names.empty()) {
+        return {};
+    }
+
+    const int grid_width = m_world_grid.width();
+    const int grid_height = m_world_grid.height();
+    if (grid_width <= 0 || grid_height <= 0) {
+        return {};
+    }
+
+    const double max_radius_sq = max_radius * max_radius;
+
+    // --- 结果与过滤集初始化 ---
+    std::vector<std::shared_ptr<ThingBase>> results;
+    results.reserve(n);
+
+    const std::unordered_set<std::string> species_filter(species_names.begin(), species_names.end());
+    std::unordered_set<const ThingBase*> added_things;
+
+    // --- BFS 队列与访问集 ---
+    std::queue<std::pair<int, int>> frontier;
+    const std::size_t width_sz = static_cast<std::size_t>(grid_width);
+    std::unordered_set<std::size_t> visited_tiles;
+    const auto index_for = [width_sz](int x, int y) {
+        return static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
+    };
+
+    // 8方向（菱形螺旋的广义邻域）
+    const std::array<std::pair<int, int>, 8> directions{{
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
+    }};
+
+    // 入队辅助函数
+    const auto try_enqueue = [&](int x, int y) {
+        if (x < 0 || x >= grid_width || y < 0 || y >= grid_height) {
+            return;
+        }
+        const auto idx = index_for(x, y);
+        if (visited_tiles.count(idx)) {
+            return;
+        }
+        visited_tiles.insert(idx);
+
+        // 半径剪枝：该地块的最近点也超出半径则跳过
+        if (min_distance_sq_to_tile(center, x, y) > max_radius_sq) {
+            return;
+        }
+
+        frontier.emplace(x, y);
+    };
+
+    // 起始地块
+    int start_x = static_cast<int>(std::floor(center.x));
+    int start_y = static_cast<int>(std::floor(center.y));
+    start_x = std::clamp(start_x, 0, grid_width - 1);
+    start_y = std::clamp(start_y, 0, grid_height - 1);
+    try_enqueue(start_x, start_y);
+
+    // --- 螺旋（BFS）搜索 ---
+    int cnt=0;
+    while (!frontier.empty()) {
+        cnt++;
+        auto [tile_x, tile_y] = frontier.front();
+        frontier.pop();
+
+        const Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
+        for (ThingBase* thing_ptr : tile.things) {
+            if (!thing_ptr || !thing_ptr->alive) {
+                continue;
+            }
+            if (added_things.count(thing_ptr)) {
+                continue;
+            }
+            if (species_filter.find(thing_ptr->species_name) == species_filter.end()) {
+                continue;
+            }
+
+            if (squared_distance(center, thing_ptr->position) <= max_radius_sq) {
+                results.push_back(thing_ptr->shared_from_this());
+                added_things.insert(thing_ptr);
+
+                if (results.size() >= n) {
+                    spdlog::info("find_nearest_things: {} tiles visited", cnt);
+                    return results;
+                }
+            }
+        }
+
+        for (const auto& [dx, dy] : directions) {
+            try_enqueue(tile_x + dx, tile_y + dy);
+        }
+    }
+
+    // 未找到足够目标，返回已有结果
+    return results;
+}
+
+std::vector<std::shared_ptr<RaceBase>> EcosystemState::find_nearest_races(
+    const Position& center,
+    const std::vector<std::string>& species_names,
+    std::size_t n,
+    double max_radius) const {
+    ZoneScoped;
+    if (!spatial_grid || n == 0 || max_radius < 0.0 || species_names.empty()) {
+        return {};
+    }
+
+    const double cell_size = spatial_grid->get_cell_size();
+    const int grid_width = spatial_grid->get_width();
+    const int grid_height = spatial_grid->get_height();
+    if (cell_size <= 0.0 || grid_width <= 0 || grid_height <= 0) {
+        return {};
+    }
+
+    const double max_radius_sq = max_radius * max_radius;
+    const std::unordered_set<std::string> species_filter(species_names.begin(), species_names.end());
+
+    using Candidate = NearestCandidate<RaceBase>;
+    std::priority_queue<Candidate, std::vector<Candidate>, FarthestFirst<RaceBase>> heap;
+
+    const auto width_sz = static_cast<std::size_t>(grid_width);
+    const auto height_sz = static_cast<std::size_t>(grid_height);
+    std::vector<char> visited(width_sz * height_sz, 0);
+    const auto index_for = [width_sz](int x, int y) {
+        return static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
+    };
+
+    int start_x = static_cast<int>(std::floor(center.x / cell_size));
+    int start_y = static_cast<int>(std::floor(center.y / cell_size));
+    start_x = std::clamp(start_x, 0, grid_width - 1);
+    start_y = std::clamp(start_y, 0, grid_height - 1);
+
+    std::queue<std::pair<int, int>> frontier;
+    const std::array<std::pair<int, int>, 8> directions{{
+        std::make_pair(1, 0), std::make_pair(-1, 0), std::make_pair(0, 1), std::make_pair(0, -1),
+        std::make_pair(1, 1), std::make_pair(1, -1), std::make_pair(-1, 1), std::make_pair(-1, -1)
+    }};
+
+    const auto try_enqueue = [&](int x, int y) {
+        if (x < 0 || x >= grid_width || y < 0 || y >= grid_height) {
+            return;
+        }
+        const auto idx = index_for(x, y);
+        if (visited[idx]) {
+            return;
+        }
+
+        const double cell_min_dist_sq = min_distance_sq_to_spatial_cell(center, x, y, cell_size);
+        if (cell_min_dist_sq > max_radius_sq) {
+            visited[idx] = 1;
+            return;
+        }
+
+        if (heap.size() >= n) {
+            const double current_far_sq = heap.top().distance_sq;
+            if (cell_min_dist_sq > current_far_sq) {
+                return;
+            }
+        }
+
+        visited[idx] = 1;
+        frontier.emplace(x, y);
+    };
+
+    try_enqueue(start_x, start_y);
+
+    const auto& grid = spatial_grid->cells();
+    while (!frontier.empty()) {
+        const auto [cell_x, cell_y] = frontier.front();
+        frontier.pop();
+
+        const auto& bucket = grid[static_cast<std::size_t>(cell_x)][static_cast<std::size_t>(cell_y)];
+        for (const auto& race : bucket) {
+            if (!race || !race->alive) {
+                continue;
+            }
+            if (species_filter.find(race->species_name) == species_filter.end()) {
+                continue;
+            }
+
+            const double dist_sq = squared_distance(center, race->position);
+            if (dist_sq > max_radius_sq) {
+                continue;
+            }
+
+            if (heap.size() < n) {
+                heap.push(Candidate{dist_sq, race});
+            } else if (dist_sq < heap.top().distance_sq) {
+                heap.pop();
+                heap.push(Candidate{dist_sq, race});
+            }
+        }
+
+        if (heap.size() >= n && heap.top().distance_sq <= 0.0) {
+            break;
+        }
+
+        for (const auto& [dx, dy] : directions) {
+            try_enqueue(cell_x + dx, cell_y + dy);
+        }
+    }
+
+    std::vector<Candidate> ordered;
+    ordered.reserve(heap.size());
+    while (!heap.empty()) {
+        ordered.push_back(heap.top());
+        heap.pop();
+    }
+
+    std::sort(ordered.begin(), ordered.end(), [](const Candidate& lhs, const Candidate& rhs) {
+        return lhs.distance_sq < rhs.distance_sq;
+    });
+
+    std::vector<std::shared_ptr<RaceBase>> nearest;
+    nearest.reserve(ordered.size());
+    for (auto& entry : ordered) {
+        if (entry.target) {
+            nearest.push_back(std::move(entry.target));
+        }
+    }
+
+    return nearest;
 }
 
 std::vector<std::shared_ptr<RaceBase>> EcosystemState::get_races_in_range(

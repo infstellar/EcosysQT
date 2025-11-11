@@ -149,6 +149,31 @@ public:
         const Position& center,
         double radius) const;
 
+    // --- 新增的 k-NN 优化函数 ---
+
+    /**
+     * @brief 使用 k-NN 螺旋搜索查找 N 个最近的 Thing。
+     * @param center 搜索中心。
+     * @param species_names 要匹配的物种列表。
+     * @param n 要查找的最近目标的数量。
+     * @param max_radius 搜索的最大半径。
+     * @return 按距离排序的最多 N 个 Thing 的列表。
+     */
+    std::vector<std::shared_ptr<ThingBase>> find_nearest_things(
+        const Position& center,
+        const std::vector<std::string>& species_names,
+        std::size_t n,
+        double max_radius) const;
+
+    /**
+     * @brief 使用 k-NN 螺旋搜索查找 N 个最近的 Race。
+     */
+    std::vector<std::shared_ptr<RaceBase>> find_nearest_races(
+        const Position& center,
+        const std::vector<std::string>& species_names,
+        std::size_t n,
+        double max_radius) const;
+
     // 并发只读接口：访问空间网格与参数
     const std::vector<std::vector<std::vector<std::shared_ptr<RaceBase>>>>& get_spatial_grid() const { return spatial_grid->cells(); }
     double get_cell_size() const { return spatial_grid->get_cell_size(); }

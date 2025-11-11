@@ -3,6 +3,8 @@
 #include "ecosystem.h"
 #include "interaction_requests.h"
 #include "thing_base.h"
+#include "race_factory.h"
+#include "thing_factory.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <memory>
@@ -289,7 +291,7 @@ bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& 
     // 4. 本地“去幽灵化”验证：在小范围内寻找真实存在的目标实体
     const std::string thing = params["thing"] ? params["thing"].as<std::string>()
                             : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
-    auto targets_in_range = world->get_things_in_range(thing, self.position, stop_range);
+    auto targets_in_range = world->find_nearest_things(self.position, std::vector<std::string>{thing}, 1, stop_range);
     if (targets_in_range.empty()) {
         // 目标可能已死亡或被其他实体消耗：清理黑板与当前目标
         bb.doubles.erase("target_pos_x");
@@ -398,32 +400,39 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     if (!world || !self.alive) return Status::Failure;
     if (self.get_skip_movement()) return Status::Failure;
 
+    std::vector<std::string> races_to_find;
+    std::vector<std::string> things_to_find;
+
+    for (const auto& food_name : self.food_types) {
+        if (g_race_factory.is_registered(food_name)) { //
+            races_to_find.push_back(food_name);
+        } else if (g_thing_factory.is_registered(food_name)) { //
+            things_to_find.push_back(food_name);
+        }
+    }
+
     std::shared_ptr<RaceBase> nearest_race_target;
     std::shared_ptr<ThingBase> nearest_thing_target;
     double min_distance = std::numeric_limits<double>::max();
     const double detect_range = self.get_detection_range();
 
-    const auto nearby_races = world->get_races_in_range(self.food_types, self.position, detect_range);
-    for (const auto& race : nearby_races) {
-        if (!race || !race->alive) continue;
-
-        double distance = self.position.distance_to(race->position);
-        if (distance <= detect_range && distance < min_distance) {
-            min_distance = distance;
-            nearest_race_target = race;
-            nearest_thing_target.reset();
+    if (!races_to_find.empty()) {
+        auto nearest_races = world->find_nearest_races(self.position, races_to_find, 1, detect_range);
+        if (!nearest_races.empty() && nearest_races.front()) {
+            nearest_race_target = nearest_races.front();
+            min_distance = self.position.distance_to(nearest_race_target->position);
         }
     }
 
-    const auto nearby_things = world->get_things_in_range(self.food_types, self.position, detect_range);
-    for (const auto& thing : nearby_things) {
-        if (!thing || !thing->alive) continue;
-
-        double distance = self.position.distance_to(thing->position);
-        if (distance <= detect_range && distance < min_distance) {
-            min_distance = distance;
-            nearest_thing_target = thing;
-            nearest_race_target.reset();
+    if (!things_to_find.empty()) {
+        auto nearest_things = world->find_nearest_things(self.position, things_to_find, 1, detect_range);
+        if (!nearest_things.empty() && nearest_things.front()) {
+            const double thing_distance = self.position.distance_to(nearest_things.front()->position);
+            if (thing_distance < min_distance) {
+                nearest_thing_target = nearest_things.front();
+                min_distance = thing_distance;
+                nearest_race_target.reset();
+            }
         }
     }
 
