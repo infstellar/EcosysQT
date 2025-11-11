@@ -179,6 +179,29 @@ function Select-CleanModeInteractively {
     }
 }
 
+# Ask user whether to run the cmake configure step (cmake --preset)
+function Confirm-RunConfigure {
+    param(
+        [Parameter(Mandatory=$true)][bool]$DefaultYes,
+        [Parameter(Mandatory=$true)][string]$PresetName
+    )
+
+    $defaultHint = $DefaultYes ? 'Y' : 'N'
+    $question = "是否执行 cmake 配置步骤 (--preset $PresetName)? [Y/n] 默认: $defaultHint"
+
+    while ($true) {
+        $reply = Read-Host $question
+        if ([string]::IsNullOrWhiteSpace($reply)) { return $DefaultYes }
+        switch ($reply.ToLower()) {
+            'y' { return $true }
+            'yes' { return $true }
+            'n' { return $false }
+            'no' { return $false }
+            default { Write-Host "无效输入，请输入 Y 或 N。" -ForegroundColor Red }
+        }
+    }
+}
+
 # Main
 Ensure-CMakeInstalled
 Check-Vcpkg
@@ -247,7 +270,10 @@ switch ($effectiveCleanMode) {
 }
 
 if (-not $BuildOnly) {
-    Write-Host "Configuring project..." -ForegroundColor Cyan
+    $defaultConfigureYes = ($effectiveCleanMode -eq 'selected')
+    $runConfigure = Confirm-RunConfigure -DefaultYes:$defaultConfigureYes -PresetName $Preset
+    if ($runConfigure) {
+        Write-Host "Configuring project..." -ForegroundColor Cyan
     $originalPATH = $env:Path
     if ($pathConfigure) {
         Write-Host "Injecting PATH from .vscode for configure." -ForegroundColor Green
@@ -270,7 +296,10 @@ if (-not $BuildOnly) {
         }
     }
     if ($Verbose) { $configureArgs += @('--log-level=VERBOSE') }
-    & cmake @configureArgs
+        & cmake @configureArgs
+    } else {
+        Write-Host "已跳过 cmake 配置步骤。" -ForegroundColor Yellow
+    }
 }
 
 if (-not $ConfigureOnly) {
