@@ -138,11 +138,10 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
         results.race_marked_for_death.insert(target.get());
         // 结算能量：基础营养值 + ENERGY加成，再乘能量利用率
         double bonus = 0.0;
-        // 饱和度：当前能量 / 开局energy （0-max_energy）
-        const double base_energy = (target->max_energy > 0.0) ? (target->max_energy / 4.0) : 0.0;
+        // 饱和度：当前能量 / 最大能量（0-max_energy）
         double saturation = 0.0;
-        if (base_energy > 0.0) {
-            saturation = std::clamp(target->energy / base_energy, 0.0, 1.0);
+        if (target->max_energy > 0.0) {
+            saturation = std::clamp(target->energy / target->max_energy, 0.0, 1.0);
         }
         if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
             const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);

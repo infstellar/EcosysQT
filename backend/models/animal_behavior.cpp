@@ -146,6 +146,9 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 bb.doubles["repro_energy_min"] = self.reproduction_energy_cost * 2.0;
                 bb.ints["repro_age_min"] = self.min_reproduction_age;
                 bb.ints["repro_cooldown_ticks"] = self.reproduction_cooldown;
+
+                // 攻击后摇剩余tick（调试可视化用，可选）
+                bb.ints["attack_recovery_ticks_remaining"] = std::max(0, self.hunting_cooldown);
             }
 
             {
@@ -221,6 +224,14 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                         starving_mul = it->second;
                     }
                     base_speed_multiplier *= std::max(0.0, starving_mul);
+                }
+                // 攻击后摇减速：冷却期间乘以配置的速度倍率
+                if (self.hunting_cooldown > 0) {
+                    double recovery_mul = 1.0;
+                    if (auto it3 = bb.doubles.find("attack_recovery_speed_multiplier"); it3 != bb.doubles.end()) {
+                        recovery_mul = it3->second;
+                    }
+                    base_speed_multiplier *= std::max(0.0, recovery_mul);
                 }
                 bb.doubles[bt::keys::CurrentSpeedMultiplier] = base_speed_multiplier;
 

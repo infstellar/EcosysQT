@@ -12,8 +12,8 @@ animal:
   movement_speed: 0.16
   energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
   hunting_range: 2
-  hunting_success_rate: 0.6
-  attack_damage: 19.0
+  hunting_success_rate: 0.66 # 建议增加hitting ratio
+  attack_damage: 66.0 # 建议增加attack damage
   detection_range: 300.0
   wander_radius: 100.0
   food_types:
@@ -33,11 +33,14 @@ animal:
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
+      # 攻击后摇减速倍率：处于攻击冷却时的全局速度乘数
+      attack_recovery_speed_multiplier: 0.7
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
     ints:
       flee_total_duration_ticks: 150
-  hunting_cooldown_duration: 2
+  # 攻击冷却时长：
+  hunting_cooldown_duration: 45 
   min_reproduction_age: 30
   reproduction_cooldown: 800
 
