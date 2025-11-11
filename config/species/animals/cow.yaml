@@ -16,9 +16,11 @@ animal:
   bt_params:
     ints:
       eat_grass_total_ticks: 10
+      flee_total_duration_ticks: 150   # 逃逸冷却总时长（tick）
     doubles:
       flee_speed_multiplier: 1.8
       flee_energy_multiplier: 1.5
+      flee_destination_radius: 80.0    # 逃逸目的地目标半径（可选）
       wander_speed_multiplier: 0.5
       wander_energy_multiplier: 0.5
       chase_speed_multiplier: 1.0
@@ -32,7 +34,7 @@ animal:
   reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
   eating_range: 1
 
-  wandering_duration: 50
+  wandering_duration: 150
   # 繁殖相关
   pregnancy_duration: 300         # 延长妊娠时间
   mating_range: 5.0        
@@ -40,15 +42,15 @@ animal:
   mating_desire_probability: 0.5  # 进一步降低交配意愿，避免频繁扣能量
 
   # 基础营养值
-  nutrition_value: 400.0
+  nutrition_value: 500.0
   # energy加成
   nutrition_bonus_max: 5.0
   nutrition_bonus_curve_alpha: 2.0
   # 饥饿相关
-  starvation_damage: 1.5
-  starvation_damage_interval_ratio: 0.005
+  starvation_damage: 0.5
+  starvation_damage_interval_ratio: 0.003
   satisfied_threshold_ratio: 0.75
-  starving_threshold_ratio: 0.3
+  starving_threshold_ratio: 0.2
   energy_efficiency: 0.7
   # energy加成 ~ https://doi.org/10.1093/conphys/coac083
   # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
@@ -58,8 +60,8 @@ animal:
   # HP恢复基础速率
   hp_regen_base_per_day: 500.0
   # HP恢复的状态加成：
-  hp_regen_mul_satisfied: 20.0
+  hp_regen_mul_satisfied: 5.0
   hp_regen_mul_normal: 2.0
-  hp_regen_mul_starving: 0.1
+  hp_regen_mul_starving: 0.05
   # HP恢复周期（0-1天）
-  regan_interval_ratio: 0.002
+  regan_interval_ratio: 0.001

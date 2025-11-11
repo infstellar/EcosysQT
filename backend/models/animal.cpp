@@ -9,6 +9,7 @@
 #include "ecosystem.h"
 #include "behavior_tree.h"
 #include "animal_behavior.h"
+#include "bt_keys.h"
 #include "tracy/Tracy.hpp"
 #include <spdlog/spdlog.h>
 #include <random>
@@ -382,11 +383,11 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
 
     // 注入游荡总时长到黑板，供进度装饰器读取（若 YAML 未提供则使用 species_params 默认值）
     if (params.wandering_duration > 0) {
-        bb.ints["wander_total_ticks"] = params.wandering_duration;
+        bb.ints[bt::keys::WanderTotalTicks] = params.wandering_duration;
     }
     // 初始化游荡当前进度为 0，确保首次可见且不受之前残留影响
-    if (bb.ints.find("wander_current_ticks") == bb.ints.end()) {
-        bb.ints["wander_current_ticks"] = 0;
+    if (bb.ints.find(bt::keys::WanderCurrentTicks) == bb.ints.end()) {
+        bb.ints[bt::keys::WanderCurrentTicks] = 0;
     }
 
     // 追草多步推进的默认值（未在 YAML 指定时），缓解“逐帧小步·放大似瞬移”问题
@@ -397,14 +398,14 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     // 打印调试信息：eat_grass_total_ticks 来源与当前黑板值
     {
         int eat_total = -1;
-        auto it = bb.ints.find("eat_grass_total_ticks");
+        auto it = bb.ints.find(bt::keys::EatGrassTotalTicks);
         if (it != bb.ints.end()) eat_total = it->second;
         SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
             "[BT Params] '{}' eat_grass_total_ticks={} (after injection)",
             species_name, eat_total);
         // 初始化吃草当前进度键，便于进度装饰器与日志显示
-        if (bb.ints.find("eat_grass_current_ticks") == bb.ints.end()) {
-            bb.ints["eat_grass_current_ticks"] = 0;
+        if (bb.ints.find(bt::keys::EatGrassCurrentTicks) == bb.ints.end()) {
+            bb.ints[bt::keys::EatGrassCurrentTicks] = 0;
         }
     }
 }

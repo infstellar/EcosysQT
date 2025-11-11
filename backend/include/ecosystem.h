@@ -18,10 +18,10 @@
 #include "species_statistics.h"
 #include "spatial_grid.h"
 #include "tile.h"
-#include "world_grid.h"
-#include "world_clock.h"
 #include "utils.h"
 #include "interaction_requests.h"
+#include "world_grid.h"
+#include "world_clock.h"
 #include "interaction_resolver.h"
 #include "population_manager.h"
 
@@ -75,6 +75,7 @@ struct EcosystemConfig {
 class EcosystemState {
 public:
     EcosystemConfig config;
+    int time_step;
     RacesRegistry races_registry;
     SpeciesStatistics births;
     SpeciesStatistics deaths;
@@ -82,8 +83,9 @@ public:
 
     EcosystemState(const EcosystemConfig& config);
 
-    WorldClock& clock() { return m_clock; }
+    // 时钟访问器
     const WorldClock& clock() const { return m_clock; }
+    WorldClock& clock() { return m_clock; }
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;
@@ -118,6 +120,7 @@ public:
     void reset(const EcosystemConfig& config);
     std::vector<std::string> check_extinction() const;
 
+    // 世界网格访问器
     WorldGrid& world_grid() { return m_world_grid; }
     const WorldGrid& world_grid() const { return m_world_grid; }
 
@@ -130,22 +133,23 @@ public:
         double radius) const;
 
     std::vector<std::shared_ptr<RaceBase>> get_races_in_range(
-        const std::string& species_name,
+        const std::vector<std::string>& species_names,
         const Position& center,
         double radius) const;
 
     std::vector<std::shared_ptr<ThingBase>> get_things_in_range(
-        const std::string& species_name,
+        const std::vector<std::string>& species_names,
         const Position& center,
         double radius) const;
 
+    // 单物种便捷重载
     std::vector<std::shared_ptr<RaceBase>> get_races_in_range(
-        const std::vector<std::string>& species_names,
+        const std::string& species_name,
         const Position& center,
         double radius) const;
 
     std::vector<std::shared_ptr<ThingBase>> get_things_in_range(
-        const std::vector<std::string>& species_names,
+        const std::string& species_name,
         const Position& center,
         double radius) const;
 
@@ -181,8 +185,6 @@ public:
     int get_grid_height() const { return spatial_grid->get_height(); }
     
 private:
-    friend class PopulationManager;
-
     // --- 更新阶段标记 ---
     // 用于在并发更新循环中标识当前所处阶段，便于加守卫确保请求仅在决策阶段提交。
     enum class UpdatePhase { Idle, Prepare, Decision, Resolve, Apply, Finalize };
@@ -198,10 +200,23 @@ private:
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
 
-    InteractionResolutionState m_resolution_state;
-    InteractionResolver m_interaction_resolver;
-    PopulationManager m_population_manager;
+    // 合并所有工作线程的请求队列到 staged_requests
+    void merge_worker_queues();
 
+    // RaceBase 状态
+    std::unordered_map<RaceBase*, double> race_energy_changes;
+    std::unordered_set<RaceBase*> race_marked_for_death;
+
+    // ThingBase 状态
+    std::unordered_map<ThingBase*, double> thing_energy_changes;
+    std::unordered_set<ThingBase*> thing_marked_for_death;
+    // 标记待出生的新物种的父代指针。
+    std::vector<std::shared_ptr<RaceBase>> reproduction_parents;
+    std::vector<std::shared_ptr<ThingBase>> thing_reproduction_parents;
+
+public:
+    // 世界网格与事物集合（PopulationManager 需要访问）
+    WorldGrid m_world_grid;
     std::vector<std::shared_ptr<ThingBase>> m_all_things;
 
     // --- 新增：Thing 计数器 ---
@@ -209,23 +224,30 @@ private:
     // 键: species_name (例如 "grass"), 值: count
     std::unordered_map<std::string, std::size_t> m_thing_counts;
 
+    // 交互解析结果（PopulationManager 需要访问）
+    InteractionResolutionState m_resolution_state;
+
     // 线程局部的随机数生成器。
     static thread_local std::mt19937 thread_local_rng;
     // 线程局部的活动请求队列指针，指向当前线程应该使用的请求队列。
     static thread_local std::vector<InteractionRequest>* tls_active_queue;
 
-    void merge_worker_queues();
     // 激活并返回一个新的请求队列，同时保存前一个队列。
     std::vector<InteractionRequest>* activate_request_queue(std::vector<InteractionRequest>* queue);
     // 恢复到前一个请求队列。
     void restore_request_queue(std::vector<InteractionRequest>* previous_queue);
 
-    // --- 空间网格封装 ---
-    std::unique_ptr<SpatialGrid> spatial_grid;
-    WorldGrid m_world_grid;
-    WorldClock m_clock;
-
+public:
+    // PopulationManager 会调用
     void attach_thing_to_world(const std::shared_ptr<ThingBase>& thing);
     void detach_thing_from_tile(ThingBase& thing);
+
+    // --- 空间网格封装 ---
+    std::unique_ptr<SpatialGrid> spatial_grid;
+
+    // --- 新增核心成员 ---
+    WorldClock m_clock;
+    InteractionResolver m_interaction_resolver;
+    PopulationManager m_population_manager;
 };
 #endif // ECOSYSTEM_H
