@@ -3,6 +3,13 @@
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 
 #include <string>
+#include <vector>
+
+struct InteractionLogEntry {
+    int timestamp = 0;
+    std::string message;
+    bool success = false;
+};
 
 struct AnimalUiSnapshot {
     std::string current_bt_action = "Idle";
@@ -16,6 +23,8 @@ struct AnimalUiSnapshot {
     // 生命值显示
     double hp_current = 0.0;
     double hp_max = 0.0;
+
+    std::vector<InteractionLogEntry> interaction_history;
 };
 
 #endif // ECOSIM_ENABLE_UI_DEBUG

@@ -507,6 +507,23 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
             }else{
                 infoText += QString("\n游荡: Unknown");
             }
+
+            if (m_parentWidget->getShowHistory()) {
+                infoText += "\n--- 历史记录 (最近5条) ---";
+                if (ui.interaction_history.empty()) {
+                    infoText += "\n(无)";
+                } else {
+                    int count = 0;
+                    for (auto it = ui.interaction_history.rbegin();
+                         it != ui.interaction_history.rend() && count < 5;
+                         ++it, ++count) {
+                        infoText += QString("\n[T:%1] %2 (%3)")
+                            .arg(it->timestamp)
+                            .arg(QString::fromStdString(it->message))
+                            .arg(it->success ? "OK" : "Fail");
+                    }
+                }
+            }
 #endif // ECOSIM_ENABLE_UI_DEBUG
         }
     }, entity);

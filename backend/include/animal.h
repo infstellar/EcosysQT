@@ -68,6 +68,7 @@ public:
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     AnimalUiSnapshot get_ui_snapshot() const;
     void update_ui_snapshot(const AnimalUiSnapshot& snapshot);
+    void add_interaction_log(const std::string& message, bool success, int timestamp);
 #endif
 
     // 构造函数（默认物种名为 "RaceBase"）
