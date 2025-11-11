@@ -12,7 +12,7 @@ ThingBase 通用实现
 ThingBase::ThingBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_)
     : position(pos),
       energy(energy_),
-      max_energy(energy_ * 4),
+      max_energy(energy_),
       nutrition_value(energy_),
       age(0),
       max_age(max_age_),

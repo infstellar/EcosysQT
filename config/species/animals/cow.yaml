@@ -1,14 +1,18 @@
 schema_version: 1
 parent: base_animal
 species:
-  energy: 400
-  max_age: 4000
-  reproduction_energy_cost: 50     # 提高繁殖能量门槛，避免能量过低仍繁殖
+  # 营养需求,即一个单位一次最多储存营养值的数量。这个数值与种族体型、体型系数和摄食系数相关。
+  # 计算函数为种族体型*体型系数*摄食系数成年单位的体型系数和摄食系数均为1。
+  # 牛的体型为2.4，ecosys转换倍率为100，综上，牛的能量为240.
+  energy: 240
+  max_age: 120000 # 1年=40*3000
+  reproduction_energy_cost: 120     # 提高繁殖能量门槛，避免能量过低仍繁殖
 animal:
-  movement_speed: 1.0
-  energy_consumption: 0.5
-  detection_range: 200.0
-  wander_radius: 35.0
+  # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
+  movement_speed: 0.08 # 3.5m/s
+  energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
+  detection_range: 200.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
+  wander_radius: 50.0 # 游荡目标采样半径，选择随机目标点时的最大范围。采样公式： r = max(movement_speed, sqrt(U) * wander_radius) （ U∈[0,1] ），因此目标点在圆盘内近似面积均匀分布。
   food_types:
     - grass
   use_bt: true
@@ -30,16 +34,16 @@ animal:
       starving_speed_multiplier: 0.85
       stop_range_base_range: 1.0  # (等于 eating_range)
       stop_range_factor: 0.5      # (50%)
-  min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖
-  reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
+  min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
+  reproduction_cooldown: 9000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
   eating_range: 1
 
   wandering_duration: 150
   # 繁殖相关
-  pregnancy_duration: 300         # 延长妊娠时间
-  mating_range: 5.0        
-  pregnancy_speed_penalty: 0.6 
-  mating_desire_probability: 0.5  # 进一步降低交配意愿，避免频繁扣能量
+  pregnancy_duration: 9000         # 妊娠时间为3天
+  mating_range: 2.0        
+  pregnancy_speed_penalty: 0.8 
+  mating_desire_probability: 0.4  # 进一步降低交配意愿，避免频繁扣能量
 
   # 基础营养值
   nutrition_value: 500.0

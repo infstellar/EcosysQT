@@ -34,6 +34,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_updateTimer(new QTimer(this))
     , m_isDragging(false)
     , m_isInspectMode(false)
+    , m_showGrid(false)
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     , m_showHistory(false)
 #endif
@@ -77,6 +78,8 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     m_historyButton = new QPushButton("显示历史 (OFF)", this);
 #endif
+    // 新增：显示/隐藏网格按钮（右下角）
+    m_toggleGridButton = new QPushButton("显示网格", this);
 
     // --- 设置按钮样式 ---
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
@@ -90,6 +93,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     m_historyButton->setStyleSheet(buttonStyle);
 #endif
+    m_toggleGridButton->setStyleSheet(buttonStyle);
 
     // --- 按钮布局 (保持不变) ---
     QHBoxLayout* topRowLayout = new QHBoxLayout();
@@ -104,6 +108,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     bottomRowLayout->addWidget(m_slowDownButton);
     bottomRowLayout->addWidget(m_pauseButton);
     bottomRowLayout->addWidget(m_speedUpButton);
+    bottomRowLayout->addWidget(m_toggleGridButton);
     QHBoxLayout* customSpeedLayout = new QHBoxLayout();
     customSpeedLayout->addStretch();
     customSpeedLayout->addWidget(m_customSpeedButton);
@@ -132,6 +137,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     connect(m_historyButton, &QPushButton::clicked, this, &Widget::onToggleHistoryClicked);
 #endif
+    connect(m_toggleGridButton, &QPushButton::clicked, this, &Widget::onToggleGridClicked);
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
     
     m_updateTimer->start(16); // 约 60 FPS 的UI刷新率
@@ -369,6 +375,16 @@ void Widget::onSlowDownClicked()
         m_controller->set_target_fps(it->second);
         qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
     }
+}
+
+// 新增：显示/隐藏网格
+void Widget::onToggleGridClicked()
+{
+    m_showGrid = !m_showGrid;
+    if (m_toggleGridButton) {
+        m_toggleGridButton->setText(m_showGrid ? "隐藏网格" : "显示网格");
+    }
+    update();
 }
 
 void Widget::onCustomSpeedClicked()

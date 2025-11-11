@@ -43,6 +43,7 @@ public:
 private:
     // ========== 私有绘制函数 ==========
     void drawBackground(QPainter& painter);
+    void drawGrid(QPainter& painter, const CameraController& camera, double worldWidth, double worldHeight);
     void drawEntities(QPainter& painter, const std::shared_ptr<EcosystemStateData>& data, const CameraController& camera);
     void drawHud(QPainter& painter);
     void drawSelection(QPainter& painter, const CameraController& camera, const std::optional<SelectableEntity>& hovered, const std::optional<SelectableEntity>& selected);

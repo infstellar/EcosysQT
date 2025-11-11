@@ -13,7 +13,7 @@ RaceBase 通用实现
 RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_, double hp_max_)
     : position(pos),
       energy(energy_),
-      max_energy(energy_ * 4),
+      max_energy(energy_),
       hp_current(hp_max_),
       hp_max(hp_max_),
       age(0),
@@ -33,7 +33,7 @@ RaceBase::RaceBase(Position pos,
                    double hp_max_)
     : position(pos),
       energy(energy_),
-      max_energy(energy_ * 4),
+      max_energy(energy_),
       hp_current(hp_max_),
       hp_max(hp_max_),
       age(0),

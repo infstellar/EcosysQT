@@ -1,11 +1,11 @@
 world:
-  width: 3200
-  height: 1800
+  width: 1920
+  height: 1080
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
-  grass: 5000
-  cow: 40
+  grass: 50000
+  cow: 400
   tiger: 5
 
 # 模拟参数（可选覆盖，缺省使用默认值）
