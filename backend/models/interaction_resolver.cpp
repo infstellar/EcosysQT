@@ -7,10 +7,32 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 
 #include <spdlog/spdlog.h>
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+#include "world_clock.h"
+namespace {
+std::string format_double(double value, int precision = 1) {
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss << std::setprecision(precision) << value;
+    return oss.str();
+}
+
+void log_interaction(RaceBase* entity, const std::string& message, bool success, int timestamp) {
+    if (auto* animal = dynamic_cast<Animal*>(entity)) {
+        animal->add_interaction_log(message, success, timestamp);
+    }
+}
+
+void log_interaction(ThingBase*, const std::string&, bool, int) {}
+} // namespace
+#endif
 
 void InteractionResolutionState::clear() {
     race_energy_changes.clear();
@@ -32,7 +54,9 @@ void InteractionResolver::dispatch_request(const InteractionRequest& request,
 void InteractionResolver::handle_request(const AttemptToEatThingRequest& req,
                                          EcosystemState& state,
                                          InteractionResolutionState& results) {
+#ifndef ECOSIM_ENABLE_UI_DEBUG
     (void)state;
+#endif
     auto& initiator = req.initiator;
     auto& target = req.target;
     if (!initiator || !target) return;
@@ -73,12 +97,20 @@ void InteractionResolver::handle_request(const AttemptToEatThingRequest& req,
     }
 
     target->die_from_predation(initiator->species_name);
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    const int time = state.clock().time_step();
+    const std::string msg_init = "Ate " + target->species_name + " (+" + format_double(gained) + " E)";
+    log_interaction(initiator.get(), msg_init, true, time);
+#endif
 }
 
 void InteractionResolver::handle_request(const DamageRaceRequest& req,
                                          EcosystemState& state,
                                          InteractionResolutionState& results) {
+#ifndef ECOSIM_ENABLE_UI_DEBUG
     (void)state;
+#endif
     auto& attacker = req.attacker;
     auto& target = req.target;
     const double damage = std::max(0.0, req.damage);
@@ -97,6 +129,9 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
     }
 
     target->take_damage(damage, source);
+
+    bool success = false;
+    double gained = 0.0;
 
     auto logger = spdlog::get("ecosim");
     if (!target->alive) {
@@ -117,8 +152,9 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
             const double bonus_ratio = std::pow(saturation, alpha);
             bonus = bonus_max * pre_death_nutrition * bonus_ratio;
         }
-        const double gained = (pre_death_nutrition + bonus) * efficiency;
+        gained = (pre_death_nutrition + bonus) * efficiency;
         results.race_energy_changes[attacker.get()] += gained;
+        success = true;
         if (logger) {
             logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, sat={:.2f}, eff={:.2f})",
                          source, damage, target->species_name, gained, pre_death_nutrition, bonus, saturation, efficiency);
@@ -129,12 +165,27 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
                          source, damage, target->species_name, target->hp_current, target->hp_max);
         }
     }
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    const int time = state.clock().time_step();
+    const std::string dmg_str = format_double(damage, 1);
+    std::string msg_attacker = "Attacked " + target->species_name + " (DMG: " + dmg_str + ")";
+    std::string msg_target = "Attacked by " + source + " (DMG: " + dmg_str + ")";
+    if (success) {
+        msg_attacker += " [KILLED, +" + format_double(gained) + " E]";
+        msg_target += " [KILLED]";
+    }
+    log_interaction(attacker.get(), msg_attacker, success, time);
+    log_interaction(target.get(), msg_target, success, time);
+#endif
 }
 
 void InteractionResolver::handle_request(const DamageThingRequest& req,
                                          EcosystemState& state,
                                          InteractionResolutionState& results) {
+#ifndef ECOSIM_ENABLE_UI_DEBUG
     (void)state;
+#endif
     auto& attacker = req.attacker;
     auto& target = req.target;
     if (!attacker || !target) return;
@@ -150,23 +201,41 @@ void InteractionResolver::handle_request(const DamageThingRequest& req,
         logger->info("[Resolve DamageThing] '{}' destroyed '{}' at ({:.1f},{:.1f})",
                      source, target->species_name, target->position.x, target->position.y);
     }
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    const int time = state.clock().time_step();
+    const std::string msg_attacker = "Destroyed " + target->species_name;
+    log_interaction(attacker.get(), msg_attacker, true, time);
+#endif
 }
 
 void InteractionResolver::handle_request(const AttemptToReproduceRaceRequest& req,
                                          EcosystemState& state,
                                          InteractionResolutionState& results) {
+#ifndef ECOSIM_ENABLE_UI_DEBUG
     (void)state;
+#endif
     if (req.parent && req.parent->alive) {
         results.reproduction_parents.push_back(req.parent);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+        const int time = state.clock().time_step();
+        log_interaction(req.parent.get(), "Gave birth", true, time);
+#endif
     }
 }
 
 void InteractionResolver::handle_request(const AttemptToReproduceThingRequest& req,
                                          EcosystemState& state,
                                          InteractionResolutionState& results) {
+#ifndef ECOSIM_ENABLE_UI_DEBUG
     (void)state;
+#endif
     if (req.parent && req.parent->alive) {
         results.thing_reproduction_parents.push_back(req.parent);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+        const int time = state.clock().time_step();
+        log_interaction(req.parent.get(), "Reproduced (Thing)", true, time);
+#endif
     }
 }
 
@@ -208,4 +277,15 @@ void InteractionResolver::handle_request(const AttemptToMateRequest& req,
             "Mating rejected: conditions not met (female_alive={}, male_alive={}, female_can={}, male_can={})",
             female_alive, male_alive, female_can, male_can);
     }
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    if (female && male) {
+        const int time = state.clock().time_step();
+        const bool success = female_alive && male_alive && female_can && male_can;
+        const std::string msg_f = (success ? "Mated with " : "Mate failed with ") + male->species_name;
+        const std::string msg_m = (success ? "Mated with " : "Mate failed with ") + female->species_name;
+        log_interaction(female.get(), msg_f, success, time);
+        log_interaction(male.get(), msg_m, success, time);
+    }
+#endif
 }

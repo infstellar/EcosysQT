@@ -60,6 +60,9 @@ private slots:
     void onCustomSpeedClicked();
     void onInspectButtonClicked();
     void onExitToStartScreenClicked();
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    void onToggleHistoryClicked();
+#endif
 
 private:
     // ========== 核心数据和子系统 ==========
@@ -76,12 +79,18 @@ private:
     QPushButton* m_slowDownButton;
     QPushButton* m_restartButton; 
     QPushButton* m_customSpeedButton;
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    QPushButton* m_historyButton;
+#endif
 
     QTimer* m_updateTimer;
 
     // ========== UI 状态 ==========
     bool m_isDragging;     // 是否正在拖动视图
     bool m_isInspectMode;  // 是否处于查看模式
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    bool m_showHistory;
+#endif
     int m_currentSpeedLevel;
     std::optional<SelectableEntity> m_hoveredEntity;
     std::optional<SelectableEntity> m_selectedEntity;
@@ -102,6 +111,9 @@ private:
     void updateStatistics();
     std::optional<SelectableEntity> findEntityAtScreenPos(const QPointF& screenPos);
 
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    bool getShowHistory() const { return m_showHistory; }
+#endif
     // --- 让子系统可以访问私有数据 ---
     friend class SimulationRenderer;
 };

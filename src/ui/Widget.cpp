@@ -33,8 +33,11 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_currentData(std::make_shared<EcosystemStateData>())
     , m_updateTimer(new QTimer(this))
     , m_isDragging(false)
-    , m_currentSpeedLevel(2)
     , m_isInspectMode(false)
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    , m_showHistory(false)
+#endif
+    , m_currentSpeedLevel(2)
     // --- 初始化统计数据缓存 ---
     , m_grassCount(0)
     , m_cowCount(0)
@@ -71,6 +74,9 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     m_pauseButton = new QPushButton("暂停", this);
     m_slowDownButton = new QPushButton("减速 (-)", this);
     m_speedUpButton = new QPushButton("加速 (+)", this);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    m_historyButton = new QPushButton("显示历史 (OFF)", this);
+#endif
 
     // --- 设置按钮样式 ---
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
@@ -81,10 +87,17 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     m_pauseButton->setStyleSheet(buttonStyle);
     m_slowDownButton->setStyleSheet(buttonStyle);
     m_speedUpButton->setStyleSheet(buttonStyle);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    m_historyButton->setStyleSheet(buttonStyle);
+#endif
 
     // --- 按钮布局 (保持不变) ---
     QHBoxLayout* topRowLayout = new QHBoxLayout();
     topRowLayout->addWidget(m_inspectButton);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    topRowLayout->addWidget(m_historyButton);
+    m_historyButton->setVisible(false);
+#endif
     topRowLayout->addWidget(m_restartButton);
     topRowLayout->addWidget(m_exitButton);
     QHBoxLayout* bottomRowLayout = new QHBoxLayout();
@@ -116,6 +129,9 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     connect(m_pauseButton, &QPushButton::clicked, this, &Widget::onPauseResumeClicked);
     connect(m_slowDownButton, &QPushButton::clicked, this, &Widget::onSlowDownClicked);
     connect(m_speedUpButton, &QPushButton::clicked, this, &Widget::onSpeedUpClicked);
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    connect(m_historyButton, &QPushButton::clicked, this, &Widget::onToggleHistoryClicked);
+#endif
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
     
     m_updateTimer->start(16); // 约 60 FPS 的UI刷新率
@@ -369,6 +385,13 @@ void Widget::onCustomSpeedClicked()
 void Widget::onInspectButtonClicked()
 {
     m_isInspectMode = !m_isInspectMode;
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+    m_historyButton->setVisible(m_isInspectMode);
+    if (!m_isInspectMode) {
+        m_showHistory = false;
+        m_historyButton->setText("显示历史 (OFF)");
+    }
+#endif
     if (m_isInspectMode) {
         m_inspectButton->setText("退出查看");
         m_inspectButton->setStyleSheet("QPushButton { background-color: #007ACC; color: white; border: 1px solid #005A9E; padding: 5px; border-radius: 3px; min-width: 80px; }");
@@ -381,6 +404,15 @@ void Widget::onInspectButtonClicked()
         update();
     }
 }
+
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+void Widget::onToggleHistoryClicked()
+{
+    m_showHistory = !m_showHistory;
+    m_historyButton->setText(m_showHistory ? "显示历史 (ON)" : "显示历史 (OFF)");
+    update();
+}
+#endif
 
 void Widget::onExitToStartScreenClicked()
 {

@@ -461,12 +461,30 @@ void Animal::perform_step_move_to(const Position& target, int world_width, int w
 
 void Animal::update_ui_snapshot(const AnimalUiSnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(m_ui_snapshot_mutex);
+    auto history = std::move(m_ui_snapshot.interaction_history);
     m_ui_snapshot = snapshot;
+    m_ui_snapshot.interaction_history = std::move(history);
 }
 
 AnimalUiSnapshot Animal::get_ui_snapshot() const {
     std::lock_guard<std::mutex> lock(m_ui_snapshot_mutex);
     return m_ui_snapshot;
+}
+
+void Animal::add_interaction_log(const std::string& message, bool success, int timestamp) {
+    std::lock_guard<std::mutex> lock(m_ui_snapshot_mutex);
+
+    constexpr std::size_t kMaxHistorySize = 50;
+
+    m_ui_snapshot.interaction_history.push_back({timestamp, message, success});
+
+    if (m_ui_snapshot.interaction_history.size() > kMaxHistorySize) {
+        const auto overflow = m_ui_snapshot.interaction_history.size() - kMaxHistorySize;
+        m_ui_snapshot.interaction_history.erase(
+            m_ui_snapshot.interaction_history.begin(),
+            m_ui_snapshot.interaction_history.begin() + overflow
+        );
+    }
 }
 
 #endif
