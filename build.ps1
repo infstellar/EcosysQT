@@ -261,7 +261,7 @@ if (-not $BuildOnly) {
             $val = $configureSettings.$key
             if ($null -ne $val) {
                 if ($val -is [bool]) {
-                    $valStr = $val ? 'ON' : 'OFF'
+                    if ($val) { $valStr = 'ON' } else { $valStr = 'OFF' }
                 } else {
                     $valStr = [string](Expand-EnvPlaceholders ([string]$val))
                 }
