@@ -103,23 +103,25 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
         results.race_marked_for_death.insert(target.get());
         // 结算能量：基础营养值 + ENERGY加成，再乘能量利用率
         double bonus = 0.0;
+        // 饱和度：当前能量 / 开局energy （0-max_energy）
+        const double base_energy = (target->max_energy > 0.0) ? (target->max_energy / 4.0) : 0.0;
         double saturation = 0.0;
-        if (target->max_energy > 0.0) {
-            saturation = std::clamp(target->energy / target->max_energy, 0.0, 1.0);
+        if (base_energy > 0.0) {
+            saturation = std::clamp(target->energy / base_energy, 0.0, 1.0);
         }
         if (auto* predator = dynamic_cast<Animal*>(attacker.get())) {
             const double alpha = std::max(0.0, predator->nutrition_bonus_curve_alpha);
             const double bonus_max = std::max(0.0, predator->nutrition_bonus_max);
             // 将 bonus_max 视为对基础营养值的倍率上限（1.0 表示最多额外获得与基础营养值等量的加成），
-            // 并按猎物当前能量饱和度（energy/max_energy）的幂次曲线进行缩放。
+            // 并按猎物当前能量饱和度（energy/初始energy）的幂次曲线进行缩放。
             const double bonus_ratio = std::pow(saturation, alpha);
             bonus = bonus_max * pre_death_nutrition * bonus_ratio;
         }
         const double gained = (pre_death_nutrition + bonus) * efficiency;
         results.race_energy_changes[attacker.get()] += gained;
         if (logger) {
-            logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, eff={:.2f})",
-                         source, damage, target->species_name, gained, pre_death_nutrition, bonus, efficiency);
+            logger->info("[Resolve DamageRace] '{}' dealt {:.1f} to '{}' -> KILLED. Energy gained: {:.1f} (nutrition={:.1f}, bonus={:.1f}, sat={:.2f}, eff={:.2f})",
+                         source, damage, target->species_name, gained, pre_death_nutrition, bonus, saturation, efficiency);
         }
     } else {
         if (logger) {
