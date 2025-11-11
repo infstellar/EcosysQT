@@ -43,10 +43,10 @@ animal:
   mating_desire_probability: 0.5
 
   # 营养值
-  nutrition_value: 300.0
+  nutrition_value: 500.0
   # 饥饿相关
-  starvation_damage: 33.0
-  starvation_damage_interval_ratio: 0.1
+  starvation_damage: 1.5
+  starvation_damage_interval_ratio: 0.005
   satisfied_threshold_ratio: 0.7
   starving_threshold_ratio: 0.25
   energy_efficiency: 0.3
@@ -58,8 +58,8 @@ animal:
   # HP恢复基础值
   hp_regen_base_per_day: 500.0
   # HP恢复的状态加成：
-  hp_regen_mul_satisfied: 2.0
-  hp_regen_mul_normal: 1.0
+  hp_regen_mul_satisfied: 20.0
+  hp_regen_mul_normal: 2.0
   hp_regen_mul_starving: 0.1
   # HP恢复周期（0-1天）
   regan_interval_ratio: 0.002
