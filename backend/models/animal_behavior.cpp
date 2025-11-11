@@ -263,10 +263,10 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 int meal_ticks = (bb.ints.find("ticks_since_last_meal") != bb.ints.end()) ? bb.ints["ticks_since_last_meal"] : 0;
                 bb.ints["ticks_since_last_meal"] = std::max(0, meal_ticks + 1);
 
-                // 饥饿伤害：在 STARVING 状态下按间隔扣减 HP
+                // 饥饿伤害：在能量耗尽 (energy<=0) 后按间隔扣减 HP
                 {
                     ZoneScopedN("BT::Update::StarvationDamage");
-                    const bool starving = (self.get_hunger_state() == HungerState::STARVING);
+                    const bool out_of_energy = (self.energy <= 0.0);
                     const double ratio = bb_get_double(&bb, "starvation_damage_interval_ratio", 0.25);
                     const double damage = bb_get_double(&bb, "starvation_damage", 0.0);
                     const int tpd = world ? world->config.ticks_per_day : 3000;
@@ -277,13 +277,13 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                     int sd_ticks = (bb.ints.find("ticks_since_last_starvation_damage") != bb.ints.end())
                         ? bb.ints["ticks_since_last_starvation_damage"]
                         : 0;
-                    if (starving) {
+                    if (out_of_energy) {
                         sd_ticks = std::max(0, sd_ticks + 1);
                         if (damage > 0.0 && sd_ticks >= interval) {
                             self.take_damage(damage, "Starvation");
                             sd_ticks = 0;
                             SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-                                "[BT {}] Starvation dmg: '{}' -{:.1f} every {} ticks (tpd={})",
+                                "[BT {}] Starvation dmg (energy depleted): '{}' -{:.1f} every {} ticks (tpd={})",
                                 source_tag, self.species_name, damage, interval, tpd);
                         }
                     } else {
