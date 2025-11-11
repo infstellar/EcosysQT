@@ -12,14 +12,11 @@ class Animal;
 
 namespace behavior::actions {
 
-// 逃离威胁：根据黑板中的威胁位置，计算反方向安全点并执行一步移动，清理繁殖相关上下文
-bt::Status FleeFromThreat(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
-
 // 游荡：采样/推进游荡目标，按黑板倍率执行一步移动
 bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
-// 选择可用配偶并在范围内提交交配请求；否则锁定意图并向配偶位置前进
-bt::Status ApproachOrMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+// 近距离交配尝试：在交配范围内查找可用雌性并提交交互请求；不包含移动
+bt::Status AttemptToMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
 // 吃黑板上的目标（如 grass）：在范围内提交吃东西请求并跳过移动
 bt::Status EatTargetThing(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
@@ -29,6 +26,9 @@ bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 
 // 选择最近的可食目标点（race/things），写入当前移动目标
 bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+
+// 选择逃逸目的地：根据威胁反方向与采样偏角，写入长距离目标
+bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
 // 规划路径到当前目标并执行一步移动（支持黑板速度/能耗倍率）
 bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params);

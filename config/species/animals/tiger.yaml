@@ -8,8 +8,8 @@ animal:
   movement_speed: 2.0
   energy_consumption: 1
   hunting_range: 2
-  hunting_success_rate: 0.4
-  attack_damage: 33.0
+  hunting_success_rate: 0.6
+  attack_damage: 19.0
   detection_range: 300.0
   wander_radius: 100.0
   food_types:
@@ -21,6 +21,7 @@ animal:
       hunting_range: 10          # <--- 在这里添加这一行
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
+      flee_destination_radius: 120.0
       wander_speed_multiplier: 0.9
       wander_energy_multiplier: 0.8
       chase_speed_multiplier: 1.4
@@ -30,12 +31,13 @@ animal:
       starving_speed_multiplier: 0.9
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
-    ints: {}
+    ints:
+      flee_total_duration_ticks: 150
   hunting_cooldown_duration: 2
   min_reproduction_age: 30
   reproduction_cooldown: 800
 
-  wandering_duration: 50
+  wandering_duration: 150
   
   pregnancy_duration: 110  
   mating_range: 12.0       
@@ -43,23 +45,23 @@ animal:
   mating_desire_probability: 0.5
 
   # 营养值
-  nutrition_value: 500.0
+  nutrition_value: 1200.0
   # 饥饿相关
-  starvation_damage: 1.5
-  starvation_damage_interval_ratio: 0.005
+  starvation_damage: 0.5
+  starvation_damage_interval_ratio: 0.003
   satisfied_threshold_ratio: 0.7
   starving_threshold_ratio: 0.25
-  energy_efficiency: 0.3
+  energy_efficiency: 0.7
   # energy加成 ~ https://doi.org/10.1093/conphys/coac083
   # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
   # 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
-  nutrition_bonus_max: 1.0 # 相当于最多额外获得猎物当前的power1倍
+  nutrition_bonus_max: 8.0 # 相当于最多额外获得猎物当前的power8倍
   nutrition_bonus_curve_alpha: 2.0 # 2.0就相当于二次曲线，从高power的牛那里获得更多能量
   # HP恢复基础值
-  hp_regen_base_per_day: 500.0
+  hp_regen_base_per_day: 800.0
   # HP恢复的状态加成：
-  hp_regen_mul_satisfied: 20.0
-  hp_regen_mul_normal: 2.0
-  hp_regen_mul_starving: 0.1
+  hp_regen_mul_satisfied: 5.0
+  hp_regen_mul_normal: 1.0
+  hp_regen_mul_starving: 0.01
   # HP恢复周期（0-1天）
-  regan_interval_ratio: 0.002
+  regan_interval_ratio: 0.001

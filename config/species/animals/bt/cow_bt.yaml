@@ -12,9 +12,19 @@ BehaviorTreeDef:
           type: Sequence
           children:
             - type: Condition
-              cond: should_flee              # danger_nearby 或 threat_distance<=threshold
-            - type: Action
-              action: flee_from_threat       # 反方向一步并清理繁殖上下文
+              cond: should_flee              # danger_nearby 或 flee_mode_cooldown_ticks>0
+            - type: TickIntervalDecorator   # 周期性重新选择远距逃逸目的地
+              name: SelectFleeDestination
+              interval: 20
+              child:
+                type: Action
+                action: select_flee_destination
+                status_name: "Selecting Flee Destination"
+            - type: Action                  # 统一用长期目的地 + 路径推进
+              action: plan_path_to_target
+              plan_path_move_mode: direct
+              speed_multiplier_key: flee_speed_multiplier
+              energy_multiplier_key: flee_energy_multiplier
               status_name: "Fleeing"
       # ========== 交配（雄性） ==========
       - type: Sequence  # 条件满足后：决策节流 + 执行每帧
@@ -27,17 +37,24 @@ BehaviorTreeDef:
           - type: Condition
             cond: desire_below_param
             probability_param: mating_desire_probability
-          - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
-            name: FindMate
-            interval: 60
-            child:
-              type: Action
-              action: find_available_mate
-              status_name: "Seeking Mate"
-          - type: Action
-            action: approach_or_mate    # 每帧靠近/交配，保证移动平滑
-            status_name: "Approaching Mate"
-            mating_range_param: mating_range
+          - type: PrioritySelector  # 近距交配优先，失败则回退到追逐
+            children:
+              - type: Action
+                action: attempt_to_mate
+                mating_range_param: mating_range
+                status_name: "Mating"
+              - type: Sequence
+                children:
+                  - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
+                    name: FindMate
+                    interval: 60
+                    child:
+                      type: Action
+                      action: find_available_mate
+                      status_name: "Seeking Mate"
+                  - type: Action
+                    action: plan_path_to_target  # 每帧追逐到配偶
+                    status_name: "Chasing Mate"
 
       # ========== 觅食（草） ==========
       - type: Sequence  # 条件满足后：目标选择节流 + 移动每帧

@@ -13,8 +13,18 @@ BehaviorTreeDef:
           children:
             - type: Condition
               cond: should_flee
+            - type: TickIntervalDecorator   # 周期性重新选择远距逃逸目的地
+              name: SelectFleeDestination
+              interval: 20
+              child:
+                type: Action
+                action: select_flee_destination
+                status_name: "Selecting Flee Destination"
             - type: Action
-              action: flee_from_threat
+              action: plan_path_to_target
+              plan_path_move_mode: direct
+              speed_multiplier_key: flee_speed_multiplier
+              energy_multiplier_key: flee_energy_multiplier
               status_name: "Fleeing"
 
       # ========== 交配（雄性） ==========
@@ -28,15 +38,21 @@ BehaviorTreeDef:
           - type: Condition
             cond: desire_below_param
             probability_param: mating_desire_probability
-          - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
-            name: FindMate
-            interval: 60
-            child:
-              type: Action
-              action: find_available_mate
-          - type: Action
-            action: approach_or_mate    # 每帧靠近/交配，保证移动平滑
-            mating_range_param: mating_range
+          - type: PrioritySelector
+            children:
+              - type: Action
+                action: attempt_to_mate
+                mating_range_param: mating_range
+              - type: Sequence
+                children:
+                  - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
+                    name: FindMate
+                    interval: 60
+                    child:
+                      type: Action
+                      action: find_available_mate
+                  - type: Action
+                    action: plan_path_to_target
 
       # ========== 捕食（牛） - [已修正] ==========
       - type: Sequence  # 条件满足后：目标选择节流 + 追逐每帧

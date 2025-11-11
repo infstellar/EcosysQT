@@ -13,5 +13,5 @@ plant:
   expansion_boost: 1.5
   min_growth_factor: 0.1 # 单位是1250tick
   # 被食用时提供的基础营养值（独立于能量）
-  nutrition_value: 100.0
+  nutrition_value: 200.0
 plant: {}
