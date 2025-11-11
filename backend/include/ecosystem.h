@@ -153,25 +153,13 @@ public:
         const Position& center,
         double radius) const;
 
-    // --- 新增的 k-NN 优化函数 ---
-
-    /**
-     * @brief 使用 k-NN 螺旋搜索查找 N 个最近的 Thing。
-     * @param center 搜索中心。
-     * @param species_names 要匹配的物种列表。
-     * @param n 要查找的最近目标的数量。
-     * @param max_radius 搜索的最大半径。
-     * @return 按距离排序的最多 N 个 Thing 的列表。
-     */
+    // 最近邻查询（用于行为树）
     std::vector<std::shared_ptr<ThingBase>> find_nearest_things(
         const Position& center,
         const std::vector<std::string>& species_names,
         std::size_t n,
         double max_radius) const;
 
-    /**
-     * @brief 使用 k-NN 螺旋搜索查找 N 个最近的 Race。
-     */
     std::vector<std::shared_ptr<RaceBase>> find_nearest_races(
         const Position& center,
         const std::vector<std::string>& species_names,
@@ -200,7 +188,7 @@ private:
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
 
-    // 合并所有工作线程的请求队列到 staged_requests
+    // 合并各工作线程的请求队列到 staged_requests（仅内部使用）
     void merge_worker_queues();
 
     // RaceBase 状态

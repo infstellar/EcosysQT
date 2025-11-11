@@ -326,6 +326,9 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
             snapshot.wander_total_ticks = bb_get_int(&bb, bt::keys::WanderTotalTicks, 50);
             snapshot.hp_current = self.hp_current;
             snapshot.hp_max = self.hp_max;
+            // 寻路调试：将当前目标与规划路径写入快照
+            snapshot.current_target = self.get_current_target();
+            snapshot.planned_path = self.get_planned_path_snapshot();
             self.update_ui_snapshot(snapshot);
         }
 #endif
