@@ -71,13 +71,14 @@ void PopulationManager::apply_changes(EcosystemState& state) {
                 energy_it != race_energy_changes.end()) {
                 const double delta = energy_it->second;
                 const double prev = individual->energy;
-                individual->energy = prev + delta;
+                individual->energy = std::min(individual->max_energy, prev + delta);
                 if (logger) {
-                    logger->info("[Finalize Energy] '{}' id={} +{:.1f} -> {:.1f}",
+                    logger->info("[Finalize Energy] '{}' id={} +{:.1f} -> {:.1f} (max: {:.1f})",
                                  individual->species_name,
                                  reinterpret_cast<std::uintptr_t>(individual.get()),
                                  delta,
-                                 individual->energy);
+                                 individual->energy,
+                                 individual->max_energy);
                 }
             }
         }
