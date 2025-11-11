@@ -186,7 +186,12 @@ function Confirm-RunConfigure {
         [Parameter(Mandatory=$true)][string]$PresetName
     )
 
-    $defaultHint = $DefaultYes ? 'Y' : 'N'
+    
+    if ($DefaultYes) {
+        $defaultHint = 'Y'
+    } else {
+        $defaultHint = 'N'
+    }
     $question = "是否执行 cmake 配置步骤 (--preset $PresetName)? [Y/n] 默认: $defaultHint"
 
     while ($true) {

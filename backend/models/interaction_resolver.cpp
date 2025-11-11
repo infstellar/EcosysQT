@@ -132,6 +132,8 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
 
     bool success = false;
     double gained = 0.0;
+    // 供 UI 调试展示：记录击杀时的 bonus 组成部分
+    double bonus_used = 0.0;
 
     auto logger = spdlog::get("ecosim");
     if (!target->alive) {
@@ -152,6 +154,7 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
             bonus = bonus_max * pre_death_nutrition * bonus_ratio;
         }
         gained = (pre_death_nutrition + bonus) * efficiency;
+        bonus_used = bonus;
         results.race_energy_changes[attacker.get()] += gained;
         success = true;
         if (logger) {
@@ -171,7 +174,11 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
     std::string msg_attacker = "Attacked " + target->species_name + " (DMG: " + dmg_str + ")";
     std::string msg_target = "Attacked by " + source + " (DMG: " + dmg_str + ")";
     if (success) {
-        msg_attacker += " [KILLED, +" + format_double(gained) + " E]";
+        // 展示最终获得能量（与公式一致），并附带基础营养与加成、效率
+        msg_attacker += " [KILLED, +" + format_double(gained) + " E"
+                         + ", base=" + format_double(pre_death_nutrition)
+                         + ", bonus=" + format_double(bonus_used)
+                         + ", eff=" + format_double(efficiency) + "]";
         msg_target += " [KILLED]";
     }
     log_interaction(attacker.get(), msg_attacker, success, time);
