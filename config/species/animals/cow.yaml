@@ -45,14 +45,20 @@ animal:
   # 疲惫时速度倍率（取较小值作为封顶，例如 0.8）
   tired_speed_multiplier: 0.8
   pathfinding:
-    replan_interval: 30
+    replan_interval: 300
     enable_smoothing: false
     budget_multiplier: 300.0
     terrain_costs:
       LAND: 1.0
       SAND: 40.0
+      INLAND_SAND: 60.0
       HILLS: 80.0
+      MOUNTAIN: 9999.0
       SHALLOW_RIVER: 9999.0
+      DEEP_RIVER: 9999.0
+      WATER: 9999.0
+      SHALLOW_OCEAN: 9999.0
+      DEEP_OCEAN: 9999.0
   min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
   reproduction_cooldown: 6000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
   eating_range: 1
