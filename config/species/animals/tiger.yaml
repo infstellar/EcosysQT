@@ -44,14 +44,20 @@ animal:
     ints:
       flee_total_duration_ticks: 150
   pathfinding:
-    replan_interval: 10
+    replan_interval: 100
     enable_smoothing: true
     budget_multiplier: 2.5
     terrain_costs:
       LAND: 1.0
       HILLS: 1.5
       SAND: 2.0
+      INLAND_SAND: 2.5
       SHALLOW_RIVER: 6.0
+      DEEP_RIVER: 15.0
+      WATER: 18.0
+      SHALLOW_OCEAN: 25.0
+      DEEP_OCEAN: 9999.0
+      MOUNTAIN: 9999.0
   # 攻击冷却时长：
   hunting_cooldown_duration: 45 
   min_reproduction_age: 30
