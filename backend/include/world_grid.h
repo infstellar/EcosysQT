@@ -32,6 +32,8 @@ public:
 
     void initialize_all_tile_states(const WorldClock& clock);
 
+    void initialize_brightness_lut(int days_per_year, double axial_tilt_deg);
+
     void dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock);
 
     int width() const noexcept { return m_width; }
@@ -46,6 +48,11 @@ private:
     std::vector<Tile> m_tiles;
     int m_map_update_amortization_ticks{10};
     double m_axial_tilt_deg{23.44};
+    std::vector<double> m_brightness_lut;
+    int m_lut_lat_count{0};
+    int m_lut_day_count{0};
+    int m_lut_hour_count{0};
+    bool m_lut_initialized{false};
 
     void update_tile_state(Tile& tile, const WorldClock& clock);
     void update_tile_local_time(Tile& tile, const WorldClock& clock);

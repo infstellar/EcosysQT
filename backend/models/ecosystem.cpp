@@ -170,6 +170,7 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
                 m_all_things() {
     m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_clock.attach_config(&this->config);
+    m_world_grid.initialize_brightness_lut(m_clock.days_in_year(), config.map_gen_config.axial_tilt_deg);
     initialize_populations();
 }
 
@@ -924,6 +925,8 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     m_clock.attach_config(&config);
     m_clock.reset();
+    m_world_grid.set_axial_tilt_deg(new_config.map_gen_config.axial_tilt_deg);
+    m_world_grid.initialize_brightness_lut(m_clock.days_in_year(), new_config.map_gen_config.axial_tilt_deg);
     // 重新构造注册表以应用新的初始数量
     races_registry = RacesRegistry(config);
     births.reset();
