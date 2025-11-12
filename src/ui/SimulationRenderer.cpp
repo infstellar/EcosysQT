@@ -4,6 +4,8 @@
 #include "thing_base.h"
 #include "race_base.h"
 #include "producer.h"
+#include "world_grid.h"
+#include "tile.h"
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 #include "animal_ui_snapshot.h"
 #endif
@@ -12,6 +14,7 @@
 #include <QDateTime>
 #include <unordered_set>
 #include <cmath>
+#include <QCursor>
 
 // DrawableEntity 结构体只在渲染时使用，所以定义在这里
 struct DrawableEntity {
@@ -105,12 +108,42 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     }
 }
 
+namespace {
+    QString terrainToString(TerrainType t) {
+        switch (t) {
+            case TerrainType::LAND: return "土地";
+            case TerrainType::WATER: return "水";
+            case TerrainType::SHALLOW_RIVER: return "浅河";
+            case TerrainType::DEEP_RIVER: return "深河";
+            case TerrainType::SHALLOW_OCEAN: return "浅海";
+            case TerrainType::DEEP_OCEAN: return "深海";
+            case TerrainType::SAND: return "沙地";
+            case TerrainType::INLAND_SAND: return "内陆沙地";
+            case TerrainType::HILLS: return "丘陵";
+            case TerrainType::MOUNTAIN: return "山脉";
+            default: return "未知";
+        }
+    }
+
+    QString biomeToString(BiomeType b) {
+        switch (b) {
+            case BiomeType::Temperate: return "温带";
+            case BiomeType::Tropical: return "热带";
+            case BiomeType::Frigid: return "寒带";
+            case BiomeType::Polar: return "极地";
+            default: return "未知";
+        }
+    }
+}
+
 void SimulationRenderer::render(QPainter& painter,
                                 const std::shared_ptr<EcosystemStateData>& data,
                                 const CameraController& camera,
                                 const std::optional<SelectableEntity>& hovered,
                                 const std::optional<SelectableEntity>& selected,
-                                bool isInspectMode)
+                                bool isInspectMode,
+                                bool isGridInspectMode,
+                                const std::optional<QPoint>& hoveredGridCoords)
 {
     if (!data) return;
 
@@ -123,6 +156,8 @@ void SimulationRenderer::render(QPainter& painter,
     drawEntities(painter, data, camera);
     if (isInspectMode) {
         drawSelection(painter, camera, hovered, selected);
+    } else if (isGridInspectMode && hoveredGridCoords.has_value()) {
+        drawGridInspect(painter, data, camera, hoveredGridCoords.value());
     }
     drawHud(painter);
 }
@@ -713,4 +748,66 @@ void SimulationRenderer::drawGrid(QPainter& painter, const CameraController& cam
         QPointF right = camera.toScreenCoords(QPointF(viewRight, y), screenSize);
         painter.drawLine(QLineF(left, right));
     }
+}
+
+void SimulationRenderer::drawGridInspect(QPainter& painter,
+                                         const std::shared_ptr<EcosystemStateData>& data,
+                                         const CameraController& camera,
+                                         const QPoint& gridCoords)
+{
+    QPointF worldTopLeft(gridCoords.x(), gridCoords.y());
+    QPointF worldBottomRight(gridCoords.x() + 1.0, gridCoords.y() + 1.0);
+
+    QPointF screenTopLeft = camera.toScreenCoords(worldTopLeft, m_parentWidget->size());
+    QPointF screenBottomRight = camera.toScreenCoords(worldBottomRight, m_parentWidget->size());
+
+    QRectF highlightRect(screenTopLeft, screenBottomRight);
+    painter.setBrush(QColor(255, 255, 0, 70));
+    painter.setPen(QPen(QColor(255, 255, 0, 200), 2));
+    painter.drawRect(highlightRect);
+
+    if (!data->world_grid) {
+        qWarning() << "Renderer: data->world_grid is null";
+        return;
+    }
+
+    const WorldGrid* grid = data->world_grid;
+    if (!grid->is_valid_coord(gridCoords.x(), gridCoords.y())) {
+        return;
+    }
+
+    const Tile& tile = grid->get_tile(gridCoords.x(), gridCoords.y());
+
+    QString infoText;
+    infoText += QString("格子坐标: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
+    infoText += QString("地形: %1\n").arg(terrainToString(tile.terrain));
+    infoText += QString("生物群系: %1\n").arg(biomeToString(tile.biome));
+    infoText += QString("----------\n");
+    infoText += QString("温度: %1 °C\n").arg(QString::number(tile.temperature, 'f', 1));
+    infoText += QString("本地时间: %1:00\n").arg(tile.local_hour);
+    infoText += QString("湿度: %1\n").arg(QString::number(tile.moisture, 'f', 2));
+    infoText += QString("海拔: %1\n").arg(QString::number(tile.elevation, 'f', 2));
+    infoText += QString("肥沃度: %1\n").arg(tile.fertility);
+    infoText += QString("物体数量: %1").arg(tile.things.size());
+
+    QFont font("Arial", 10);
+    QFontMetrics fm(font);
+    QRect textRect = fm.boundingRect(QRect(), Qt::AlignLeft, infoText);
+    textRect.adjust(-10, -10, 10, 10);
+
+    QPointF cursorPos = m_parentWidget->mapFromGlobal(QCursor::pos());
+    textRect.moveTo(cursorPos.x() + 20.0, cursorPos.y() + 20.0);
+
+    if (textRect.right() > m_parentWidget->width()) textRect.moveRight(m_parentWidget->width() - 10);
+    if (textRect.bottom() > m_parentWidget->height()) textRect.moveBottom(m_parentWidget->height() - 10);
+    if (textRect.left() < 0) textRect.moveLeft(10);
+    if (textRect.top() < 0) textRect.moveTop(10);
+
+    painter.setBrush(QColor(0, 0, 0, 190));
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(textRect, 5, 5);
+
+    painter.setPen(Qt::white);
+    painter.setFont(font);
+    painter.drawText(textRect.adjusted(10, 10, -10, -10), Qt::AlignLeft, infoText);
 }

@@ -12,6 +12,7 @@
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <cmath>
 #include "map_config_loader.h"
 
 /**
@@ -34,6 +35,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     , m_updateTimer(new QTimer(this))
     , m_isDragging(false)
     , m_isInspectMode(false)
+    , m_isGridInspectMode(false)
     , m_showGrid(false)
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     , m_showHistory(false)
@@ -81,6 +83,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     // 新增：显示/隐藏网格按钮（右下角）
     m_toggleGridButton = new QPushButton("显示网格", this);
     m_toggleHpBarButton = new QPushButton("显示血条", this);
+    m_toggleGridInspectButton = new QPushButton("查看格子", this);
     
 
     // --- 设置按钮样式 ---
@@ -97,6 +100,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #endif
     m_toggleGridButton->setStyleSheet(buttonStyle);
     m_toggleHpBarButton->setStyleSheet(buttonStyle);
+    m_toggleGridInspectButton->setStyleSheet(buttonStyle);
 
     // --- 按钮布局 (保持不变) ---
     QHBoxLayout* topRowLayout = new QHBoxLayout();
@@ -113,6 +117,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     bottomRowLayout->addWidget(m_speedUpButton);
     bottomRowLayout->addWidget(m_toggleGridButton);
     bottomRowLayout->addWidget(m_toggleHpBarButton);
+    bottomRowLayout->addWidget(m_toggleGridInspectButton);
     QHBoxLayout* customSpeedLayout = new QHBoxLayout();
     customSpeedLayout->addStretch();
     customSpeedLayout->addWidget(m_customSpeedButton);
@@ -143,6 +148,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #endif
     connect(m_toggleGridButton, &QPushButton::clicked, this, &Widget::onToggleGridClicked);
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
+    connect(m_toggleGridInspectButton, &QPushButton::clicked, this, &Widget::onToggleGridInspectClicked);
     connect(m_toggleHpBarButton, &QPushButton::clicked, this, [this]() {
         m_showHpBar = !m_showHpBar;
         m_toggleHpBarButton->setText(m_showHpBar ? "隐藏血条" : "显示血条");
@@ -233,7 +239,14 @@ void Widget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
     QPainter painter(this);
-    m_renderer->render(painter, m_currentData, *m_cameraController, m_hoveredEntity, m_selectedEntity, m_isInspectMode);
+    m_renderer->render(painter,
+                       m_currentData,
+                       *m_cameraController,
+                       m_hoveredEntity,
+                       m_selectedEntity,
+                       m_isInspectMode,
+                       m_isGridInspectMode,
+                       m_hoveredGridCoords);
 }
 
 /**
@@ -290,20 +303,64 @@ void Widget::mouseMoveEvent(QMouseEvent *event)
         m_cameraController->handleMouseMoveEventForPan(event, size());
         update();
         event->accept();
-    } else {
-        if (m_isInspectMode) {
-            auto previouslyHovered = m_hoveredEntity;
-            m_hoveredEntity = findEntityAtScreenPos(event->localPos());
+        return;
+    }
 
-            if (previouslyHovered.has_value() != m_hoveredEntity.has_value() ||
-               (previouslyHovered.has_value() && m_hoveredEntity.has_value() &&
-                std::visit([](auto&& arg1){ return (void*)arg1.get(); }, previouslyHovered.value()) !=
-                std::visit([](auto&& arg2){ return (void*)arg2.get(); }, m_hoveredEntity.value()))) {
-                update();
+    bool needsUpdate = false;
+
+    if (m_isInspectMode) {
+        if (m_hoveredGridCoords.has_value()) {
+            m_hoveredGridCoords.reset();
+            needsUpdate = true;
+        }
+
+        auto previouslyHovered = m_hoveredEntity;
+        m_hoveredEntity = findEntityAtScreenPos(event->localPos());
+
+        if (previouslyHovered.has_value() != m_hoveredEntity.has_value() ||
+            (previouslyHovered.has_value() && m_hoveredEntity.has_value() &&
+             std::visit([](auto&& arg1){ return static_cast<const void*>(arg1.get()); }, previouslyHovered.value()) !=
+             std::visit([](auto&& arg2){ return static_cast<const void*>(arg2.get()); }, m_hoveredEntity.value()))) {
+            needsUpdate = true;
+        }
+    } else if (m_isGridInspectMode) {
+        if (m_hoveredEntity.has_value()) {
+            m_hoveredEntity.reset();
+            needsUpdate = true;
+        }
+
+        if (m_currentData) {
+            QPointF worldPos = m_cameraController->toWorldCoords(event->localPos(), size());
+            QPoint gridCoords(static_cast<int>(std::floor(worldPos.x())),
+                              static_cast<int>(std::floor(worldPos.y())));
+
+            if (gridCoords.x() >= 0 && gridCoords.x() < m_currentData->world_width &&
+                gridCoords.y() >= 0 && gridCoords.y() < m_currentData->world_height) {
+                if (!m_hoveredGridCoords.has_value() || m_hoveredGridCoords.value() != gridCoords) {
+                    m_hoveredGridCoords = gridCoords;
+                    needsUpdate = true;
+                }
+            } else if (m_hoveredGridCoords.has_value()) {
+                m_hoveredGridCoords.reset();
+                needsUpdate = true;
             }
         }
-        event->ignore();
+    } else {
+        if (m_hoveredEntity.has_value()) {
+            m_hoveredEntity.reset();
+            needsUpdate = true;
+        }
+        if (m_hoveredGridCoords.has_value()) {
+            m_hoveredGridCoords.reset();
+            needsUpdate = true;
+        }
     }
+
+    if (needsUpdate) {
+        update();
+    }
+
+    event->ignore();
 }
 
 /**
@@ -418,6 +475,13 @@ void Widget::onInspectButtonClicked()
     }
 #endif
     if (m_isInspectMode) {
+        if (m_isGridInspectMode) {
+            m_isGridInspectMode = false;
+            if (m_toggleGridInspectButton) {
+                m_toggleGridInspectButton->setText("查看格子");
+            }
+            m_hoveredGridCoords.reset();
+        }
         m_inspectButton->setText("退出查看");
         m_inspectButton->setStyleSheet("QPushButton { background-color: #007ACC; color: white; border: 1px solid #005A9E; padding: 5px; border-radius: 3px; min-width: 80px; }");
     } else {
@@ -428,6 +492,40 @@ void Widget::onInspectButtonClicked()
         m_selectedEntity.reset();
         update();
     }
+}
+
+void Widget::onToggleGridInspectClicked()
+{
+    m_isGridInspectMode = !m_isGridInspectMode;
+
+    if (m_isGridInspectMode) {
+        if (m_isInspectMode) {
+            m_isInspectMode = false;
+            m_inspectButton->setText("查看属性");
+            QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
+            m_inspectButton->setStyleSheet(buttonStyle);
+            m_hoveredEntity.reset();
+            m_selectedEntity.reset();
+#ifdef ECOSIM_ENABLE_UI_DEBUG
+            if (m_historyButton) {
+                m_historyButton->setVisible(false);
+                m_showHistory = false;
+                m_historyButton->setText("显示历史 (OFF)");
+            }
+#endif
+        }
+        m_hoveredGridCoords.reset();
+        if (m_toggleGridInspectButton) {
+            m_toggleGridInspectButton->setText("退出查看");
+        }
+    } else {
+        if (m_toggleGridInspectButton) {
+            m_toggleGridInspectButton->setText("查看格子");
+        }
+        m_hoveredGridCoords.reset();
+    }
+
+    update();
 }
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
