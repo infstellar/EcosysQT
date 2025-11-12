@@ -43,6 +43,7 @@ BehaviorTreeDef:
               - type: Action
                 action: attempt_to_mate
                 mating_range_param: mating_range
+                status_name: "Mating"
               - type: Sequence
                 children:
                   - type: TickIntervalDecorator  # 每300tick搜索配偶（昂贵决策）
@@ -51,8 +52,10 @@ BehaviorTreeDef:
                     child:
                       type: Action
                       action: find_available_mate
+                      status_name: "Seeking Mate"
                   - type: Action
                     action: plan_path_to_target
+                    status_name: "Chasing Mate"
 
       # ========== 捕食（牛） - [已修正] ==========
       - type: Sequence  # 条件满足后：目标选择节流 + 追逐每帧
@@ -70,7 +73,7 @@ BehaviorTreeDef:
                 status_name: "Hunting"
               - type: Sequence
                 children:
-                  - type: TickIntervalDecorator  # 每300tick选择一次猎物目标；不执行移动
+                  - type: TickIntervalDecorator  # 每300tick刷新一次猎物目标；保持追逐响应
                     name: SelectTarget
                     interval: 300
                     child:
@@ -79,7 +82,6 @@ BehaviorTreeDef:
                       status_name: "Scanning Prey"
                   - type: Action
                     action: plan_path_to_target  # 每帧追逐至目标
-                    range_param: hunting_range
                     status_name: "Chasing Prey"
 
       # ========== 游荡 ==========

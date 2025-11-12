@@ -4,6 +4,9 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <vector>
+#include <QFile>
+#include <QIODevice>
+#include <QString>
 
 static int clamp_int(int v, int lo, int hi, int fallback) {
     if (v < lo || v > hi) return fallback;
@@ -32,10 +35,28 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
 
     YAML::Node root;
     try {
+        // 文件系统优先
         root = YAML::LoadFile(yaml_path);
+        if (logger) logger->info("[MapConfig] Loaded from FS: '{}'", yaml_path);
     } catch (const std::exception& e) {
-        if (logger) logger->warn("[MapConfig] Failed to load '{}': {}. Using defaults.", yaml_path, e.what());
-        return cfg;
+        if (logger) logger->warn("[MapConfig] FS load failed for '{}': {}. Trying resource.", yaml_path, e.what());
+        // 资源兜底：固定别名路径
+        const QString qrcPath = QStringLiteral(":/config/map_config.yaml");
+        QFile f(qrcPath);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QByteArray content = f.readAll();
+            f.close();
+            try {
+                root = YAML::Load(std::string(content.constData(), static_cast<size_t>(content.size())));
+                if (logger) logger->info("[MapConfig] Loaded from resource: '{}'", qrcPath.toStdString());
+            } catch (const std::exception& e2) {
+                if (logger) logger->warn("[MapConfig] Resource load failed for '{}': {}. Using defaults.", qrcPath.toStdString(), e2.what());
+                return cfg;
+            }
+        } else {
+            if (logger) logger->warn("[MapConfig] Resource not available: '{}'. Using defaults.", qrcPath.toStdString());
+            return cfg;
+        }
     }
 
     // world 尺寸

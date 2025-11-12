@@ -6,6 +6,7 @@
 #include "race_factory.h"
 #include "thing_factory.h"
 #include <spdlog/spdlog.h>
+#include "logger_once.hpp"
 #include <algorithm>
 #include <memory>
 #include <limits>
@@ -421,85 +422,53 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
     const double ty = bb_get_double(&bb, posy_key, self.position.y);
     Position threat{tx, ty};
 
-    // 反方向单位向量
-    Position dir{ self.position.x - threat.x, self.position.y - threat.y };
-    const double len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
-    if (len <= 1e-9) {
-        // 威胁与自身重合，退化为向最近边界方向偏移
-        const int ww = world->config.world_width;
-        const int wh = world->config.world_height;
-        const double dx_edge = std::min(self.position.x, static_cast<double>(ww) - self.position.x);
-        const double dy_edge = std::min(self.position.y, static_cast<double>(wh) - self.position.y);
-        Position fallback{
-            (self.position.x < ww/2.0) ? (self.position.x - std::max(1.0, dx_edge)) : (self.position.x + std::max(1.0, dx_edge)),
-            (self.position.y < wh/2.0) ? (self.position.y - std::max(1.0, dy_edge)) : (self.position.y + std::max(1.0, dy_edge))
-        };
-        fallback.x = std::max(0.0, std::min(static_cast<double>(ww), fallback.x));
-        fallback.y = std::max(0.0, std::min(static_cast<double>(wh), fallback.y));
-        bb.doubles[bt::keys::TargetPosX] = fallback.x;
-        bb.doubles[bt::keys::TargetPosY] = fallback.y;
-        self.set_current_target(fallback);
-        return Status::Success;
+    // 基础逃跑方向：从威胁指向自身的反方向
+    Position flee_dir{ self.position.x - threat.x, self.position.y - threat.y };
+    double len = std::sqrt(flee_dir.x * flee_dir.x + flee_dir.y * flee_dir.y);
+    if (len < 1e-6) {
+        // 如果威胁与自身重合，随机一个方向
+        auto& rng0 = world->get_thread_local_rng();
+        std::uniform_real_distribution<> angle_dist(0.0, 2.0 * M_PI);
+        const double random_angle = angle_dist(rng0);
+        flee_dir = { std::cos(random_angle), std::sin(random_angle) };
+    } else {
+        flee_dir.x /= len;
+        flee_dir.y /= len;
     }
-    dir.x /= len; dir.y /= len;
 
-    // 逃逸半径：优先黑板，其次威胁阈值的 1.5x，再次探测范围
+    // 逃逸半径：优先 YAML/黑板；否则使用动态回退（威胁阈值 *1.5 或探测范围）
     double radius = bb_get_double(&bb, radius_key, 0.0);
     if (radius <= 0.0) {
         const double th = bb_get_double(&bb, bt::keys::ThreatThreshold, self.get_detection_range());
         radius = std::max(self.get_detection_range(), th * 1.5);
+        SPDLOG_WARN_ONCE(spdlog::get("ecosim"),
+            "Flee radius not configured for '{}' ; using dynamic fallback {:.1f}.",
+            self.species_name, radius);
     }
 
-    // 采样 5 个偏角：-30/-15/0/+15/+30 度
-    static const double kDeg2Rad = M_PI / 180.0;
-    const double offsets_deg[5] = {-30.0, -15.0, 0.0, 15.0, 30.0};
-    const int ww = world->config.world_width;
-    const int wh = world->config.world_height;
-
-    auto score_candidate = [&](const Position& p) -> double {
-        // 新评分策略：同时奖励“远离威胁”和“远离边界”
-        const double distance_from_threat = p.distance_to(threat);
-        const double distance_to_edge_x = std::min(p.x, static_cast<double>(ww) - p.x);
-        const double distance_to_edge_y = std::min(p.y, static_cast<double>(wh) - p.y);
-        const double min_distance_to_any_edge = std::min(distance_to_edge_x, distance_to_edge_y);
-        // 权重 0.5：鼓励朝开阔区域逃离，避免角落堆叠
-        return distance_from_threat + min_distance_to_any_edge * 0.1;
+    // 小随机角度偏移（-15° 到 +15°）
+    auto& rng = world->get_thread_local_rng();
+    std::uniform_real_distribution<> angle_offset_dist(-M_PI / 12.0, M_PI / 12.0);
+    const double angle_offset = angle_offset_dist(rng);
+    const double ca = std::cos(angle_offset);
+    const double sa = std::sin(angle_offset);
+    Position final_dir{
+        flee_dir.x * ca - flee_dir.y * sa,
+        flee_dir.x * sa + flee_dir.y * ca
     };
 
-    double best_score = -std::numeric_limits<double>::infinity();
-    Position best = self.position;
-    for (double off_deg : offsets_deg) {
-        const double ang = off_deg * kDeg2Rad;
-        const double ca = std::cos(ang);
-        const double sa = std::sin(ang);
-        Position rotated{ dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca };
-        Position candidate{
-            std::max(0.0, std::min(static_cast<double>(ww), self.position.x + rotated.x * radius)),
-            std::max(0.0, std::min(static_cast<double>(wh), self.position.y + rotated.y * radius))
-        };
-        if (self.position.distance_to(candidate) < 1e-6) continue;
-        const double s = score_candidate(candidate);
-        if (s > best_score) {
-            best_score = s;
-            best = candidate;
-        }
-    }
+    // 计算目标点并进行边界限制
+    Position destination{
+        self.position.x + final_dir.x * radius,
+        self.position.y + final_dir.y * radius
+    };
 
-    if (best_score == -std::numeric_limits<double>::infinity()) {
-        // 所有候选无效：后备为直接反方向的单位步长
-        Position fallback{
-            std::max(0.0, std::min(static_cast<double>(ww), self.position.x + dir.x * std::max(1.0, self.movement_speed))),
-            std::max(0.0, std::min(static_cast<double>(wh), self.position.y + dir.y * std::max(1.0, self.movement_speed)))
-        };
-        bb.doubles[bt::keys::TargetPosX] = fallback.x;
-        bb.doubles[bt::keys::TargetPosY] = fallback.y;
-        self.set_current_target(fallback);
-        return Status::Success;
-    }
+    destination.x = std::clamp(destination.x, 0.0, static_cast<double>(world->config.world_width));
+    destination.y = std::clamp(destination.y, 0.0, static_cast<double>(world->config.world_height));
 
-    bb.doubles[bt::keys::TargetPosX] = best.x;
-    bb.doubles[bt::keys::TargetPosY] = best.y;
-    self.set_current_target(best);
+    bb.doubles[bt::keys::TargetPosX] = destination.x;
+    bb.doubles[bt::keys::TargetPosY] = destination.y;
+    self.set_current_target(destination);
     return Status::Success;
 }
 

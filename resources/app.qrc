@@ -19,5 +19,20 @@
     <file>images/tree3.png</file>
         <file>music/background_music.mp3</file>
         <file>images/background_start.png</file>
+
+        <!-- 配置 YAML：使用 alias 保持资源路径为 ":/config/..." -->
+        <file alias="config/map_config.yaml">../config/map_config.yaml</file>
+        <file alias="config/species.yaml">../config/species.yaml</file>
+        <!-- 基础模板 YAML -->
+        <file alias="config/species_base/base_animal.yaml">../config/species_base/base_animal.yaml</file>
+        <file alias="config/species_base/base_plant.yaml">../config/species_base/base_plant.yaml</file>
+        <!-- 物种定义：动物 -->
+        <file alias="config/species/animals/cow.yaml">../config/species/animals/cow.yaml</file>
+        <file alias="config/species/animals/tiger.yaml">../config/species/animals/tiger.yaml</file>
+        <!-- 行为树 YAML -->
+        <file alias="config/species/animals/bt/cow_bt.yaml">../config/species/animals/bt/cow_bt.yaml</file>
+        <file alias="config/species/animals/bt/tiger_bt.yaml">../config/species/animals/bt/tiger_bt.yaml</file>
+        <!-- 物种定义：植物 -->
+        <file alias="config/species/plants/grass.yaml">../config/species/plants/grass.yaml</file>
     </qresource>
 </RCC>

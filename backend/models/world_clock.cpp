@@ -75,6 +75,10 @@ std::string WorldClock::current_quadrum_name() const {
     return std::string("Q") + std::to_string(quadrum_index + 1);
 }
 
+int WorldClock::days_in_year() const noexcept {
+    return std::max(1, days_per_year());
+}
+
 int WorldClock::ticks_per_day() const noexcept {
     return m_config ? m_config->ticks_per_day : 0;
 }

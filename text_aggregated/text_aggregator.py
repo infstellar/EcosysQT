@@ -53,7 +53,7 @@ class TextAggregator:
             'node_modules', '.vscode', '.idea', '.vs', 'build', 'dist',
             '.DS_Store', 'Thumbs.db', 'package-lock.json', 'vcpkg', 'external',
             'vcpkg_installed', 'old', 'prompts', 'text_aggregated', 'build-tracy-off',
-            'build-tracy-on', 'build-headless-debug'
+            'build-tracy-on', 'build-headless-debug', 'build-headless-release', 'build-debug', 'build-release'
         }
         
         self.processed_files = []

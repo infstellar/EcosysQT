@@ -21,6 +21,10 @@
 #include "race_factory.h"
 #include "logger_once.hpp"
 #include "species_config_provider.h"
+// 资源兜底需要 Qt 文件读取
+#include <QFile>
+#include <QIODevice>
+#include <QString>
 // 新的可复用行为动作封装
 #include "bt_actions.h"
 #include "bt_keys.h"
@@ -356,33 +360,52 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
 
 // 解析 YAML 并返回用户定义的行为逻辑根节点（不含骨架）
 static std::shared_ptr<Node> parse_bt_yaml_logic_root_if_available(Animal& self) {
+    if (self.species_name.empty()) return nullptr;
+    auto provider = g_race_factory.get_config_provider();
+    const std::string root_dir = provider ? provider->get_config_root_dir() : std::string(".");
+    const std::string fs_path = root_dir + "/config/species/animals/bt/" + self.species_name + "_bt.yaml";
+    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Try FS for '{}': {}", self.species_name, fs_path);
+    YAML::Node doc;
     try {
-        if (self.species_name.empty()) return nullptr;
-        auto provider = g_race_factory.get_config_provider();
-        const std::string root_dir = provider ? provider->get_config_root_dir() : std::string(".");
-        const std::string path = root_dir + "/config/species/animals/bt/" + self.species_name + "_bt.yaml";
-        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Try load '{}': {}", self.species_name, path);
-        YAML::Node doc = YAML::LoadFile(path);
-        if (!doc) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Empty YAML doc for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node def = doc["BehaviorTreeDef"];
-        if (!def) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'BehaviorTreeDef' for '{}'", self.species_name);
-            return nullptr;
-        }
-        const YAML::Node root = def["root"];
-        if (!root) {
-            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'root' node for '{}'", self.species_name);
-            return nullptr;
-        }
-        auto user_root = parse_bt_yaml_node(root, self);
-        return user_root;
+        doc = YAML::LoadFile(fs_path);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Loaded from FS: '{}'", fs_path);
     } catch (const std::exception& e) {
-    SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to parse YAML for '{}': {}.", self.species_name, e.what());
+        // 回退到资源别名
+        const QString alias = QString::fromLatin1(":/config/species/animals/bt/") + QString::fromStdString(self.species_name) + QStringLiteral("_bt.yaml");
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] FS missing for '{}', try resource '{}' (reason: {})", self.species_name, alias.toStdString(), e.what());
+        QFile f(alias);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QByteArray content = f.readAll();
+            f.close();
+            try {
+                doc = YAML::Load(std::string(content.constData(), static_cast<size_t>(content.size())));
+                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Loaded from resource: '{}'", alias.toStdString());
+            } catch (const std::exception& e2) {
+                SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[BT YAML] Failed to parse resource YAML for '{}': {}", self.species_name, e2.what());
+                return nullptr;
+            }
+        } else {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Resource not available for '{}': '{}'", self.species_name, alias.toStdString());
+            return nullptr;
+        }
+    }
+
+    if (!doc) {
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Empty YAML doc for '{}'", self.species_name);
         return nullptr;
     }
+    const YAML::Node def = doc["BehaviorTreeDef"];
+    if (!def) {
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'BehaviorTreeDef' for '{}'", self.species_name);
+        return nullptr;
+    }
+    const YAML::Node root = def["root"];
+    if (!root) {
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT YAML] Missing 'root' node for '{}'", self.species_name);
+        return nullptr;
+    }
+    auto user_root = parse_bt_yaml_node(root, self);
+    return user_root;
 }
 // --- YAML 构建辅助：从黑板/Animal 成员读取参数 ---
 static double read_double_param(Animal& self, Blackboard* bb, const std::string& name, double fallback) {
