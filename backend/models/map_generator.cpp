@@ -79,6 +79,10 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
         logger->info("[MapGenerator] Phase 3: Post-processing moisture (Ocean Proximity)...");
     }
 
+    // Precompute commonly used sizes to avoid referencing undeclared identifiers
+    const std::size_t width_sz = static_cast<std::size_t>(m_width);
+    const std::size_t map_size = width_sz * static_cast<std::size_t>(m_height);
+
     std::vector<int> distance_to_water(map_size, -1);
     std::queue<std::pair<int, int>> bfs_queue;
     for (int y = 0; y < m_height; ++y) {
@@ -246,8 +250,6 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     if (logger) {
         logger->info("[MapGenerator] Phase 3: Assigning terrain and biomes...");
     }
-
-    const std::size_t width_sz = static_cast<std::size_t>(m_width);
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             Tile& tile = grid.get_tile(x, y);
