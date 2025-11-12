@@ -263,7 +263,7 @@ std::optional<PathResult> find_path_a_star_impl(const Position& start_pos,
         if (has_iteration_limit && expanded_nodes >= settings.max_iterations) {
             if (auto logger = spdlog::get("ecosim")) {
                 const Position goal_estimate = goal_log_provider();
-                logger->info(
+                logger->debug(
                     "[Pathfinding] A* aborted after {} expansions (limit={}) start=({:.1f},{:.1f}) goal≈({:.1f},{:.1f}) max_cost={:.2f}",
                     expanded_nodes,
                     settings.max_iterations,
