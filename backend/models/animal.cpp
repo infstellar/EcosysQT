@@ -10,6 +10,7 @@
 #include "behavior_tree.h"
 #include "animal_behavior.h"
 #include "bt_keys.h"
+#include "logger_once.hpp"
 #include "tracy/Tracy.hpp"
 #include <spdlog/spdlog.h>
 #include <random>
@@ -351,7 +352,7 @@ void Animal::build_behavior_tree() {
     if (behavior_tree) {
         auto& bb = behavior_tree->blackboard();
         const std::string source = (bb.strings.find("bt_source") != bb.strings.end()) ? bb.strings.at("bt_source") : std::string("unknown");
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", species_name, source);
+        SPDLOG_INFO_ONCE(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", species_name, source);
     } else {
         SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT] Failed to build behavior tree for '{}'", species_name);
     }
