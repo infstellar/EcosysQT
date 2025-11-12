@@ -8,7 +8,7 @@
 
 StartScreenWidget::StartScreenWidget(QWidget *parent) 
     : QWidget(parent)
-    , m_isMusicOn(true) // 按钮状态默认开启
+    , m_isMusicOn(false) // 按钮状态默认关闭
 {
 
     m_backgroundImage.load(":/images/background_start.png");
@@ -26,7 +26,7 @@ StartScreenWidget::StartScreenWidget(QWidget *parent)
     // 创建按钮
     m_startButton = new QPushButton("开始模拟", this);
     m_exitButton = new QPushButton("退出程序", this);
-    m_musicButton = new QPushButton("关闭音乐", this); // <-- 新增：创建音乐按钮
+    m_musicButton = new QPushButton("开启音乐", this); // <-- 新增：创建音乐按钮
 
     // 设置按钮样式
     QString buttonStyle = "QPushButton { background-color: #007ACC; color: white; border: none; padding: 15px; font-size: 18px; border-radius: 5px; min-width: 200px; } QPushButton:hover { background-color: #005A9E; }";

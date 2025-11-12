@@ -12,7 +12,7 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_isMusicPlaying(true) // 默认音乐开启
+    , m_isMusicPlaying(false) // 默认音乐关闭
 {
     // 1. 创建后端控制器：加载 YAML 地图配置
     EcosystemConfig config = load_map_config_from_yaml("config/map_config.yaml");
@@ -47,8 +47,8 @@ MainWindow::MainWindow(QWidget *parent)
     playlist->addMedia(QUrl("qrc:/music/background_music.mp3"));
     playlist->setPlaybackMode(QMediaPlaylist::Loop); // 设置循环播放
     m_backgroundMusic->setPlaylist(playlist);
-    m_backgroundMusic->setVolume(0); // 设置一个合适的音量 (0)
-    // m_backgroundMusic->play();
+    m_backgroundMusic->setVolume(50); // 设置一个合适的音量 (0)
+    //m_backgroundMusic->play();
 }
 
 MainWindow::~MainWindow()
@@ -64,7 +64,7 @@ MainWindow::~MainWindow()
 void MainWindow::onToggleMusic(bool play)
 {
     if (play && !m_isMusicPlaying) {
-        // m_backgroundMusic->play();
+        m_backgroundMusic->play();
         m_isMusicPlaying = true;
         qDebug() << "音乐已开启";
     } else if (!play && m_isMusicPlaying) {

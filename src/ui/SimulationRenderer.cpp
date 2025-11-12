@@ -195,12 +195,7 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     for (const auto& [name, individuals] : data->race_lists) {
         for (const auto& individual_base : individuals) {
             if (!individual_base || !individual_base->alive) continue;
-
-            // --- 核心优化：视野剔除 ---
-            if (!visibleWorldRect.contains(individual_base->position.x, individual_base->position.y)) {
-                continue;
-            }
-            // --- 优化结束 ---
+            if (!visibleWorldRect.contains(individual_base->position.x, individual_base->position.y)) continue;
 
             const QPixmap* texture = nullptr;
             
@@ -217,7 +212,6 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
                     qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
                     if (m_lastUpdateMs == 0) m_lastUpdateMs = nowMs;
                     double dtMs = static_cast<double>(nowMs - m_lastUpdateMs);
-                    // 注意：不要在这里更新 m_lastUpdateMs（将在循环外更新一次）
 
                     Position curPos = individual_base->position;
                     if (!state.initialized) {
@@ -272,17 +266,41 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
             if (!texture || texture->isNull()) continue;
 
             QPointF screenPos = camera.toScreenCoords(QPointF(individual_base->position.x, individual_base->position.y), m_parentWidget->size());
-            
-            // 支持针对不同物种的长宽比调整（例如老虎略矮）
             double widthOnScreen = animalSizeOnScreen;
             double heightOnScreen = animalSizeOnScreen;
             if (name == "tiger") {
-                // 用户要求将老虎的宽高比例从 1:1 改为 1:0.7（height = 0.7 * width）
                 heightOnScreen = animalSizeOnScreen * 0.7;
             }
             QRectF targetRectF(screenPos.x() - widthOnScreen / 2, screenPos.y() - heightOnScreen / 2, widthOnScreen, heightOnScreen);
-            
+
             entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
+
+            // --- 新增：绘制血条和能量条 ---
+            auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
+            if (animal_ptr) {
+                double hpPercent = animal_ptr->hp_max > 0 ? animal_ptr->hp_current / animal_ptr->hp_max : 0.0;
+                double energyPercent = animal_ptr->max_energy > 0 ? animal_ptr->energy / animal_ptr->max_energy : 0.0;
+                int barWidth = static_cast<int>(widthOnScreen);
+                int barHeight = std::clamp(static_cast<int>(heightOnScreen * 0.08), 1, 6); // 高度随缩放变化，最小2像素，最大6像素
+                int barX = static_cast<int>(screenPos.x() - barWidth / 2);
+                int hpBarY = static_cast<int>(screenPos.y() - heightOnScreen / 2 - barHeight - 2); // 血条在图片上方
+                int energyBarY = hpBarY + barHeight + 2; // 能量条在血条下方
+
+                // 血条底色
+                painter.setBrush(QColor(80, 80, 80, 180));
+                painter.setPen(Qt::NoPen);
+                painter.drawRect(barX, hpBarY, barWidth, barHeight);
+                // 血条值
+                painter.setBrush(QColor(220, 20, 60, 220)); // 红色
+                painter.drawRect(barX, hpBarY, static_cast<int>(barWidth * hpPercent), barHeight);
+
+                // 能量条底色
+                painter.setBrush(QColor(80, 80, 80, 180));
+                painter.drawRect(barX, energyBarY, barWidth, barHeight);
+                // 能量条值
+                painter.setBrush(QColor(30, 144, 255, 220)); // 蓝色
+                painter.drawRect(barX, energyBarY, static_cast<int>(barWidth * energyPercent), barHeight);
+            }
         }
     }
 
