@@ -28,4 +28,6 @@ private:
     void calculate_lat_lon(int x, int y, double base_lat, double base_lon, double& out_lat, double& out_lon) const;
     BiomeType assign_biome(double latitude, double elevation, double moisture) const;
     TerrainType assign_terrain(double elevation, double river_value) const;
+    // 生成自然感河流（基于随机游走），会修改 grid 中的 tile.terrain
+    void generate_rivers(WorldGrid& grid, std::mt19937& rng) const;
 };
