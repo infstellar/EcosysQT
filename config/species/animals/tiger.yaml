@@ -45,7 +45,7 @@ animal:
     ints:
       flee_total_duration_ticks: 150
   pathfinding:
-    pathfinding.max_iterations: 100
+    max_iterations: 100
     replan_interval: 600
     enable_smoothing: false
     budget_multiplier: 2.5

@@ -1,4 +1,4 @@
-Param(
+﻿Param(
     [string]$Preset,
     [string]$Target = "MyQtApp",
     [switch]$ConfigureOnly,
