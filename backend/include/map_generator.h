@@ -6,6 +6,8 @@
 #include "world_grid.h"
 #include "FastNoiseLite.h"
 
+#include <utility>
+#include <vector>
 #include <random>
 
 class MapGenerator {
@@ -17,7 +19,6 @@ public:
 private:
     FastNoiseLite m_elevation_noise;
     FastNoiseLite m_moisture_noise;
-    FastNoiseLite m_river_noise;
 
     const MapGenConfig m_config;
 
@@ -26,8 +27,12 @@ private:
     Position m_world_center;
 
     void calculate_lat_lon(int x, int y, double base_lat, double base_lon, double& out_lat, double& out_lon) const;
-    BiomeType assign_biome(double latitude, double elevation, double moisture) const;
-    TerrainType assign_terrain(double elevation, double river_value) const;
-    // 生成自然感河流（基于随机游走），会修改 grid 中的 tile.terrain
-    void generate_rivers(WorldGrid& grid, std::mt19937& rng) const;
+    BiomeType assign_biome(double temperature, double moisture) const;
+    TerrainType assign_terrain(double elevation, float flow_accumulation) const;
+
+    void CalculateFlowDirections(WorldGrid& grid, std::vector<std::pair<int, int>>& flow_directions) const;
+    void CalculateFlowAccumulation(
+        WorldGrid& grid,
+        const std::vector<std::pair<int, int>>& flow_directions,
+        std::vector<float>& flow_map) const;
 };

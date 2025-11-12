@@ -138,10 +138,15 @@ namespace {
 
     QString biomeToString(BiomeType b) {
         switch (b) {
-            case BiomeType::Temperate: return "温带";
-            case BiomeType::Tropical: return "热带";
-            case BiomeType::Frigid: return "寒带";
-            case BiomeType::Polar: return "极地";
+            case BiomeType::PolarIce: return "极地冰盖";
+            case BiomeType::Tundra: return "苔原";
+            case BiomeType::BorealForest: return "寒温带针叶林";
+            case BiomeType::TemperateForest: return "温带森林";
+            case BiomeType::TemperateRainforest: return "温带雨林";
+            case BiomeType::Grassland: return "草原";
+            case BiomeType::Savanna: return "稀树草原";
+            case BiomeType::TropicalForest: return "热带雨林";
+            case BiomeType::Desert: return "沙漠";
             default: return "未知";
         }
     }

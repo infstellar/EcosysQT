@@ -256,8 +256,7 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
 
         mg_cfg.elevation_frequency = read_float("elevation_frequency", mg_cfg.elevation_frequency);
         mg_cfg.moisture_frequency = read_float("moisture_frequency", mg_cfg.moisture_frequency);
-        mg_cfg.river_frequency = read_float("river_frequency", mg_cfg.river_frequency);
-        mg_cfg.river_threshold = read_float("river_threshold", mg_cfg.river_threshold);
+        mg_cfg.flow_river_threshold = read_float("flow_river_threshold", mg_cfg.flow_river_threshold);
         mg_cfg.tiles_per_degree = read_double("tiles_per_degree", mg_cfg.tiles_per_degree);
         mg_cfg.base_latitude = read_double("base_latitude", mg_cfg.base_latitude);
         mg_cfg.base_longitude = read_double("base_longitude", mg_cfg.base_longitude);
@@ -266,8 +265,7 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         if (logger) {
             logger->info("[MapConfig]   elev_freq: {}", mg_cfg.elevation_frequency);
             logger->info("[MapConfig]   moisture_freq: {}", mg_cfg.moisture_frequency);
-            logger->info("[MapConfig]   river_freq: {}", mg_cfg.river_frequency);
-            logger->info("[MapConfig]   river_threshold: {}", mg_cfg.river_threshold);
+            logger->info("[MapConfig]   flow_river_threshold: {}", mg_cfg.flow_river_threshold);
             logger->info("[MapConfig]   tiles_per_degree: {}", mg_cfg.tiles_per_degree);
             if (std::abs(mg_cfg.base_latitude - 999.0) < 1e-6) {
                 logger->info("[MapConfig]   base_lat: Random");

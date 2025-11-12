@@ -56,8 +56,7 @@ struct SpeciesPopulationData {
 struct MapGenConfig {
     float elevation_frequency = 0.002f;
     float moisture_frequency = 0.005f;
-    float river_frequency = 0.004f;
-    float river_threshold = 0.02f;
+    float flow_river_threshold = 100.0f;
     double tiles_per_degree = 100.0;
     double base_latitude = 999.0;
     double base_longitude = 999.0;
