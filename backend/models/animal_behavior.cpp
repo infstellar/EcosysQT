@@ -158,58 +158,13 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
 
             {
                 ZoneScopedN("BT::Update::Threat");
-                // 逃逸阈值：按物种设置。默认=探测范围；牛用较小比例（不影响其他用途的探测范围）
-                const double default_threat_threshold = std::max(0.0, self.get_threat_detection_range());
-                if (bb.doubles.find(bt::keys::ThreatThreshold) == bb.doubles.end()) {
-                    bb.doubles[bt::keys::ThreatThreshold] = default_threat_threshold;
-                }
-                const double threat_threshold = (bb.doubles.find(bt::keys::ThreatThreshold) != bb.doubles.end())
-                    ? bb.doubles[bt::keys::ThreatThreshold]
-                    : default_threat_threshold;
-
-                // 探测威胁（仅在阈值范围内），目前将“tiger”视为威胁对象
-                bool danger = false;
-                double threat_dist = std::numeric_limits<double>::max();
-                Position threat_pos = self.position;
-                {
-                    ZoneScopedN("BT::Update::Threat::Query");
-                    const auto nearby = world->get_nearby_races_broad(self.position, threat_threshold);
-                    for (const auto& r : nearby) {
-                        if (!r || !r->alive) continue;
-                        if (r.get() == &self) continue;
-                        if (r->species_name == std::string("tiger") && self.species_name != std::string("tiger")) {
-                            double d = self.position.distance_to(r->position);
-                            if (d < threat_dist) {
-                                threat_dist = d;
-                                threat_pos = r->position;
-                            }
-                            if (d <= threat_threshold) {
-                                danger = true;
-                            }
-                        }
-                    }
-                }
-                bb.ints[bt::keys::DangerNearby] = danger ? 1 : 0;
-                bb.doubles[bt::keys::ThreatDistance] = std::isfinite(threat_dist) ? threat_dist : (threat_threshold + 1.0);
-                bb.doubles[bt::keys::ThreatPosX] = threat_pos.x;
-                bb.doubles[bt::keys::ThreatPosY] = threat_pos.y;
-
-                // 逃逸冷却：一旦触发危险或进入阈值范围，维持一段时间的“逃逸模式”，避免边界抖动
-                // - flee_total_duration_ticks: 总维持时长（YAML 可覆盖），默认 20
-                // - flee_mode_cooldown_ticks: 当前剩余冷却（>0 表示仍处于逃逸模式）
-                int flee_total = 20;
-                if (auto it_total = bb.ints.find("flee_total_duration_ticks"); it_total != bb.ints.end()) {
-                    flee_total = std::max(0, it_total->second);
-                }
+                // 冷却计时在通用 update 中递减，昂贵的探测与触发逻辑由专门 Action 负责
                 int flee_cd = 0;
                 if (auto it_cd = bb.ints.find(bt::keys::FleeModeCooldownTicks); it_cd != bb.ints.end()) {
                     flee_cd = std::max(0, it_cd->second);
                 }
-                const bool edge_trigger = danger || (std::isfinite(threat_dist) && (threat_dist <= threat_threshold));
-                if (edge_trigger) {
-                    flee_cd = flee_total; // 进入或继续维持逃逸模式
-                } else if (flee_cd > 0) {
-                    flee_cd -= 1; // 按 tick 递减，逐帧稳定退出
+                if (flee_cd > 0) {
+                    flee_cd -= 1;
                 }
                 bb.ints[bt::keys::FleeModeCooldownTicks] = flee_cd;
             }
@@ -475,28 +430,12 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
     {
         "should_flee",
         [](const YAML::Node& params, Animal&){
-            const std::string danger_key = params["danger_param"] ? params["danger_param"].as<std::string>() : std::string(bt::keys::DangerNearby);
-            const std::string dist_key = params["distance_param"] ? params["distance_param"].as<std::string>() : std::string(bt::keys::ThreatDistance);
-            const std::string th_key = params["threshold_param"] ? params["threshold_param"].as<std::string>() : std::string(bt::keys::ThreatThreshold);
             const std::string cd_key = params["cooldown_param"] ? params["cooldown_param"].as<std::string>() : std::string(bt::keys::FleeModeCooldownTicks);
-            const std::string hp_ratio_key = params["hp_ratio_param"] ? params["hp_ratio_param"].as<std::string>() : std::string(bt::keys::HpRatio);
-            const double flee_hp_ratio = params["flee_hp_ratio"] ? params["flee_hp_ratio"].as<double>() : -1.0; // <0 表示不启用
-            const double low_hp_threshold_boost = params["low_hp_threshold_boost"] ? params["low_hp_threshold_boost"].as<double>() : 0.0;
-            return std::make_shared<Condition>([danger_key, dist_key, th_key, cd_key, hp_ratio_key, flee_hp_ratio, low_hp_threshold_boost](TickContext& ctx){
+            return std::make_shared<Condition>([cd_key](TickContext& ctx){
                 if (!ctx.blackboard) return false;
                 auto& bb = *ctx.blackboard;
-                const bool danger = (bb.ints.find(danger_key) != bb.ints.end() && bb.ints[danger_key] != 0);
-                const double dist = (bb.doubles.find(dist_key) != bb.doubles.end()) ? bb.doubles[dist_key] : std::numeric_limits<double>::max();
-                double threshold = (bb.doubles.find(th_key) != bb.doubles.end()) ? bb.doubles[th_key] : 0.0;
-                // 低 HP 时可选地放宽阈值，提升逃逸意愿（默认不启用）
-                if (flee_hp_ratio >= 0.0) {
-                    const double hp_ratio = (bb.doubles.find(hp_ratio_key) != bb.doubles.end()) ? bb.doubles[hp_ratio_key] : 1.0;
-                    if (hp_ratio <= flee_hp_ratio) {
-                        threshold *= (1.0 + std::max(0.0, low_hp_threshold_boost));
-                    }
-                }
                 const int cooldown_ticks = (bb.ints.find(cd_key) != bb.ints.end()) ? bb.ints[cd_key] : 0;
-                return danger || (threshold > 0.0 && dist <= threshold) || (cooldown_ticks > 0);
+                return cooldown_ticks > 0;
             });
         }
     }
@@ -583,6 +522,78 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
             YAML::Node p = params;
             return std::make_shared<Action>([&self, p](TickContext& ctx){
                 return behavior::actions::SelectFleeDestination(self, ctx, p);
+            });
+        }
+    },
+    {
+        "check_for_threats",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                ZoneScopedN("BT::Action::CheckForThreats");
+                auto* world = static_cast<EcosystemState*>(ctx.world);
+                if (!world || !self.alive || !ctx.blackboard) {
+                    return Status::Failure;
+                }
+
+                auto& bb = *ctx.blackboard;
+
+                const double default_threat_threshold = std::max(0.0, self.get_threat_detection_range());
+                if (bb.doubles.find(bt::keys::ThreatThreshold) == bb.doubles.end()) {
+                    bb.doubles[bt::keys::ThreatThreshold] = default_threat_threshold;
+                }
+                const double base_threshold = bb_get_double(&bb, bt::keys::ThreatThreshold, default_threat_threshold);
+
+                const std::string hp_ratio_key = p["hp_ratio_param"] ? p["hp_ratio_param"].as<std::string>() : std::string(bt::keys::HpRatio);
+                const double flee_hp_ratio = p["flee_hp_ratio"] ? p["flee_hp_ratio"].as<double>() : -1.0;
+                const double low_hp_threshold_boost = p["low_hp_threshold_boost"] ? p["low_hp_threshold_boost"].as<double>() : 0.0;
+
+                double effective_threshold = base_threshold;
+                if (flee_hp_ratio >= 0.0) {
+                    const double hp_ratio = (bb.doubles.find(hp_ratio_key) != bb.doubles.end()) ? bb.doubles[hp_ratio_key] : 1.0;
+                    if (hp_ratio <= flee_hp_ratio) {
+                        effective_threshold *= (1.0 + std::max(0.0, low_hp_threshold_boost));
+                    }
+                }
+
+                bool danger = false;
+                double threat_dist = std::numeric_limits<double>::max();
+                Position threat_pos = self.position;
+                {
+                    ZoneScopedN("BT::Action::CheckForThreats::Query");
+                    const auto nearby = world->get_nearby_races_broad(self.position, effective_threshold);
+                    for (const auto& r : nearby) {
+                        if (!r || !r->alive) continue;
+                        if (r.get() == &self) continue;
+                        if (r->species_name == std::string("tiger") && self.species_name != std::string("tiger")) {
+                            const double d = self.position.distance_to(r->position);
+                            if (d < threat_dist) {
+                                threat_dist = d;
+                                threat_pos = r->position;
+                            }
+                            if (d <= effective_threshold) {
+                                danger = true;
+                            }
+                        }
+                    }
+                }
+
+                bb.ints[bt::keys::DangerNearby] = danger ? 1 : 0;
+                bb.doubles[bt::keys::ThreatDistance] = std::isfinite(threat_dist) ? threat_dist : (effective_threshold + 1.0);
+                bb.doubles[bt::keys::ThreatPosX] = threat_pos.x;
+                bb.doubles[bt::keys::ThreatPosY] = threat_pos.y;
+
+                const bool edge_trigger = danger || (std::isfinite(threat_dist) && (threat_dist <= effective_threshold));
+                if (edge_trigger) {
+                    int flee_total = 20;
+                    if (auto it_total = bb.ints.find("flee_total_duration_ticks"); it_total != bb.ints.end()) {
+                        flee_total = std::max(0, it_total->second);
+                    }
+                    bb.ints[bt::keys::FleeModeCooldownTicks] = flee_total;
+                    return Status::Success;
+                }
+
+                return Status::Failure;
             });
         }
     },
