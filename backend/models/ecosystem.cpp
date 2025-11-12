@@ -286,6 +286,7 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     EcosystemStateData state;
     state.world_width = config.world_width;
     state.world_height = config.world_height;
+    state.world_grid = &m_world_grid;
     state.time_step = m_clock.time_step();
     state.current_day = m_clock.current_day();
     state.current_quadrum = m_clock.current_quadrum();
