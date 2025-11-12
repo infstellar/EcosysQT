@@ -50,6 +50,9 @@ public:
     double hunting_range;
     double hunting_success_rate;
     double detection_range;
+    double threat_detection_range;
+    double mate_detection_range;
+    double food_detection_range;
     std::vector<std::string> food_types;
     int hunting_cooldown;
     int hunting_cooldown_duration;
@@ -124,6 +127,9 @@ public:
     double get_wander_radius() const;
     double get_mating_desire_probability() const;
     double get_detection_range() const;
+    double get_threat_detection_range() const;
+    double get_mate_detection_range() const;
+    double get_food_detection_range() const;
     double get_pregnancy_speed_penalty() const;
     // 移动控制
     bool get_skip_movement() const;

@@ -6,6 +6,9 @@ animal:
   hunting_range: 5.0
   hunting_success_rate: 0.5
   detection_range: 500.0
+  threat_detection_range: 500.0
+  mate_detection_range: 500.0
+  food_detection_range: 500.0
   food_types: []
   hunting_cooldown_duration: 0
   min_reproduction_age: 0
