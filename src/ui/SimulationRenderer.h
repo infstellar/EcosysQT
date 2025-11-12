@@ -7,6 +7,7 @@
 #include "Widget.h" // 为了使用 SelectableEntity 和访问 Widget 成员
 #include <unordered_map>
 #include <random>
+#include <vector>
 
 // 前向声明
 class CameraController;
@@ -81,6 +82,10 @@ private:
     double m_tigerFrameIntervalMs = 120.0; // 每帧时长，毫秒
     qint64 m_lastUpdateMs = 0; // 用于计算渲染间隔
     QPixmap m_grassTextures[3];
+    QPixmap m_treeTextures[3];
+    // 缓存按目标像素大小缩放过的树贴图，按当前渲染像素大小重建
+    std::vector<QPixmap> m_treeScaled;
+    int m_treeScaledSize = 0; // 当前 cached 尺寸（像素），0 表示未缓存
     // UI 层缓存：为每个 ThingBase 指针分配的草贴图变体（确保稳定但随机）
     std::unordered_map<const ThingBase*, int> m_grassVariantMap;
     // 用于在首次遇到时随机分配变体

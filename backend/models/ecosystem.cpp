@@ -636,6 +636,56 @@ void EcosystemState::apply_registry_changes() {
     m_resolution_state.clear();
     staged_requests.clear();
     current_phase = UpdatePhase::Idle;
+
+    // --- 装饰树的自动保持逻辑 ---
+    // 如果配置中指定了 initial_populations 中的 "decor_tree" 值，则以其为基准，
+    // 保持树的数量在 [base-5, base+5] 区间内（最小为0）。否则使用默认范围 [20,30]
+    int base = -1;
+    auto it = config.initial_populations.find("decor_tree");
+    if (it != config.initial_populations.end()) base = it->second;
+
+    int minTrees = 1000;
+    int maxTrees = 3000;
+    if (base >= 0) {
+        minTrees = std::max(0, base - 5);
+        maxTrees = base + 5;
+    }
+
+    std::size_t currentTrees = 0;
+    auto itc = m_thing_counts.find("decor_tree");
+    if (itc != m_thing_counts.end()) currentTrees = itc->second;
+
+    if (currentTrees < static_cast<std::size_t>(minTrees)) {
+        std::mt19937& rng = get_thread_local_rng();
+        std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+        std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+        int attempts = 0;
+        const int maxAttempts = 1000;
+        while (currentTrees < static_cast<std::size_t>(minTrees) && attempts < maxAttempts) {
+            ++attempts;
+            int tx = dist_tile_x(rng);
+            int ty = dist_tile_y(rng);
+            Tile& tile = m_world_grid.get_tile(tx, ty);
+            if (tile.terrain != TerrainType::LAND) continue;
+            if (!tile.things.empty()) continue;
+
+            Position pos{static_cast<double>(tx) + 0.5, static_cast<double>(ty) + 0.5};
+            try {
+                auto thing_unique = g_thing_factory.create("decor_tree", pos, rng);
+                if (!thing_unique) continue;
+                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                thing->position = pos;
+                thing->m_grid_x = tx;
+                thing->m_grid_y = ty;
+                attach_thing_to_world(thing);
+                ++currentTrees;
+            } catch (const std::exception& e) {
+                if (auto logger = spdlog::get("ecosim")) {
+                    logger->warn("[DecorTreeSpawn] failed to create decor_tree: {}", e.what());
+                }
+            }
+        }
+    }
 }
 
 /**

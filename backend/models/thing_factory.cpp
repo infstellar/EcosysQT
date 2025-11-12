@@ -94,6 +94,21 @@ void register_all_things() {
     SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Config root: '{}'", root);
     scan_and_register_plants(root + "/config/species/plants");
 
+    // 简单注册一个装饰性树种（decor_tree），仅用于地图装饰：
+    // - 固定较长寿命，不参与被捕食的交互（nutrition_value = 0）
+    // - 在创建时随机分配一个贴图变体 0..2
+    g_thing_factory.register_species("decor_tree", [](Position pos, std::mt19937& rng) -> std::unique_ptr<ThingBase> {
+        // 给装饰树设定较长的寿命范围（例如 20000 ticks）
+        const int tree_max_age = 20000;
+        auto instance = std::make_unique<ThingBase>(pos, 0.0 /*energy*/, tree_max_age, 0.0 /*min repro*/);
+        instance->species_name = "decor_tree";
+        instance->nutrition_value = 0.0; // 不可被食用
+        std::uniform_int_distribution<int> dist(0, 2);
+        instance->variant_index = dist(rng);
+        return instance;
+    });
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Registered decor_tree for map decoration");
+
     auto names = g_thing_factory.get_all_species_names();
     SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Total registered things: {}", names.size());
 }
