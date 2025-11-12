@@ -28,12 +28,19 @@ std::string EcosystemStateData::toYaml() const {
     }
     node["grass_positions"] = grass_positions;
 
-    // race_lists 基础属性
+    // race_lists：只序列化存活且看起来有效的个体（过滤死亡/无效记录）
     YAML::Node races_node;
     for (const auto& [species, individuals] : race_lists) {
         YAML::Node species_node;
         for (const auto& race : individuals) {
             if (!race) continue;
+            // 跳过已死亡的个体
+            if (!race->alive) continue;
+            // 跳过明显无效/占位记录（所有关键值为0）
+            if (race->energy == 0.0 && race->max_energy == 0.0 && race->hp_current == 0.0 && race->hp_max == 0.0 && race->max_age == 0) {
+                continue;
+            }
+
             YAML::Node ind;
             ind["x"] = race->position.x;
             ind["y"] = race->position.y;
@@ -47,16 +54,23 @@ std::string EcosystemStateData::toYaml() const {
             ind["species_name"] = race->species_name;
             species_node.push_back(ind);
         }
-        races_node[species] = species_node;
+        if (species_node.IsSequence() && species_node.size() > 0) {
+            races_node[species] = species_node;
+        }
     }
     node["race_lists"] = races_node;
 
-    // thing_lists 基础属性
+    // thing_lists：同样只序列化存活且有效的事物（例如植物）
     YAML::Node things_node;
     for (const auto& [species, things] : thing_lists) {
         YAML::Node species_node;
         for (const auto& thing : things) {
             if (!thing) continue;
+            if (!thing->alive) continue;
+            if (thing->energy == 0.0 && thing->max_energy == 0.0 && thing->nutrition_value == 0.0 && thing->max_age == 0) {
+                continue;
+            }
+
             YAML::Node ind;
             ind["x"] = thing->position.x;
             ind["y"] = thing->position.y;
@@ -70,7 +84,9 @@ std::string EcosystemStateData::toYaml() const {
             ind["variant_index"] = thing->variant_index;
             species_node.push_back(ind);
         }
-        things_node[species] = species_node;
+        if (species_node.IsSequence() && species_node.size() > 0) {
+            things_node[species] = species_node;
+        }
     }
     node["thing_lists"] = things_node;
 
