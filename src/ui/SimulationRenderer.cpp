@@ -10,6 +10,8 @@
 #include "animal_ui_snapshot.h"
 #endif
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
 #include <algorithm>
 #include <QDateTime>
 #include <unordered_set>
@@ -25,10 +27,50 @@ struct DrawableEntity {
 
 SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(parentWidget)
 {
-    // --- 新增：加载背景和生物贴图 ---
-    m_backgroundImage.load(":/images/background.png");
-    if (m_backgroundImage.isNull()) {
-        qDebug() << "警告: 背景图加载失败，使用纯色背景";
+    // --- 背景：从 resources/images/backgrounds 随机选择一张（优先 Qt 资源路径，再回退到文件系统） ---
+    auto loadBackgroundsFromDir = [&](const QString& dirPath) -> std::vector<QPixmap> {
+        std::vector<QPixmap> out;
+        QDir dir(dirPath);
+        if (!dir.exists()) return out;
+
+        QStringList nameFilters;
+        nameFilters << "*.png" << "*.jpg" << "*.jpeg";
+        QFileInfoList infos = dir.entryInfoList(nameFilters, QDir::Files | QDir::Readable, QDir::Name);
+        for (const QFileInfo& fi : infos) {
+            QPixmap p;
+            // 尝试资源路径或文件系统路径按实际提供
+            p.load(fi.absoluteFilePath());
+            if (!p.isNull()) out.push_back(p);
+        }
+        return out;
+    };
+
+    // 1) 先尝试读取 Qt 资源前缀下的背景（如果背景已被打包进资源）
+    //    使用 QDir(":/images/backgrounds") 可以访问资源前缀
+    m_backgroundImages = loadBackgroundsFromDir(":/images/backgrounds");
+    // 2) 如果资源中没有，回退到文件系统路径
+    if (m_backgroundImages.empty()) {
+        const QString fsDir = QString("resources/images/backgrounds");
+        m_backgroundImages = loadBackgroundsFromDir(fsDir);
+    }
+
+    // 3) 如果找到至少一张，就随机选择一张作为当前背景
+    if (!m_backgroundImages.empty()) {
+        try {
+            std::uniform_int_distribution<std::size_t> dist(0, m_backgroundImages.size() - 1);
+            std::size_t idx = dist(m_rng);
+            m_backgroundImage = m_backgroundImages[idx];
+            qDebug() << "信息: 选择背景图片 index=" << static_cast<int>(idx) << " (total=" << static_cast<int>(m_backgroundImages.size()) << ")";
+        } catch (...) {
+            // 保险回退：选择第一张
+            m_backgroundImage = m_backgroundImages.front();
+        }
+    } else {
+        // 老逻辑回退：尝试旧的单张资源路径
+        m_backgroundImage.load(":/images/background.png");
+        if (m_backgroundImage.isNull()) {
+            qDebug() << "警告: 背景图加载失败，使用纯色背景";
+        }
     }
     
     m_cowTexture.load(":/images/cow.png");
