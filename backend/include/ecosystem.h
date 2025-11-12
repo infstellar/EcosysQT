@@ -83,6 +83,7 @@ struct EcosystemConfig {
     int days_per_quadrum = 15;      // 每季包含多少天
     MapGenConfig map_gen_config;
     std::map<std::string, double> initial_grass_density_map;
+    std::map<std::string, std::map<std::string, double>> animal_spawn_density_map;
     EcosystemConfig() = default;
     EcosystemConfig(int w, int h) : world_width(w), world_height(h) {}
 };

@@ -199,24 +199,93 @@ void EcosystemState::initialize_populations() {
         if (logger) {
             logger->info("[Init] Initializing populations for {} races", race_names.size());
         }
+        std::mt19937& rng = get_thread_local_rng();
+        std::uniform_real_distribution<> chance_dist(0.0, 1.0);
+        const bool world_valid = (config.world_width > 0 && config.world_height > 0);
         for (const auto& name : race_names) {
             int initial_count = races_registry.get_initial_count(name);
             if (logger) {
                 logger->info("[Init] '{}' initial count: {}", name, initial_count);
             }
-            for (int i = 0; i < initial_count; ++i) {
-                std::uniform_real_distribution<> distX(0, config.world_width);
-                std::uniform_real_distribution<> distY(0, config.world_height);
-                int x = distX(get_thread_local_rng());
-                int y = distY(get_thread_local_rng());
+            if (initial_count <= 0) {
+                continue;
+            }
+
+            if (!world_valid) {
+                if (logger) {
+                    logger->warn("[Init] World dimensions invalid; skipping animal spawn for '{}'.", name);
+                }
+                continue;
+            }
+
+            auto density_it = config.animal_spawn_density_map.find(name);
+            if (density_it == config.animal_spawn_density_map.end() || density_it->second.empty()) {
+                if (logger) {
+                    logger->warn("[Init] No 'animal_spawn_density_by_terrain' config found for '{}'. Using legacy random placement.", name);
+                }
+                std::uniform_real_distribution<> distX_legacy(0.0, static_cast<double>(config.world_width));
+                std::uniform_real_distribution<> distY_legacy(0.0, static_cast<double>(config.world_height));
+                for (int i = 0; i < initial_count; ++i) {
+                    const double world_x = distX_legacy(rng);
+                    const double world_y = distY_legacy(rng);
+                    try {
+                        auto new_individual = g_race_factory.create(name, Position{world_x, world_y}, rng);
+                        races_registry.add_individual(name, std::move(new_individual));
+                    } catch (const std::exception& e) {
+                        if (logger) {
+                            logger->error("[Init] Legacy create failed for '{}' at index {}: {}", name, i, e.what());
+                        }
+                        throw;
+                    }
+                }
+                continue;
+            }
+
+            if (logger) {
+                logger->info("[Init] Using terrain density map to spawn '{}'.", name);
+            }
+
+            std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+            std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+            const auto& density_map = density_it->second;
+
+            int spawned = 0;
+            int attempts = 0;
+            const int max_attempts = std::max(100000, initial_count * 50);
+
+            while (spawned < initial_count && attempts < max_attempts) {
+                ++attempts;
+
+                const int tile_x = dist_tile_x(rng);
+                const int tile_y = dist_tile_y(rng);
+                const Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
+
+                auto terrain_it = density_map.find(getTerrainString(tile.terrain));
+                const double spawn_probability = (terrain_it != density_map.end()) ? terrain_it->second : 0.0;
+
+                if (spawn_probability <= 0.0 || chance_dist(rng) >= spawn_probability) {
+                    continue;
+                }
+
+                Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
                 try {
-                    auto new_individual = g_race_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
-                    races_registry.add_individual(name, std::move(new_individual));
+                    auto new_individual = g_race_factory.create(name, world_pos, rng);
+                    if (new_individual) {
+                        races_registry.add_individual(name, std::move(new_individual));
+                        ++spawned;
+                    }
                 } catch (const std::exception& e) {
                     if (logger) {
-                        logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
+                        logger->error("[Init] Density create failed for '{}': {}", name, e.what());
                     }
-                    throw;
+                    break;
+                }
+            }
+
+            if (logger) {
+                logger->info("[Init] Animal density sampling complete: Spawned {} / {} '{}' ({} attempts)", spawned, initial_count, name, attempts);
+                if (attempts >= max_attempts && spawned < initial_count) {
+                    logger->warn("[Init] Animal density sampling hit max attempts for '{}'. Map may be unsuitable or probabilities too low.", name);
                 }
             }
         }

@@ -328,5 +328,45 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         logger->info("[MapConfig] 'grass_density_by_terrain' not found. 'grass' will use standard random placement if specified in initial_populations.");
     }
 
+    if (const auto animal_density_root = root["animal_spawn_density_by_terrain"]; animal_density_root && animal_density_root.IsMap()) {
+        if (logger) logger->info("[MapConfig] Loading 'animal_spawn_density_by_terrain'...");
+        for (const auto& species_entry : animal_density_root) {
+            try {
+                if (!species_entry.first.IsScalar()) {
+                    if (logger) logger->warn("[MapConfig]   Skipping non-scalar key in animal_spawn_density_by_terrain.");
+                    continue;
+                }
+
+                std::string species_name = species_entry.first.as<std::string>();
+                const YAML::Node& terrain_map_node = species_entry.second;
+                if (!terrain_map_node.IsMap()) {
+                    if (logger) logger->warn("[MapConfig]   Skipping '{}' in animal_spawn_density_by_terrain: value is not a map.", species_name);
+                    continue;
+                }
+
+                std::map<std::string, double> terrain_map;
+                for (const auto& terrain_entry : terrain_map_node) {
+                    try {
+                        std::string terrain_name = terrain_entry.first.as<std::string>();
+                        double probability = terrain_entry.second.as<double>();
+                        probability = std::max(0.0, std::min(1.0, probability));
+                        terrain_map[terrain_name] = probability;
+                    } catch (const std::exception& e) {
+                        if (logger) logger->warn("[MapConfig]     Skipping invalid terrain entry for '{}': {}", species_name, e.what());
+                    }
+                }
+
+                if (!terrain_map.empty()) {
+                    cfg.animal_spawn_density_map[species_name] = std::move(terrain_map);
+                    if (logger) logger->info("[MapConfig]   Loaded {} terrain entries for animal '{}'", cfg.animal_spawn_density_map[species_name].size(), species_name);
+                }
+            } catch (const std::exception& e) {
+                if (logger) logger->warn("[MapConfig]   Skipping invalid entry in animal_spawn_density_by_terrain: {}", e.what());
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'animal_spawn_density_by_terrain' not found. Animals will use standard random placement.");
+    }
+
     return cfg;
 }
