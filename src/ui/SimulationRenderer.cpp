@@ -276,30 +276,33 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
             entitiesToDraw.push_back({texture, targetRectF.toRect(), individual_base->position.y});
 
             // --- 新增：绘制血条和能量条 ---
+
             auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
             if (animal_ptr) {
-                double hpPercent = animal_ptr->hp_max > 0 ? animal_ptr->hp_current / animal_ptr->hp_max : 0.0;
-                double energyPercent = animal_ptr->max_energy > 0 ? animal_ptr->energy / animal_ptr->max_energy : 0.0;
-                int barWidth = static_cast<int>(widthOnScreen);
-                int barHeight = std::clamp(static_cast<int>(heightOnScreen * 0.08), 1, 6); // 高度随缩放变化，最小2像素，最大6像素
-                int barX = static_cast<int>(screenPos.x() - barWidth / 2);
-                int hpBarY = static_cast<int>(screenPos.y() - heightOnScreen / 2 - barHeight - 2); // 血条在图片上方
-                int energyBarY = hpBarY + barHeight + 2; // 能量条在血条下方
+                if (m_parentWidget->m_showHpBar){
+                    double hpPercent = animal_ptr->hp_max > 0 ? animal_ptr->hp_current / animal_ptr->hp_max : 0.0;
+                    double energyPercent = animal_ptr->max_energy > 0 ? animal_ptr->energy / animal_ptr->max_energy : 0.0;
+                    int barWidth = static_cast<int>(widthOnScreen);
+                    int barHeight = std::clamp(static_cast<int>(heightOnScreen * 0.08), 1, 6); // 高度随缩放变化，最小2像素，最大6像素
+                    int barX = static_cast<int>(screenPos.x() - barWidth / 2);
+                    int hpBarY = static_cast<int>(screenPos.y() - heightOnScreen / 2 - barHeight - 2); // 血条在图片上方
+                    int energyBarY = hpBarY + barHeight + 2; // 能量条在血条下方
 
-                // 血条底色
-                painter.setBrush(QColor(80, 80, 80, 180));
-                painter.setPen(Qt::NoPen);
-                painter.drawRect(barX, hpBarY, barWidth, barHeight);
-                // 血条值
-                painter.setBrush(QColor(220, 20, 60, 220)); // 红色
-                painter.drawRect(barX, hpBarY, static_cast<int>(barWidth * hpPercent), barHeight);
+                    // 血条底色
+                    painter.setBrush(QColor(80, 80, 80, 180));
+                    painter.setPen(Qt::NoPen);
+                    painter.drawRect(barX, hpBarY, barWidth, barHeight);
+                    // 血条值
+                    painter.setBrush(QColor(220, 20, 60, 220)); // 红色
+                    painter.drawRect(barX, hpBarY, static_cast<int>(barWidth * hpPercent), barHeight);
 
-                // 能量条底色
-                painter.setBrush(QColor(80, 80, 80, 180));
-                painter.drawRect(barX, energyBarY, barWidth, barHeight);
-                // 能量条值
-                painter.setBrush(QColor(30, 144, 255, 220)); // 蓝色
-                painter.drawRect(barX, energyBarY, static_cast<int>(barWidth * energyPercent), barHeight);
+                    // 能量条底色
+                    painter.setBrush(QColor(80, 80, 80, 180));
+                    painter.drawRect(barX, energyBarY, barWidth, barHeight);
+                    // 能量条值
+                    painter.setBrush(QColor(30, 144, 255, 220)); // 蓝色
+                    painter.drawRect(barX, energyBarY, static_cast<int>(barWidth * energyPercent), barHeight);
+                }
             }
         }
     }

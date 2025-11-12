@@ -80,6 +80,8 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #endif
     // 新增：显示/隐藏网格按钮（右下角）
     m_toggleGridButton = new QPushButton("显示网格", this);
+    m_toggleHpBarButton = new QPushButton("显示血条", this);
+    
 
     // --- 设置按钮样式 ---
     QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
@@ -94,6 +96,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     m_historyButton->setStyleSheet(buttonStyle);
 #endif
     m_toggleGridButton->setStyleSheet(buttonStyle);
+    m_toggleHpBarButton->setStyleSheet(buttonStyle);
 
     // --- 按钮布局 (保持不变) ---
     QHBoxLayout* topRowLayout = new QHBoxLayout();
@@ -109,6 +112,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     bottomRowLayout->addWidget(m_pauseButton);
     bottomRowLayout->addWidget(m_speedUpButton);
     bottomRowLayout->addWidget(m_toggleGridButton);
+    bottomRowLayout->addWidget(m_toggleHpBarButton);
     QHBoxLayout* customSpeedLayout = new QHBoxLayout();
     customSpeedLayout->addStretch();
     customSpeedLayout->addWidget(m_customSpeedButton);
@@ -139,6 +143,11 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #endif
     connect(m_toggleGridButton, &QPushButton::clicked, this, &Widget::onToggleGridClicked);
     connect(m_updateTimer, &QTimer::timeout, this, &Widget::updateFrame);
+    connect(m_toggleHpBarButton, &QPushButton::clicked, this, [this]() {
+        m_showHpBar = !m_showHpBar;
+        m_toggleHpBarButton->setText(m_showHpBar ? "隐藏血条" : "显示血条");
+        update();
+    });
     
     m_updateTimer->start(16); // 约 60 FPS 的UI刷新率
     
