@@ -61,6 +61,10 @@ struct MapGenConfig {
     double base_latitude = 999.0;
     double base_longitude = 999.0;
     double axial_tilt_deg = 23.44;
+    double sea_level = -0.6;
+    double deep_sea_level = -0.8;
+    std::string wind_direction = "None";
+    double wind_strength = 0.5;
 };
 
 // 生态系统配置 (默认值)

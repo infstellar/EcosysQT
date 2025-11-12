@@ -40,6 +40,10 @@ map_generation:
   sea_level: -0.7
   deep_sea_level: -0.9
 
+  # 盛行风配置
+  wind_direction: "West"   # 可选: "West", "East", "None"
+  wind_strength: 0.6       # 0.0 = 无影响, 1.0 = 完全由风决定湿度
+
 # 可选的分区结构（演示用途）：
 #populations:
 #  races:
