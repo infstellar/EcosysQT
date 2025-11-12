@@ -51,13 +51,9 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     // 生长逻辑：根据邻居密度计算 pending_growth
     if ((current_tick + m_tick_offset) % GROWTH_CHECK_INTERVAL == 0) {
         compute_growth(ecosystem_state);
+        
     }
     
-    // 满能量时按速率累积“繁殖能量”（冷却期间不累积）
-    if (reproduction_cooldown <= 0 && energy >= max_energy - std::numeric_limits<double>::epsilon()) {
-        reproduction_energy_accumulated = std::min(repro_energy_threshold,
-                                                   reproduction_energy_accumulated + repro_energy_accumulation_rate);
-    }
     if ((current_tick + m_tick_offset) % REPRODUCTION_CHECK_INTERVAL == 0) {
         attempt_reproduction(ecosystem_state, rng);
     }
@@ -186,9 +182,16 @@ void Producer::apply(const EcosystemState& ecosystem_state) {
     ZoneScoped; // Tracy性能分析作用域
     ThingBase::apply(ecosystem_state); // 调用基类的apply函数
     if (!alive) { pending_growth = 0.0; return; } // 如果死亡，则重置待处理生长量并返回
-    // 增加能量，但不超过最大能量
-    energy = std::min(max_energy, energy + pending_growth);
+    // 满能量时按速率累积“繁殖能量”
+    if (energy + pending_growth >= max_energy ) {
+        reproduction_energy_accumulated = std::min(repro_energy_threshold,
+                                                reproduction_energy_accumulated + pending_growth);
+        energy = max_energy;
+    }else{
+        energy = energy + pending_growth;
+    }
     pending_growth = 0.0; // 重置待处理生长量
+    
 }
 
 // 检查是否可以繁殖
