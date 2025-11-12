@@ -178,7 +178,7 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
         msg_attacker += " [KILLED, +" + format_double(gained) + " E"
                          + ", base=" + format_double(pre_death_nutrition)
                          + ", bonus=" + format_double(bonus_used)
-                         + ", eff=" + format_double(efficiency) + "]";
+                         + "]";
         msg_target += " [KILLED]";
     }
     log_interaction(attacker.get(), msg_attacker, success, time);

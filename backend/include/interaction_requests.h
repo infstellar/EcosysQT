@@ -18,12 +18,17 @@ struct DamageRaceRequest {
     std::shared_ptr<RaceBase> attacker;
     std::shared_ptr<RaceBase> target;
     double damage = 0.0;
+    // 调试：记录此次攻击采样区间，便于 UI 审计
+    double damage_min = 0.0;
+    double damage_max = 0.0;
 };
 
 struct DamageThingRequest {
     std::shared_ptr<RaceBase> attacker;
     std::shared_ptr<ThingBase> target;
     double damage = 0.0;
+    double damage_min = 0.0;
+    double damage_max = 0.0;
 };
 
 struct AttemptToReproduceRaceRequest {

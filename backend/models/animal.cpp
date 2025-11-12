@@ -372,6 +372,13 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     if (bb.doubles.find("attack_damage") == bb.doubles.end()) {
         bb.doubles["attack_damage"] = params.attack_damage;
     }
+    // 注入攻击伤害区间到黑板，便于行为树动作采样
+    if (bb.doubles.find("attack_damage_min") == bb.doubles.end()) {
+        bb.doubles["attack_damage_min"] = params.attack_damage_min;
+    }
+    if (bb.doubles.find("attack_damage_max") == bb.doubles.end()) {
+        bb.doubles["attack_damage_max"] = params.attack_damage_max;
+    }
     // 注入字符串参数
     for (const auto& kv : params.bt_params_strings) {
         bb.strings[kv.first] = kv.second;

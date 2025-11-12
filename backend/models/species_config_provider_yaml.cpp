@@ -208,6 +208,12 @@ template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     if (params.hp_regen_mul_starving < 0.0) params.hp_regen_mul_starving = 0.0;
     // 生命恢复：触发间隔比例
     clamp(params.regan_interval_ratio, 0.0, 1.0);
+    // 攻击伤害区间约束：保证非负与 min<=max，优先于默认伤害
+    if (params.attack_damage_min < 0.0) params.attack_damage_min = 0.0;
+    if (params.attack_damage_max < 0.0) params.attack_damage_max = 0.0;
+    if (params.attack_damage_max < params.attack_damage_min) {
+        params.attack_damage_max = params.attack_damage_min;
+    }
 }
 
 template <> inline void postprocess_params<PlantParams>(PlantParams& params) {
