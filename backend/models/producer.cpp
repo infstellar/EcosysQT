@@ -39,7 +39,7 @@ Producer::Producer(Position pos, const PlantParams& params, std::mt19937& rng)
 
 // Producer的决策函数，每个tick调用一次
 void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
-    ZoneScoped; // Tracy性能分析作用域
+    // ZoneScoped; // Tracy性能分析作用域
     ThingBase::decide(ecosystem_state, rng); // 调用基类的决策逻辑
     if (!alive) return; // 如果已经死亡，则不执行任何操作
 
