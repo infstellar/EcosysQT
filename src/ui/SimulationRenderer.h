@@ -3,6 +3,8 @@
 
 #include <QPainter>
 #include <memory>
+#include <optional>
+#include <QPoint>
 #include "ecosystem.h"
 #include "Widget.h" // 为了使用 SelectableEntity 和访问 Widget 成员
 #include <unordered_map>
@@ -39,7 +41,9 @@ public:
                 const CameraController& camera,
                 const std::optional<SelectableEntity>& hovered,
                 const std::optional<SelectableEntity>& selected,
-                bool isInspectMode);
+                bool isInspectMode,
+                bool isGridInspectMode,
+                const std::optional<QPoint>& hoveredGridCoords);
 
 private:
     // ========== 私有绘制函数 ==========
@@ -49,6 +53,11 @@ private:
     void drawHud(QPainter& painter);
     void drawSelection(QPainter& painter, const CameraController& camera, const std::optional<SelectableEntity>& hovered, const std::optional<SelectableEntity>& selected);
     void drawSelectionInfo(QPainter& painter, const CameraController& camera, const SelectableEntity& entity);
+
+    void drawGridInspect(QPainter& painter,
+                         const std::shared_ptr<EcosystemStateData>& data,
+                         const CameraController& camera,
+                         const QPoint& gridCoords);
 
     // ========== 辅助函数 ==========
     QColor getColorForName(const std::string& name) const;

@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QPaintEvent>
 #include <QTimer>
+#include <QPoint>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -68,6 +69,7 @@ private slots:
 #endif
     // 新增：网格显示/隐藏切换
     void onToggleGridClicked();
+    void onToggleGridInspectClicked();
 
 private:
     // ========== 核心数据和子系统 ==========
@@ -86,6 +88,7 @@ private:
     QPushButton* m_customSpeedButton;
     QPushButton* m_toggleGridButton; // 新增：显示/隐藏网格按钮
     QPushButton* m_toggleHpBarButton = nullptr;
+    QPushButton* m_toggleGridInspectButton = nullptr;
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     QPushButton* m_historyButton;
@@ -96,6 +99,7 @@ private:
     // ========== UI 状态 ==========
     bool m_isDragging;     // 是否正在拖动视图
     bool m_isInspectMode;  // 是否处于查看模式
+    bool m_isGridInspectMode = false; // 格子查看模式
     bool m_showHpBar = false; // 默认不显示血条
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     bool m_showHistory;
@@ -103,6 +107,7 @@ private:
     int m_currentSpeedLevel;
     std::optional<SelectableEntity> m_hoveredEntity;
     std::optional<SelectableEntity> m_selectedEntity;
+    std::optional<QPoint> m_hoveredGridCoords;
 
     // ========== 统计数据缓存 ==========
     int m_grassCount;
