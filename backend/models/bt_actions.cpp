@@ -463,7 +463,7 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
         const double distance_to_edge_y = std::min(p.y, static_cast<double>(wh) - p.y);
         const double min_distance_to_any_edge = std::min(distance_to_edge_x, distance_to_edge_y);
         // 权重 0.5：鼓励朝开阔区域逃离，避免角落堆叠
-        return distance_from_threat + min_distance_to_any_edge * 0.5;
+        return distance_from_threat + min_distance_to_any_edge * 0.1;
     };
 
     double best_score = -std::numeric_limits<double>::infinity();

@@ -12,7 +12,7 @@ animal:
   # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
   movement_speed: 0.08 # 3.5m/s
   energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
-  detection_range: 200.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
+  detection_range: 100.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
   wander_radius: 50.0 # 游荡目标采样半径，选择随机目标点时的最大范围。采样公式： r = max(movement_speed, sqrt(U) * wander_radius) （ U∈[0,1] ），因此目标点在圆盘内近似面积均匀分布。
   food_types:
     - grass
@@ -36,7 +36,7 @@ animal:
       stop_range_base_range: 1.0  # (等于 eating_range)
       stop_range_factor: 0.5      # (50%)
   min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
-  reproduction_cooldown: 9000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
+  reproduction_cooldown: 3000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
   eating_range: 1
 
   wandering_duration: 150
