@@ -211,25 +211,52 @@ void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
     double diurnal_amplitude = 6.0;
 
     switch (tile.biome) {
-    case BiomeType::Temperate:
-        base_temperature = 15.0;
-        seasonal_amplitude = 12.0;
+    case BiomeType::PolarIce:
+        base_temperature = -25.0;
+        seasonal_amplitude = 18.0;
+        diurnal_amplitude = 2.0;
+        break;
+    case BiomeType::Tundra:
+        base_temperature = -10.0;
+        seasonal_amplitude = 15.0;
+        diurnal_amplitude = 3.0;
+        break;
+    case BiomeType::BorealForest:
+        base_temperature = 2.0;
+        seasonal_amplitude = 14.0;
+        diurnal_amplitude = 5.0;
+        break;
+    case BiomeType::TemperateForest:
+        base_temperature = 12.0;
+        seasonal_amplitude = 10.0;
         diurnal_amplitude = 6.0;
         break;
-    case BiomeType::Tropical:
-        base_temperature = 28.0;
+    case BiomeType::TemperateRainforest:
+        base_temperature = 14.0;
+        seasonal_amplitude = 8.0;
+        diurnal_amplitude = 5.0;
+        break;
+    case BiomeType::Grassland:
+        base_temperature = 18.0;
+        seasonal_amplitude = 12.0;
+        diurnal_amplitude = 7.0;
+        break;
+    case BiomeType::Savanna:
+        base_temperature = 24.0;
+        seasonal_amplitude = 6.0;
+        diurnal_amplitude = 6.0;
+        break;
+    case BiomeType::TropicalForest:
+        base_temperature = 27.0;
         seasonal_amplitude = 4.0;
         diurnal_amplitude = 4.0;
         break;
-    case BiomeType::Frigid:
-        base_temperature = -5.0;
-        seasonal_amplitude = 16.0;
-        diurnal_amplitude = 5.0;
+    case BiomeType::Desert:
+        base_temperature = 30.0;
+        seasonal_amplitude = 13.0;
+        diurnal_amplitude = 9.0;
         break;
-    case BiomeType::Polar:
-        base_temperature = -18.0;
-        seasonal_amplitude = 20.0;
-        diurnal_amplitude = 3.0;
+    default:
         break;
     }
 

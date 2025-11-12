@@ -23,10 +23,8 @@ map_generation:
   # 噪声频率设置
   elevation_frequency: 0.002
   moisture_frequency: 0.005
-  river_frequency: 0.004
-
-  # 河流阈值（越小越细）
-  river_threshold: 0.02
+  # 流量累积阈值：代表一个地块需要汇聚多少上游地块的水流才能形成河流
+  flow_river_threshold: 100
 
   # 经纬度缩放：多少格≈1度
   tiles_per_degree: 5.0

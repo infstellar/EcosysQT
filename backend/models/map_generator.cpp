@@ -1,8 +1,11 @@
 #include "map_generator.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <numeric>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -21,7 +24,6 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     std::uniform_int_distribution<int> seed_dist(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
     m_elevation_noise.SetSeed(seed_dist(rng));
     m_moisture_noise.SetSeed(seed_dist(rng));
-    m_river_noise.SetSeed(seed_dist(rng));
 
     double base_latitude = m_config.base_latitude;
     double base_longitude = m_config.base_longitude;
@@ -48,10 +50,9 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     m_moisture_noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
     m_moisture_noise.SetFrequency(m_config.moisture_frequency);
 
-    m_river_noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-    m_river_noise.SetFractalType(FastNoiseLite::FractalType_Ridged);
-    m_river_noise.SetFractalOctaves(3);
-    m_river_noise.SetFrequency(m_config.river_frequency);
+    if (logger) {
+        logger->info("[MapGenerator] Phase 1: Calculating elevation and geography...");
+    }
 
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
@@ -59,128 +60,264 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
 
             calculate_lat_lon(x, y, base_latitude, base_longitude, tile.latitude, tile.longitude);
 
-            tile.elevation = static_cast<double>(m_elevation_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
-            tile.moisture = static_cast<double>(m_moisture_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
+            const double elevation_noise = static_cast<double>(m_elevation_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
+            tile.elevation = elevation_noise * 2.0 - 1.0;
 
-            float river_value = std::abs(m_river_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
-
-            tile.biome = assign_biome(tile.latitude, tile.elevation, tile.moisture);
-            tile.terrain = assign_terrain(tile.elevation, static_cast<double>(river_value));
+            const double moisture_noise = static_cast<double>(m_moisture_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
+            tile.moisture = moisture_noise * 2.0 - 1.0;
         }
     }
 
-    // 额外步骤：使用轻量随机游走算法生成少数河流覆盖到 tile.terrain
-    generate_rivers(grid, rng);
+    if (logger) {
+        logger->info("[MapGenerator] Phase 2: Simulating hydrology...");
+    }
+
+    const std::size_t map_size = static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height);
+    std::vector<std::pair<int, int>> flow_directions(map_size, {0, 0});
+    std::vector<float> flow_map(map_size, 1.0f);
+
+    CalculateFlowDirections(grid, flow_directions);
+    CalculateFlowAccumulation(grid, flow_directions, flow_map);
 
     if (logger) {
+        logger->info("[MapGenerator] Phase 3: Assigning terrain and biomes...");
+    }
+
+    const std::size_t width_sz = static_cast<std::size_t>(m_width);
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            Tile& tile = grid.get_tile(x, y);
+            const std::size_t idx = static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
+            const float flow = flow_map[idx];
+
+            const double base_temp = 30.0 - (std::abs(tile.latitude) / 90.0) * 40.0;
+            double temp_drop = 0.0;
+            if (tile.elevation > 0.0) {
+                constexpr double kMetersPerElevationUnit = 4000.0;
+                constexpr double kLapseRatePerKm = 6.5;
+                temp_drop = tile.elevation * kMetersPerElevationUnit * (kLapseRatePerKm / 1000.0);
+            }
+
+            const double effective_temperature = base_temp - temp_drop;
+            tile.temperature = effective_temperature;
+
+            const double scaled_moisture = std::clamp((tile.moisture + 1.0) * 0.5, 0.0, 1.0);
+
+            tile.biome = assign_biome(effective_temperature, scaled_moisture);
+            tile.terrain = assign_terrain(tile.elevation, flow);
+        }
+    }
+
+    if (logger) {
+        logger->info("[MapGenerator] Phase 3: Widening rivers (Erosion Pass)...");
+    }
+
+    const int widening_iterations = 2;
+    const double carve_threshold = 0.02;
+
+    for (int i = 0; i < widening_iterations; ++i) {
+        std::vector<std::pair<int, int>> tiles_to_make_river;
+
+        for (int y = 0; y < m_height; ++y) {
+            for (int x = 0; x < m_width; ++x) {
+                Tile& tile = grid.get_tile(x, y);
+
+                if (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS) {
+                    bool adjacent_to_river = false;
+                    double lowest_river_neighbor_elevation = std::numeric_limits<double>::max();
+
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            if (dx == 0 && dy == 0) {
+                                continue;
+                            }
+
+                            const int nx = x + dx;
+                            const int ny = y + dy;
+
+                            if (!grid.is_valid_coord(nx, ny)) {
+                                continue;
+                            }
+
+                            const Tile& neighbor = grid.get_tile(nx, ny);
+                            if (neighbor.terrain == TerrainType::SHALLOW_RIVER || neighbor.terrain == TerrainType::DEEP_RIVER) {
+                                adjacent_to_river = true;
+                                lowest_river_neighbor_elevation = std::min(lowest_river_neighbor_elevation, neighbor.elevation);
+                            }
+                        }
+                    }
+
+                    if (adjacent_to_river && tile.elevation < (lowest_river_neighbor_elevation + carve_threshold)) {
+                        tiles_to_make_river.emplace_back(x, y);
+                    }
+                }
+            }
+        }
+
+        if (tiles_to_make_river.empty()) {
+            if (logger) {
+                logger->info("[MapGenerator]   Widening iteration {} had no effect, stopping.", i + 1);
+            }
+            break;
+        }
+
+        for (const auto& coords : tiles_to_make_river) {
+            grid.get_tile(coords.first, coords.second).terrain = TerrainType::SHALLOW_RIVER;
+        }
+
+        if (logger) {
+            logger->info(
+                "[MapGenerator]   Widening iteration {}: converted {} LAND/HILLS tiles to SHALLOW_RIVER.",
+                i + 1,
+                tiles_to_make_river.size());
+        }
+    }
+
+    if (logger) {
+        logger->info("[MapGenerator] Phase 4: Generating coastal sand (Pass 2)...");
+    }
+
+    auto is_adjacent_to = [&](int x, int y, TerrainType targetTerrain) -> bool {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                if (dx == 0 && dy == 0) {
+                    continue;
+                }
+
+                const int nx = x + dx;
+                const int ny = y + dy;
+
+                if (grid.is_valid_coord(nx, ny)) {
+                    if (grid.get_tile(nx, ny).terrain == targetTerrain) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    std::vector<std::pair<int, int>> tiles_to_make_sand;
+    tiles_to_make_sand.reserve(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height) / 8);
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            Tile& tile = grid.get_tile(x, y);
+            if (tile.terrain != TerrainType::LAND) {
+                continue;
+            }
+
+            if (is_adjacent_to(x, y, TerrainType::SHALLOW_OCEAN) ||
+                is_adjacent_to(x, y, TerrainType::SHALLOW_RIVER) ||
+                is_adjacent_to(x, y, TerrainType::DEEP_RIVER)) {
+                tiles_to_make_sand.emplace_back(x, y);
+            }
+        }
+    }
+
+    for (const auto& coords : tiles_to_make_sand) {
+        grid.get_tile(coords.first, coords.second).terrain = TerrainType::SAND;
+    }
+
+    if (logger) {
+        logger->info("[MapGenerator]   Converted {} LAND tiles to SAND.", tiles_to_make_sand.size());
+    }
+
+    if (logger) {
+        logger->info("[MapGenerator] Phase 5: Refining terrain based on biomes (Pass 5)...");
+    }
+
+    int refined_tiles = 0;
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            Tile& tile = grid.get_tile(x, y);
+
+            if (tile.biome == BiomeType::Desert && tile.terrain == TerrainType::LAND) {
+                tile.terrain = TerrainType::INLAND_SAND;
+                ++refined_tiles;
+            } else if (tile.biome == BiomeType::Tundra && tile.terrain == TerrainType::LAND) {
+                tile.terrain = TerrainType::INLAND_SAND;
+                ++refined_tiles;
+            } else if (tile.biome == BiomeType::PolarIce) {
+                if (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS || tile.terrain == TerrainType::SAND) {
+                    tile.terrain = TerrainType::INLAND_SAND;
+                    ++refined_tiles;
+                }
+            }
+        }
+    }
+
+    if (logger) {
+        logger->info("[MapGenerator]   Refined {} tiles based on biome coupling.", refined_tiles);
         logger->info("[MapGenerator] Generation complete.");
     }
 }
 
-// 轻量河流生成器实现：从随机边缘点开始，做带偏向的随机漫步，直到到达另一边或超长。
-void MapGenerator::generate_rivers(WorldGrid& grid, std::mt19937& rng) const {
-    auto logger = spdlog::get("ecosim");
-    std::uniform_real_distribution<double> prob(0.0, 1.0);
-    std::uniform_int_distribution<int> edge_choice(0, 3);
-    std::uniform_int_distribution<int> width_variation(1, 3);
+void MapGenerator::CalculateFlowDirections(WorldGrid& grid, std::vector<std::pair<int, int>>& flow_directions) const {
+    const std::array<std::pair<int, int>, 8> neighbors = {{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}}};
+    const std::size_t width_sz = static_cast<std::size_t>(m_width);
 
-    // 简单参数：尝试次数与期望河流数基于地图规模
-    const int max_attempts = std::max(3, (m_width + m_height) / 200);
-    const int desired_rivers = std::max(1, std::min(3, (m_width * m_height) / (200 * 200)));
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            const Tile& tile = grid.get_tile(x, y);
+            double min_elevation = tile.elevation;
+            std::pair<int, int> lowest_neighbor{0, 0};
 
-    int created = 0;
-    for (int attempt = 0; attempt < max_attempts && created < desired_rivers; ++attempt) {
-        // 随机选边并生成起点
-        int side = edge_choice(rng);
-        int x = 0, y = 0;
-        switch (side) {
-            case 0: x = 0; y = rng() % m_height; break; // left
-            case 1: x = m_width - 1; y = rng() % m_height; break; // right
-            case 2: x = rng() % m_width; y = 0; break; // top
-            default: x = rng() % m_width; y = m_height - 1; break; // bottom
-        }
+            for (const auto& [dx, dy] : neighbors) {
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if (nx < 0 || nx >= m_width || ny < 0 || ny >= m_height) {
+                    continue;
+                }
 
-        // 目标是任意其他边界
-        std::uniform_int_distribution<int> step_choice(0, 2); // 0: straight (bias), 1: turn left, 2: turn right
-
-        const int max_steps = std::max(10, (m_width + m_height) / 2);
-        int steps = 0;
-        int curx = x, cury = y;
-        // 初始方向：朝向地图中心偏向
-        double dirx = (m_width / 2.0) - curx;
-        double diry = (m_height / 2.0) - cury;
-        // normalize
-        double len = std::sqrt(dirx*dirx + diry*diry);
-        if (len == 0) { dirx = 1.0; diry = 0.0; }
-        else { dirx /= len; diry /= len; }
-
-        std::vector<std::pair<int,int>> path;
-        path.reserve(max_steps);
-        while (steps < max_steps) {
-            path.emplace_back(curx, cury);
-            // 停止条件：到达任一边界（且不是起点边）
-            if ((curx == 0 || curx == m_width - 1 || cury == 0 || cury == m_height - 1) && !(curx == x && cury == y)) {
-                break;
-            }
-
-            // 基于方向偏好与噪声决定步向
-            // 候选方向为 8 邻域中的几个，优先靠近 dirx/diry
-            double best_score = -1e9;
-            int best_dx = 0, best_dy = 0;
-            for (int dx = -1; dx <= 1; ++dx) {
-                for (int dy = -1; dy <= 1; ++dy) {
-                    if (dx == 0 && dy == 0) continue;
-                    int nx = curx + dx;
-                    int ny = cury + dy;
-                    if (nx < 0 || nx >= m_width || ny < 0 || ny >= m_height) continue;
-                    double dot = (dx * dirx + dy * diry);
-                    double jitter = (static_cast<double>(rng() % 100) / 100.0) - 0.5; // -0.5..0.5
-                    double score = dot + jitter * 0.7; // 保留偏向，允许随机
-                    if (score > best_score) {
-                        best_score = score;
-                        best_dx = dx; best_dy = dy;
-                    }
+                const double neighbor_elevation = grid.get_tile(nx, ny).elevation;
+                if (neighbor_elevation < min_elevation) {
+                    min_elevation = neighbor_elevation;
+                    lowest_neighbor = {dx, dy};
                 }
             }
 
-            // 移动
-            curx += best_dx;
-            cury += best_dy;
-            // 缓解过度停留
-            if (curx < 0) curx = 0; if (curx >= m_width) curx = m_width - 1;
-            if (cury < 0) cury = 0; if (cury >= m_height) cury = m_height - 1;
+            flow_directions[static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x)] = lowest_neighbor;
+        }
+    }
+}
 
-            // 逐步调整偏向，向当前位置到中心的方向靠拢
-            dirx = (m_width / 2.0) - curx;
-            diry = (m_height / 2.0) - cury;
-            double l2 = std::sqrt(dirx*dirx + diry*diry);
-            if (l2 != 0.0) { dirx /= l2; diry /= l2; }
+void MapGenerator::CalculateFlowAccumulation(
+    WorldGrid& grid,
+    const std::vector<std::pair<int, int>>& flow_directions,
+    std::vector<float>& flow_map) const {
+    const std::size_t map_size = flow_map.size();
+    std::vector<std::size_t> indices(map_size);
+    std::iota(indices.begin(), indices.end(), 0);
 
-            ++steps;
+    const std::size_t width_sz = static_cast<std::size_t>(m_width);
+
+    const auto get_elevation = [&](std::size_t idx) {
+        const int x = static_cast<int>(idx % width_sz);
+        const int y = static_cast<int>(idx / width_sz);
+        return grid.get_tile(x, y).elevation;
+    };
+
+    std::sort(indices.begin(), indices.end(), [&](std::size_t a, std::size_t b) {
+        return get_elevation(a) > get_elevation(b);
+    });
+
+    for (const std::size_t idx : indices) {
+        const auto& direction = flow_directions[idx];
+        if (direction.first == 0 && direction.second == 0) {
+            continue;
         }
 
-        if (path.size() < 6) continue; // 太短的忽略
+        const int x = static_cast<int>(idx % width_sz);
+        const int y = static_cast<int>(idx / width_sz);
+        const int next_x = x + direction.first;
+        const int next_y = y + direction.second;
 
-        // 给路径上每个点扩展宽度并标记为河
-        int base_width = width_variation(rng); // 1..3
-        for (const auto& p : path) {
-            int px = p.first; int py = p.second;
-            for (int wy = -base_width; wy <= base_width; ++wy) {
-                for (int wx = -base_width; wx <= base_width; ++wx) {
-                    int tx = px + wx; int ty = py + wy;
-                    if (tx < 0 || tx >= m_width || ty < 0 || ty >= m_height) continue;
-                    Tile& t = grid.get_tile(tx, ty);
-                    // 不覆盖高海拔山脉
-                    if (t.terrain == TerrainType::MOUNTAIN) continue;
-                    // 深河 vs 浅河基于偏好与随机
-                    double chance = static_cast<double>(rng() % 100) / 100.0;
-                    if (chance < 0.25) t.terrain = TerrainType::DEEP_RIVER;
-                    else t.terrain = TerrainType::SHALLOW_RIVER;
-                }
-            }
+        if (next_x < 0 || next_x >= m_width || next_y < 0 || next_y >= m_height) {
+            continue;
         }
-        ++created;
-        if (logger) logger->info("[MapGenerator] Generated river with {} path points", path.size());
+
+        const std::size_t next_idx = static_cast<std::size_t>(next_y) * width_sz + static_cast<std::size_t>(next_x);
+        flow_map[next_idx] += flow_map[idx];
     }
 }
 
@@ -197,32 +334,65 @@ void MapGenerator::calculate_lat_lon(int x, int y, double base_lat, double base_
     out_lon = std::fmod(out_lon + 540.0, 360.0) - 180.0;
 }
 
-BiomeType MapGenerator::assign_biome(double latitude, double elevation, double moisture) const {
-    static_cast<void>(elevation);
-    static_cast<void>(moisture);
-    const double abs_lat = std::abs(latitude);
-    if (abs_lat > 65.0) {
-        return BiomeType::Polar;
+BiomeType MapGenerator::assign_biome(double temperature, double moisture) const {
+    if (temperature < -5.0) {
+        return BiomeType::PolarIce;
     }
-    if (abs_lat > 45.0) {
-        return BiomeType::Frigid;
+
+    if (temperature < 2.0) {
+        return BiomeType::Tundra;
     }
-    if (abs_lat > 20.0) {
-        return BiomeType::Temperate;
+
+    if (temperature < 8.0) {
+        if (moisture < 0.3) {
+            return BiomeType::Grassland;
+        }
+        return BiomeType::BorealForest;
     }
-    return BiomeType::Tropical;
+
+    if (temperature < 18.0) {
+        if (moisture < 0.15) {
+            return BiomeType::Desert;
+        }
+        if (moisture < 0.4) {
+            return BiomeType::Grassland;
+        }
+        if (moisture < 0.75) {
+            return BiomeType::TemperateForest;
+        }
+        return BiomeType::TemperateRainforest;
+    }
+
+    if (moisture < 0.15) {
+        return BiomeType::Desert;
+    }
+    if (moisture < 0.5) {
+        return BiomeType::Savanna;
+    }
+    return BiomeType::TropicalForest;
 }
 
-TerrainType MapGenerator::assign_terrain(double elevation, double river_value) const {
-    if (river_value < static_cast<double>(m_config.river_threshold)) {
-        return TerrainType::SHALLOW_RIVER;
+TerrainType MapGenerator::assign_terrain(double elevation, float flow_accumulation) const {
+    if (elevation < -0.8) {
+        return TerrainType::DEEP_OCEAN;
+    }
+    if (elevation < -0.6) {
+        return TerrainType::SHALLOW_OCEAN;
     }
 
+    if (elevation > 0.85) {
+        return TerrainType::MOUNTAIN;
+    }
     if (elevation > 0.7) {
         return TerrainType::HILLS;
     }
-    if (elevation < -0.6) {
-        return TerrainType::SAND;
+
+    if (flow_accumulation >= m_config.flow_river_threshold) {
+        if (flow_accumulation >= m_config.flow_river_threshold * 5.0f) {
+            return TerrainType::DEEP_RIVER;
+        }
+        return TerrainType::SHALLOW_RIVER;
     }
+
     return TerrainType::LAND;
 }
