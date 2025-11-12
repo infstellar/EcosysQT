@@ -60,51 +60,89 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
     
 }
 
-// 生长逻辑：根据邻居密度计算 pending_growth
+// 植物生长模型：根据温度、亮度、生物群系综合计算 pending_growth，给出 0.0 到 1.0 的加成
+// adjusted_growth_rate = base_growth_rate * competition_factor * environmental_coefficient
+// environmental_coefficient = temperature_factor * brightness_factor * biome_factor
 void Producer::compute_growth(const EcosystemState& ecosystem_state) {
 
-    // base_growth_rate的单位是1250tick，所以我们需要
+    if (!ecosystem_state.world_grid().is_valid_coord(m_grid_x, m_grid_y)) {
+        pending_growth = 0.0;
+        return;
+    }
+    const Tile& current_tile = ecosystem_state.world_grid().get_tile(m_grid_x, m_grid_y);
+
+    // 环境系数：温度、亮度、生物群系综合影响
+    static constexpr double kOptimalTemp = 25.0;
+    static constexpr double kMinTemp = 5.0;
+    static constexpr double kMaxTemp = 40.0;
+    double temperature_factor = 0.0;
+    if (current_tile.temperature >= kMinTemp && current_tile.temperature <= kMaxTemp) {
+        const double temp_deviation = std::abs(current_tile.temperature - kOptimalTemp);
+        const double max_deviation = std::max(kOptimalTemp - kMinTemp, kMaxTemp - kOptimalTemp);
+        if (max_deviation > 0.0) {
+            const double falloff = temp_deviation / max_deviation;
+            temperature_factor = 1.0 - falloff * falloff;
+        } else {
+            temperature_factor = 1.0;
+        }
+    }
+    temperature_factor = std::clamp(temperature_factor, 0.0, 1.0);
+
+    static constexpr double kMinBrightnessForGrowth = 0.2;
+    double brightness_factor = 0.0;
+    if (current_tile.brightness > kMinBrightnessForGrowth) {
+        brightness_factor = (current_tile.brightness - kMinBrightnessForGrowth) /
+            (1.0 - kMinBrightnessForGrowth);
+    }
+    brightness_factor = std::clamp(brightness_factor, 0.0, 1.0);
+
+    double biome_factor = 0.0;
+    switch (current_tile.biome) {
+        case BiomeType::Temperate: biome_factor = 1.0; break;
+        case BiomeType::Tropical:  biome_factor = 0.8; break;
+        case BiomeType::Frigid:    biome_factor = 0.3; break;
+        case BiomeType::Polar:     biome_factor = 0.05; break;
+        default: break;
+    }
+
+    const double environmental_coefficient = temperature_factor * brightness_factor * biome_factor;
+    if (environmental_coefficient <= std::numeric_limits<double>::epsilon()) {
+        pending_growth = 0.0;
+        return;
+    }
+
     interval_growth_rate = base_growth_rate;
     const auto neighbor_offsets = Producer::build_neighbor_offsets();
     int nearby_same_species = 0; // 周围同种种子的数量
-    // 遍历所有邻居位置
     for (const auto& [dx, dy] : neighbor_offsets) {
-        const int nx = m_grid_x + dx; // 计算邻居的x坐标
-        const int ny = m_grid_y + dy; // 计算邻居的y坐标
-        // 检查坐标是否有效
+        const int nx = m_grid_x + dx;
+        const int ny = m_grid_y + dy;
         if (!ecosystem_state.world_grid().is_valid_coord(nx, ny)) {
             continue;
         }
-        const Tile& tile = ecosystem_state.world_grid().get_tile(nx, ny); // 获取对应的地块
-        // 遍历地块上的所有物体
+        const Tile& tile = ecosystem_state.world_grid().get_tile(nx, ny);
         for (ThingBase* occupant : tile.things) {
             if (!occupant || !occupant->alive || occupant == this) {
-                continue; // 忽略无效、死亡或自身的物体
+                continue;
             }
-            // 如果是同种植物，则计数器加一
             if (occupant->species_name == species_name) {
                 ++nearby_same_species;
             }
         }
     }
 
-    const double neighbor_slots = static_cast<double>(neighbor_offsets.size()); // 邻居位置的总数
-    // 计算密度
+    const double neighbor_slots = static_cast<double>(neighbor_offsets.size());
     double density = neighbor_slots > 0.0 ? std::min(1.0, nearby_same_species / neighbor_slots) : 0.0;
-    double competition_factor = 1.0; // 竞争因子
-    // 如果密度很低，则有扩张增益
+    double competition_factor = 1.0;
     if (density <= std::numeric_limits<double>::epsilon()) {
         competition_factor = expansion_boost;
     } else {
-        // 否则，根据密度计算竞争因子
         competition_factor = 1.0 - (std::pow(density, 0.3) * max_competition_effect);
     }
-    // 调整生长速率
-    double adjusted_growth_rate = interval_growth_rate * competition_factor;
-    double min_growth_rate = interval_growth_rate * min_growth_factor; // 最小生长速率
-    // 计算待处理的生长量
-    
-    
+
+    const double adjusted_growth_rate = interval_growth_rate * competition_factor * environmental_coefficient;
+    const double min_growth_rate = interval_growth_rate * min_growth_factor * environmental_coefficient;
+
     pending_growth = std::max(min_growth_rate, adjusted_growth_rate);
 }
 
