@@ -152,6 +152,7 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
                 spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
                 m_world_grid(config.world_width, config.world_height),
                 m_all_things() {
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_clock.attach_config(&this->config);
     initialize_populations();
 }
@@ -161,6 +162,7 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_world_grid.resize(config.world_width, config.world_height);
     m_world_grid.clear_things();
     m_all_things.clear();

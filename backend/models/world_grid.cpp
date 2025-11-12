@@ -170,6 +170,53 @@ void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
 void WorldGrid::update_tile_state(Tile& tile, const WorldClock& clock) {
     update_tile_local_time(tile, clock);
     update_tile_weather(tile, clock);
+    update_tile_brightness(tile, clock);
+}
+
+void WorldGrid::update_tile_brightness(Tile& tile, const WorldClock& clock) {
+    constexpr double kMinBrightness = 0.1;
+    constexpr double kMaxBrightness = 1.0;
+    constexpr double kTwilightStartDeg = 0.0;
+    constexpr double kTwilightEndDeg = -18.0;
+    constexpr double kPi = 3.14159265358979323846;
+
+    const double axial_tilt_rad = m_axial_tilt_deg * (kPi / 180.0);
+    const double latitude_rad = tile.latitude * (kPi / 180.0);
+
+    const int days_per_year = std::max(1, clock.days_in_year());
+    const int day_of_year = (clock.current_day() - 1) % days_per_year;
+
+    const double global_time_hours = static_cast<double>(clock.current_hour()) +
+                                    static_cast<double>(clock.current_minute()) / 60.0;
+    double local_time_hours = global_time_hours + (tile.longitude / 15.0);
+    local_time_hours = std::fmod(local_time_hours, 24.0);
+    if (local_time_hours < 0.0) {
+        local_time_hours += 24.0;
+    }
+
+    const double seasonal_angle = (2.0 * kPi * (static_cast<double>(day_of_year) + 10.0)) /
+                                  static_cast<double>(days_per_year);
+    const double declination_rad = std::asin(-std::sin(axial_tilt_rad) * std::cos(seasonal_angle));
+
+    const double hour_angle_rad = (local_time_hours - 12.0) * 15.0 * (kPi / 180.0);
+
+    const double sin_elevation = std::sin(latitude_rad) * std::sin(declination_rad) +
+                                 std::cos(latitude_rad) * std::cos(declination_rad) * std::cos(hour_angle_rad);
+    const double elevation_rad = std::asin(std::clamp(sin_elevation, -1.0, 1.0));
+    const double elevation_deg = elevation_rad * (180.0 / kPi);
+
+    double brightness = kMinBrightness;
+
+    if (elevation_deg >= kTwilightStartDeg) {
+        brightness = kMaxBrightness;
+    } else if (elevation_deg > kTwilightEndDeg) {
+        const double twilight_range = kTwilightStartDeg - kTwilightEndDeg;
+        double progress = (elevation_deg - kTwilightEndDeg) / twilight_range;
+        progress = std::clamp(progress, 0.0, 1.0);
+        brightness = kMinBrightness + (kMaxBrightness - kMinBrightness) * progress;
+    }
+
+    tile.brightness = std::clamp(brightness, kMinBrightness, kMaxBrightness);
 }
 
 void WorldGrid::dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock) {

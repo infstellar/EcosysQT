@@ -261,6 +261,7 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         mg_cfg.tiles_per_degree = read_double("tiles_per_degree", mg_cfg.tiles_per_degree);
         mg_cfg.base_latitude = read_double("base_latitude", mg_cfg.base_latitude);
         mg_cfg.base_longitude = read_double("base_longitude", mg_cfg.base_longitude);
+        mg_cfg.axial_tilt_deg = read_double("axial_tilt_deg", mg_cfg.axial_tilt_deg);
 
         if (logger) {
             logger->info("[MapConfig]   elev_freq: {}", mg_cfg.elevation_frequency);
@@ -278,6 +279,7 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
             } else {
                 logger->info("[MapConfig]   base_lon: {}", mg_cfg.base_longitude);
             }
+            logger->info("[MapConfig]   axial_tilt_deg: {}", mg_cfg.axial_tilt_deg);
         }
     } else if (logger) {
         logger->info("[MapConfig] 'map_generation' node missing. Using default map parameters.");

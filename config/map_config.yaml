@@ -1,6 +1,6 @@
 world:
-  width: 800
-  height: 600
+  width: 1080
+  height: 720
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
@@ -29,11 +29,14 @@ map_generation:
   river_threshold: 0.02
 
   # 经纬度缩放：多少格≈1度
-  tiles_per_degree: 20.0
+  tiles_per_degree: 5.0
 
   # 基准经纬度：999.0 表示随机生成
   base_latitude: 0.0
-  base_longitude: 0.0
+  base_longitude: 17.0
+
+  # 行星轴向倾斜（单位：度），用于计算季节与昼夜循环
+  axial_tilt_deg: 23.44
 
 # 可选的分区结构（演示用途）：
 #populations:

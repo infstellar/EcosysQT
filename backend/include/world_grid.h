@@ -37,13 +37,18 @@ public:
     int width() const noexcept { return m_width; }
     int height() const noexcept { return m_height; }
 
+    void set_axial_tilt_deg(double degrees) noexcept { m_axial_tilt_deg = degrees; }
+    double axial_tilt_deg() const noexcept { return m_axial_tilt_deg; }
+
 private:
     int m_width{0};
     int m_height{0};
     std::vector<Tile> m_tiles;
     int m_map_update_amortization_ticks{10};
+    double m_axial_tilt_deg{23.44};
 
     void update_tile_state(Tile& tile, const WorldClock& clock);
     void update_tile_local_time(Tile& tile, const WorldClock& clock);
     void update_tile_weather(Tile& tile, const WorldClock& clock);
+    void update_tile_brightness(Tile& tile, const WorldClock& clock);
 };
