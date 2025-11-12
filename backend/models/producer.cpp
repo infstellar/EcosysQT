@@ -107,6 +107,7 @@ void Producer::compute_growth(const EcosystemState& ecosystem_state) {
         case BiomeType::Savanna:             biome_factor = 0.7;  break;
         case BiomeType::TropicalForest:      biome_factor = 0.85; break;
         case BiomeType::Desert:              biome_factor = 0.1;  break;
+        case BiomeType::Ocean:               biome_factor = 0.0;  break;
         default: break;
     }
 

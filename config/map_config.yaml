@@ -36,6 +36,10 @@ map_generation:
   # 行星轴向倾斜（单位：度），用于计算季节与昼夜循环
   axial_tilt_deg: 23.44
 
+  # 海平面配置：可根据需要调整海洋面积
+  sea_level: -0.7
+  deep_sea_level: -0.9
+
 # 可选的分区结构（演示用途）：
 #populations:
 #  races:
