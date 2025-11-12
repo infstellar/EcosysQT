@@ -1,0 +1,124 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Linux Ninja (Default, Debug)",
+      "description": "Default debug build using Ninja",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-debug",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "TRACY_ON_DEMAND": true
+      }
+    },
+    {
+      "name": "debug-tracy-on",
+      "displayName": "Debug (Tracy ON)",
+      "description": "Debug build with Tracy profiling enabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-tracy-on",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "TRACY_ENABLE": true,
+        "TRACY_ON_DEMAND": true
+      }
+    },
+    {
+      "name": "debug-tracy-off",
+      "displayName": "Debug (Tracy OFF)",
+      "description": "Debug build with Tracy profiling disabled",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-tracy-off",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Linux Ninja (Release)",
+      "description": "Release build using Ninja",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false,
+        "ECOSIM_UI_DEBUG": false
+      }
+    },
+    {
+      "name": "headless-debug",
+      "displayName": "Headless (Debug)",
+      "description": "Debug build for headless mode (no GUI)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-headless-debug",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "ECOSIM_HEADLESS": true,
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false
+      }
+    },
+    {
+      "name": "headless-release",
+      "displayName": "Headless (Release)",
+      "description": "Release build for headless mode (no GUI)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-headless-release",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux",
+        "ECOSIM_HEADLESS": true,
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false,
+        "ECOSIM_UI_DEBUG": false
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "debug-tracy-on",
+      "configurePreset": "debug-tracy-on"
+    },
+    {
+      "name": "debug-tracy-off",
+      "configurePreset": "debug-tracy-off"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "headless-debug",
+      "configurePreset": "headless-debug"
+    },
+    {
+      "name": "headless-release",
+      "configurePreset": "headless-release"
+    }
+  ]
+}
