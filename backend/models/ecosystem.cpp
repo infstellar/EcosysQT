@@ -9,6 +9,7 @@
 #include "thing_factory.h"
 #include "thing_base.h"
 #include "thread_pool.h"
+#include "map_generator.h"
 #include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
@@ -151,6 +152,7 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
                 spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
                 m_world_grid(config.world_width, config.world_height),
                 m_all_things() {
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_clock.attach_config(&this->config);
     initialize_populations();
 }
@@ -160,10 +162,20 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_world_grid.resize(config.world_width, config.world_height);
     m_world_grid.clear_things();
     m_all_things.clear();
     m_thing_counts.clear();
+
+    {
+        MapGenerator generator(config);
+        generator.generate_map(m_world_grid, get_thread_local_rng());
+        m_world_grid.initialize_all_tile_states(m_clock);
+        if (logger) {
+            logger->info("[Init] Map generation and tile state initialization complete.");
+        }
+    }
     // 动物初始化块
     auto init_animals = [&]() {
         auto race_names = races_registry.get_all_species_names();
@@ -223,7 +235,8 @@ void EcosystemState::initialize_populations() {
                     int tile_x = dist_tile_x(rng);
                     int tile_y = dist_tile_y(rng);
                     Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
-                    if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
+                    const bool is_plantable = (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS);
+                    if (!is_plantable || !tile.things.empty()) {
                         continue;
                     }
 

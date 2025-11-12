@@ -150,6 +150,55 @@ void SimulationRenderer::render(QPainter& painter,
     painter.setRenderHint(QPainter::Antialiasing);
 
     drawBackground(painter);
+    if (data->world_grid) {
+        const WorldGrid* grid = data->world_grid;
+        if (grid->width() > 0 && grid->height() > 0) {
+            const QSize screenSize = m_parentWidget->size();
+            if (screenSize.width() > 0 && screenSize.height() > 0) {
+                const double visibleWorldWidth = data->world_width / camera.getZoomFactor();
+                if (visibleWorldWidth > 0.0) {
+                    const double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+                    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+                    const double viewLeft = camera.getViewCenter().x() - visibleWorldWidth / 2.0;
+                    const double viewTop = camera.getViewCenter().y() - visibleWorldHeight / 2.0;
+                    const double viewRight = viewLeft + visibleWorldWidth;
+                    const double viewBottom = viewTop + visibleWorldHeight;
+
+                    constexpr int buffer = 2;
+                    int startX = std::max(0, static_cast<int>(std::floor(viewLeft)) - buffer);
+                    int endX = std::min(grid->width() - 1, static_cast<int>(std::ceil(viewRight)) + buffer);
+                    int startY = std::max(0, static_cast<int>(std::floor(viewTop)) - buffer);
+                    int endY = std::min(grid->height() - 1, static_cast<int>(std::ceil(viewBottom)) + buffer);
+
+                    if (startX <= endX && startY <= endY) {
+                        painter.setPen(Qt::NoPen);
+                        constexpr double kBrightnessRange = 1.0 - 0.1;
+
+                        for (int y = startY; y <= endY; ++y) {
+                            for (int x = startX; x <= endX; ++x) {
+                                const Tile& tile = grid->get_tile(x, y);
+                                const double darkness = 1.0 - tile.brightness;
+                                if (darkness <= 0.0) {
+                                    continue;
+                                }
+
+                                int alpha = static_cast<int>((darkness / kBrightnessRange) * 160.0);
+                                alpha = std::clamp(alpha, 0, 255);
+                                if (alpha <= 0) {
+                                    continue;
+                                }
+
+                                const QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+                                const QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+                                painter.setBrush(QColor(0, 0, 30, alpha));
+                                painter.drawRect(QRectF(screenTopLeft, screenBottomRight));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (m_parentWidget->isGridEnabled()) {
         drawGrid(painter, camera, data->world_width, data->world_height);
     }
@@ -164,52 +213,11 @@ void SimulationRenderer::render(QPainter& painter,
 
 void SimulationRenderer::drawBackground(QPainter& painter)
 {
-    // ========== 步骤1: 绘制背景和时间遮罩 ==========
-    // 1.1 首先绘制基础背景图
+    // 绘制基础背景
     if (!m_backgroundImage.isNull()) {
         painter.drawPixmap(m_parentWidget->rect(), m_backgroundImage);
     } else {
         painter.fillRect(m_parentWidget->rect(), QColor(34, 139, 34)); // 回退方案
-    }
-
-    // 1.2 根据当前小时计算并绘制一个半透明的遮罩层
-    {
-        int alpha = 0; // 透明度 (0=完全透明, 255=完全不透明)
-        const int nightAlpha = 160; // 夜晚最暗时的透明度
-
-        // 定义一天中的四个阶段
-        const int dawnStart = 4;  // 黎明开始 (4:00)
-        const int dayStart = 8;   // 白天开始 (8:00)
-        const int duskStart = 18; // 黄昏开始 (18:00)
-        const int nightStart = 22; // 夜晚开始 (22:00)
-
-        const int currentHour = m_parentWidget->m_currentHour;
-
-        if (currentHour >= nightStart || currentHour < dawnStart) {
-            // --- 夜晚 (22:00 - 03:59) ---
-            alpha = nightAlpha;
-        } else if (currentHour >= duskStart) {
-            // --- 黄昏 (18:00 - 21:59) ---
-            // 透明度从 0 (18:00) 线性增加到 nightAlpha (22:00)
-            double progress = static_cast<double>(currentHour - duskStart) / (nightStart - duskStart);
-            alpha = static_cast<int>(progress * nightAlpha);
-        } else if (currentHour >= dayStart) {
-            // --- 白天 (08:00 - 17:59) ---
-            alpha = 0; // 完全明亮，无遮罩
-        } else if (currentHour >= dawnStart) {
-            // --- 黎明 (04:00 - 07:59) ---
-            // 透明度从 nightAlpha (04:00) 线性减少到 0 (08:00)
-            double progress = static_cast<double>(currentHour - dawnStart) / (dayStart - dawnStart);
-            alpha = static_cast<int>((1.0 - progress) * nightAlpha);
-        }
-
-        // 限制 alpha 在有效范围内
-        alpha = std::clamp(alpha, 0, 255);
-
-        // 绘制遮罩
-        if (alpha > 0) {
-            painter.fillRect(m_parentWidget->rect(), QColor(0, 0, 30, alpha)); // 使用深蓝色调的遮罩，效果更自然
-        }
     }
 }
 
@@ -780,6 +788,9 @@ void SimulationRenderer::drawGridInspect(QPainter& painter,
 
     QString infoText;
     infoText += QString("格子坐标: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
+    // 显示经纬度
+    infoText += QString("纬度: %1°\n").arg(QString::number(tile.latitude, 'f', 2));
+    infoText += QString("经度: %1°\n").arg(QString::number(tile.longitude, 'f', 2));
     infoText += QString("地形: %1\n").arg(terrainToString(tile.terrain));
     infoText += QString("生物群系: %1\n").arg(biomeToString(tile.biome));
     infoText += QString("----------\n");
@@ -788,6 +799,7 @@ void SimulationRenderer::drawGridInspect(QPainter& painter,
     infoText += QString("湿度: %1\n").arg(QString::number(tile.moisture, 'f', 2));
     infoText += QString("海拔: %1\n").arg(QString::number(tile.elevation, 'f', 2));
     infoText += QString("肥沃度: %1\n").arg(tile.fertility);
+    infoText += QString("亮度: %1\n").arg(tile.brightness);
     infoText += QString("物体数量: %1").arg(tile.things.size());
 
     QFont font("Arial", 10);
