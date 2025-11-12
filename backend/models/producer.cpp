@@ -98,10 +98,16 @@ void Producer::compute_growth(const EcosystemState& ecosystem_state) {
 
     double biome_factor = 0.0;
     switch (current_tile.biome) {
-        case BiomeType::Temperate: biome_factor = 1.0; break;
-        case BiomeType::Tropical:  biome_factor = 0.8; break;
-        case BiomeType::Frigid:    biome_factor = 0.3; break;
-        case BiomeType::Polar:     biome_factor = 0.05; break;
+        case BiomeType::PolarIce:            biome_factor = 0.05; break;
+        case BiomeType::Tundra:              biome_factor = 0.2;  break;
+        case BiomeType::BorealForest:        biome_factor = 0.6;  break;
+        case BiomeType::TemperateForest:     biome_factor = 1.0;  break;
+        case BiomeType::TemperateRainforest: biome_factor = 1.1; break;
+        case BiomeType::Grassland:           biome_factor = 0.9;  break;
+        case BiomeType::Savanna:             biome_factor = 0.7;  break;
+        case BiomeType::TropicalForest:      biome_factor = 0.85; break;
+        case BiomeType::Desert:              biome_factor = 0.1;  break;
+        case BiomeType::Ocean:               biome_factor = 0.0;  break;
         default: break;
     }
 

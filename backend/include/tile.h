@@ -27,17 +27,23 @@ struct TerrainTypeHash {
 
 // 生物群系类型（原 ClimateZone）
 enum class BiomeType {
-    Temperate,
-    Tropical,
-    Frigid,
-    Polar
+    PolarIce,
+    Tundra,
+    BorealForest,
+    TemperateForest,
+    TemperateRainforest,
+    Grassland,
+    Savanna,
+    TropicalForest,
+    Desert,
+    Ocean
 };
 
 struct Tile {
     TerrainType terrain { TerrainType::LAND };
     double elevation {0.0};
     double moisture {0.0};
-    BiomeType biome { BiomeType::Temperate };
+    BiomeType biome { BiomeType::TemperateForest };
     int fertility {0};
     double longitude {0.0};
     double latitude {0.0};
