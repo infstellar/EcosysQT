@@ -617,6 +617,11 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         std::shuffle(light_tasks.begin(), light_tasks.end(), rng2);
         pool.submit_bulk_light(std::move(light_tasks));
     }
+
+    {
+        ZoneScopedN("Dispatch Map Update");
+        m_world_grid.dispatch_map_update_tasks(pool, m_clock);
+    }
 }
 
 /**

@@ -24,6 +24,8 @@ public:
     int current_minute() const;
     std::string current_quadrum_name() const;
 
+    int days_in_year() const noexcept;
+
 private:
     const EcosystemConfig* m_config{nullptr};
     int m_time_step{0};

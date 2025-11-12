@@ -8,6 +8,8 @@
 #include "utils.h"
 
 class ThingBase;
+class ThreadPool;
+class WorldClock;
 
 class WorldGrid {
 public:
@@ -28,6 +30,8 @@ public:
 
     std::vector<std::shared_ptr<ThingBase>> get_nearby_things_broad(const Position& center, double radius) const;
 
+    void dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock);
+
     int width() const noexcept { return m_width; }
     int height() const noexcept { return m_height; }
 
@@ -35,4 +39,9 @@ private:
     int m_width{0};
     int m_height{0};
     std::vector<Tile> m_tiles;
+    int m_map_update_amortization_ticks{10};
+
+    void update_tile_state(Tile& tile, const WorldClock& clock);
+    void update_tile_local_time(Tile& tile, const WorldClock& clock);
+    void update_tile_weather(Tile& tile, const WorldClock& clock);
 };
