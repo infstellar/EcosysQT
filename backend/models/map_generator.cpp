@@ -6,6 +6,7 @@
 #include <limits>
 #include <numeric>
 #include <queue>
+#include <string>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -65,10 +66,10 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
             calculate_lat_lon(x, y, base_latitude, base_longitude, tile.latitude, tile.longitude);
 
             const double elevation_noise = static_cast<double>(m_elevation_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
-            tile.elevation = elevation_noise * 2.0 - 1.0;
+            tile.elevation = elevation_noise;
 
             const double moisture_noise = static_cast<double>(m_moisture_noise.GetNoise(static_cast<float>(x), static_cast<float>(y)));
-            tile.moisture = moisture_noise * 2.0 - 1.0;
+            tile.moisture = moisture_noise;
         }
     }
 
@@ -129,12 +130,13 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
 
     constexpr double kMaxInfluenceDistance = 100.0;
     constexpr double kMoistureReductionScale = 1.2;
+    constexpr int kCoastalBufferTiles = 6;
     int modified_tiles = 0;
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             const std::size_t idx = static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
             const int dist = distance_to_water[idx];
-            if (dist <= 0) {
+            if (dist <= 0 || dist <= kCoastalBufferTiles) {
                 continue;
             }
 
@@ -149,6 +151,97 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     if (logger) {
         logger->info("[MapGenerator]   Moisture modified for {} land tiles based on distance.", modified_tiles);
     }
+
+    // ------------------------------------------------------------------
+    // --- 修改：Phase 3.5 - 盛行风（仅增湿模型） ---
+    // ------------------------------------------------------------------
+    if (logger) {
+        logger->info("[MapGenerator] Phase 3.5: Simulating prevailing winds (Additive, Direction: {})...", m_config.wind_direction);
+    }
+
+    if (m_config.wind_direction != "None") {
+        const double wind_strength = std::clamp(m_config.wind_strength, 0.0, 1.0);
+
+        if (wind_strength > 0.0) {
+            const bool wind_blows_west = (m_config.wind_direction == "West");
+            const int windward_x = wind_blows_west ? (m_width - 1) : 0;
+
+            std::vector<int> distance_to_windward_coast(map_size, -1);
+            std::queue<std::pair<int, int>> wind_q;
+
+            for (int y = 0; y < m_height; ++y) {
+                const Tile& tile = grid.get_tile(windward_x, y);
+                if (tile.terrain == TerrainType::SHALLOW_OCEAN || tile.terrain == TerrainType::DEEP_OCEAN) {
+                    const std::size_t idx = static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(windward_x);
+                    distance_to_windward_coast[idx] = 0;
+                    wind_q.push({windward_x, y});
+                }
+            }
+
+            if (logger) {
+                logger->info("[MapGenerator]   Wind BFS queue initialized with {} windward ocean tiles.", static_cast<std::size_t>(wind_q.size()));
+            }
+
+            const std::array<std::pair<int, int>, 4> cardinal_dirs_wind = {{{0, 1}, {0, -1}, {1, 0}, {-1, 0}}};
+
+            while (!wind_q.empty()) {
+                const auto [cx, cy] = wind_q.front();
+                wind_q.pop();
+                const std::size_t current_idx = static_cast<std::size_t>(cy) * width_sz + static_cast<std::size_t>(cx);
+                const int current_dist = distance_to_windward_coast[current_idx];
+
+                for (const auto& [dx, dy] : cardinal_dirs_wind) {
+                    const int nx = cx + dx;
+                    const int ny = cy + dy;
+                    if (!grid.is_valid_coord(nx, ny)) {
+                        continue;
+                    }
+                    const std::size_t next_idx = static_cast<std::size_t>(ny) * width_sz + static_cast<std::size_t>(nx);
+
+                    if (distance_to_windward_coast[next_idx] != -1) {
+                        continue;
+                    }
+
+                    const Tile& next_tile = grid.get_tile(nx, ny);
+                    if (next_tile.terrain == TerrainType::SHALLOW_OCEAN || next_tile.terrain == TerrainType::DEEP_OCEAN) {
+                        distance_to_windward_coast[next_idx] = 0;
+                    } else {
+                        distance_to_windward_coast[next_idx] = current_dist + 1;
+                    }
+                    wind_q.push({nx, ny});
+                }
+            }
+
+            constexpr double kMaxWindInfluenceDistance = 150.0;
+            int wind_modified_tiles = 0;
+
+            for (int y = 0; y < m_height; ++y) {
+                for (int x = 0; x < m_width; ++x) {
+                    const std::size_t idx = static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
+                    const int dist = distance_to_windward_coast[idx];
+
+                    if (dist > 0) {
+                        Tile& tile = grid.get_tile(x, y);
+
+                        double wind_bonus_factor = std::clamp(1.0 - (static_cast<double>(dist) / kMaxWindInfluenceDistance), 0.0, 1.0);
+                        const double wind_target_moisture = 1.0;
+                        double moisture_boost = (wind_target_moisture - tile.moisture) * wind_bonus_factor * wind_strength;
+
+                        if (moisture_boost > 0.0) {
+                            tile.moisture += moisture_boost;
+                            tile.moisture = std::clamp(tile.moisture, -1.0, 1.0);
+                            ++wind_modified_tiles;
+                        }
+                    }
+                }
+            }
+            if (logger) {
+                logger->info("[MapGenerator]   Wind passively increased moisture for {} land tiles.", wind_modified_tiles);
+            }
+        }
+    }
+    // --- 盛行风阶段结束 ---
+    // ------------------------------------------------------------------
 
     // Phase 4 -----------------------------------------------------------------
     if (logger) {
@@ -409,10 +502,10 @@ void MapGenerator::CalculateFlowAccumulation(
 }
 
 TerrainType MapGenerator::assign_terrain_pre_pass(double elevation) const {
-    if (elevation < -0.8) {
+    if (elevation < m_config.deep_sea_level) {
         return TerrainType::DEEP_OCEAN;
     }
-    if (elevation < -0.6) {
+    if (elevation < m_config.sea_level) {
         return TerrainType::SHALLOW_OCEAN;
     }
     if (elevation > 0.85) {
@@ -476,10 +569,10 @@ BiomeType MapGenerator::assign_biome(double temperature, double moisture) const 
 }
 
 TerrainType MapGenerator::assign_terrain(double elevation, float flow_accumulation) const {
-    if (elevation < -0.8) {
+    if (elevation < m_config.deep_sea_level) {
         return TerrainType::DEEP_OCEAN;
     }
-    if (elevation < -0.6) {
+    if (elevation < m_config.sea_level) {
         return TerrainType::SHALLOW_OCEAN;
     }
 
