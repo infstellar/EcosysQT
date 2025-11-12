@@ -30,6 +30,8 @@ public:
 
     std::vector<std::shared_ptr<ThingBase>> get_nearby_things_broad(const Position& center, double radius) const;
 
+    void initialize_all_tile_states(const WorldClock& clock);
+
     void dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock);
 
     int width() const noexcept { return m_width; }

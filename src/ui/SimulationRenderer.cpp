@@ -780,6 +780,9 @@ void SimulationRenderer::drawGridInspect(QPainter& painter,
 
     QString infoText;
     infoText += QString("格子坐标: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
+    // 显示经纬度
+    infoText += QString("纬度: %1°\n").arg(QString::number(tile.latitude, 'f', 2));
+    infoText += QString("经度: %1°\n").arg(QString::number(tile.longitude, 'f', 2));
     infoText += QString("地形: %1\n").arg(terrainToString(tile.terrain));
     infoText += QString("生物群系: %1\n").arg(biomeToString(tile.biome));
     infoText += QString("----------\n");

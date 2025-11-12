@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 #include <QFile>
 #include <QIODevice>
@@ -225,6 +226,61 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         for (const auto& kv : cfg.initial_populations) {
             logger->info("[MapConfig] init '{}' = {}", kv.first, kv.second);
         }
+    }
+
+    if (const auto map_gen = root["map_generation"]; map_gen) {
+        if (logger) logger->info("[MapConfig] Loading 'map_generation' parameters...");
+        auto& mg_cfg = cfg.map_gen_config;
+
+        const auto read_float = [&](const char* key, float fallback) -> float {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<float>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid float for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
+        const auto read_double = [&](const char* key, double fallback) -> double {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<double>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid double for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
+        mg_cfg.elevation_frequency = read_float("elevation_frequency", mg_cfg.elevation_frequency);
+        mg_cfg.moisture_frequency = read_float("moisture_frequency", mg_cfg.moisture_frequency);
+        mg_cfg.river_frequency = read_float("river_frequency", mg_cfg.river_frequency);
+        mg_cfg.river_threshold = read_float("river_threshold", mg_cfg.river_threshold);
+        mg_cfg.tiles_per_degree = read_double("tiles_per_degree", mg_cfg.tiles_per_degree);
+        mg_cfg.base_latitude = read_double("base_latitude", mg_cfg.base_latitude);
+        mg_cfg.base_longitude = read_double("base_longitude", mg_cfg.base_longitude);
+
+        if (logger) {
+            logger->info("[MapConfig]   elev_freq: {}", mg_cfg.elevation_frequency);
+            logger->info("[MapConfig]   moisture_freq: {}", mg_cfg.moisture_frequency);
+            logger->info("[MapConfig]   river_freq: {}", mg_cfg.river_frequency);
+            logger->info("[MapConfig]   river_threshold: {}", mg_cfg.river_threshold);
+            logger->info("[MapConfig]   tiles_per_degree: {}", mg_cfg.tiles_per_degree);
+            if (std::abs(mg_cfg.base_latitude - 999.0) < 1e-6) {
+                logger->info("[MapConfig]   base_lat: Random");
+            } else {
+                logger->info("[MapConfig]   base_lat: {}", mg_cfg.base_latitude);
+            }
+            if (std::abs(mg_cfg.base_longitude - 999.0) < 1e-6) {
+                logger->info("[MapConfig]   base_lon: Random");
+            } else {
+                logger->info("[MapConfig]   base_lon: {}", mg_cfg.base_longitude);
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'map_generation' node missing. Using default map parameters.");
     }
 
     return cfg;

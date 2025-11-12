@@ -18,6 +18,23 @@ simulation:
   quadrums_per_year: 4
   days_per_quadrum: 10
 
+# --- 地图生成参数 ---
+map_generation:
+  # 噪声频率设置
+  elevation_frequency: 0.002
+  moisture_frequency: 0.005
+  river_frequency: 0.004
+
+  # 河流阈值（越小越细）
+  river_threshold: 0.02
+
+  # 经纬度缩放：多少格≈1度
+  tiles_per_degree: 20.0
+
+  # 基准经纬度：999.0 表示随机生成
+  base_latitude: 0.0
+  base_longitude: 0.0
+
 # 可选的分区结构（演示用途）：
 #populations:
 #  races:

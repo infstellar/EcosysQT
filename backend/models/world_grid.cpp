@@ -103,6 +103,16 @@ std::vector<std::shared_ptr<ThingBase>> WorldGrid::get_nearby_things_broad(const
     return nearby;
 }
 
+void WorldGrid::initialize_all_tile_states(const WorldClock& clock) {
+    if (m_tiles.empty()) {
+        return;
+    }
+
+    for (auto& tile : m_tiles) {
+        update_tile_state(tile, clock);
+    }
+}
+
 void WorldGrid::update_tile_local_time(Tile& tile, const WorldClock& clock) {
     const int global_hour = clock.current_hour();
     const double raw_offset = tile.longitude / 15.0;

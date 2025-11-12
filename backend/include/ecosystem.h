@@ -53,6 +53,16 @@ struct SpeciesPopulationData {
     std::map<std::string, std::vector<BaseIndividualData>> species_data;
 };
 
+struct MapGenConfig {
+    float elevation_frequency = 0.002f;
+    float moisture_frequency = 0.005f;
+    float river_frequency = 0.004f;
+    float river_threshold = 0.02f;
+    double tiles_per_degree = 100.0;
+    double base_latitude = 999.0;
+    double base_longitude = 999.0;
+};
+
 // 生态系统配置 (默认值)
 struct EcosystemConfig {
     // 世界参数
@@ -67,6 +77,7 @@ struct EcosystemConfig {
     int days_per_year = 60;
     int quadrums_per_year = 4;      // 一年分为多少季（Quadrum）
     int days_per_quadrum = 15;      // 每季包含多少天
+    MapGenConfig map_gen_config;
     EcosystemConfig() = default;
     EcosystemConfig(int w, int h) : world_width(w), world_height(h) {}
 };
