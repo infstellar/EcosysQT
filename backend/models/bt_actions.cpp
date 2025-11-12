@@ -357,7 +357,7 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     std::shared_ptr<RaceBase> nearest_race_target;
     std::shared_ptr<ThingBase> nearest_thing_target;
     double min_distance = std::numeric_limits<double>::max();
-    const double detect_range = self.get_detection_range();
+    const double detect_range = self.get_food_detection_range();
 
     if (!races_to_find.empty()) {
         auto nearest_races = world->find_nearest_races(self.position, races_to_find, 1, detect_range);
@@ -439,8 +439,9 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
     // 逃逸半径：优先 YAML/黑板；否则使用动态回退（威胁阈值 *1.5 或探测范围）
     double radius = bb_get_double(&bb, radius_key, 0.0);
     if (radius <= 0.0) {
-        const double th = bb_get_double(&bb, bt::keys::ThreatThreshold, self.get_detection_range());
-        radius = std::max(self.get_detection_range(), th * 1.5);
+    const double threat_default = self.get_threat_detection_range();
+    const double th = bb_get_double(&bb, bt::keys::ThreatThreshold, threat_default);
+    radius = std::max(threat_default, th * 1.5);
         SPDLOG_WARN_ONCE(spdlog::get("ecosim"),
             "Flee radius not configured for '{}' ; using dynamic fallback {:.1f}.",
             self.species_name, radius);
