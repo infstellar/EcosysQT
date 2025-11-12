@@ -285,5 +285,22 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         logger->info("[MapConfig] 'map_generation' node missing. Using default map parameters.");
     }
 
+    if (const auto grass_density = root["grass_density_by_terrain"]; grass_density && grass_density.IsMap()) {
+        if (logger) logger->info("[MapConfig] Loading 'grass_density_by_terrain'...");
+        for (const auto& entry : grass_density) {
+            try {
+                std::string terrain_name = entry.first.as<std::string>();
+                double probability = entry.second.as<double>();
+                probability = std::max(0.0, std::min(1.0, probability));
+                cfg.initial_grass_density_map[terrain_name] = probability;
+                if (logger) logger->info("[MapConfig]   {} density = {}", terrain_name, probability);
+            } catch (const std::exception& e) {
+                if (logger) logger->warn("[MapConfig]   Skipping invalid entry in grass_density_by_terrain: {}", e.what());
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'grass_density_by_terrain' not found. 'grass' will use standard random placement if specified in initial_populations.");
+    }
+
     return cfg;
 }
