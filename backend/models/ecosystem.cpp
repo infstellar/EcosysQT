@@ -440,6 +440,113 @@ void EcosystemState::initialize_populations() {
     init_things();
 }
 
+void EcosystemState::loadFromData(const std::shared_ptr<EcosystemStateData>& data)
+{
+    if (!data) {
+        spdlog::warn("[EcosystemState] loadFromData: provided data is null");
+        return;
+    }
+
+    spdlog::info("[EcosystemState] Loading EcosystemStateData: {}x{} time_step={}",
+                 data->world_width, data->world_height, data->time_step);
+
+    // 1) 同步基础元信息（配置与时钟）
+    config.world_width = data->world_width;
+    config.world_height = data->world_height;
+    time_step = data->time_step;
+    m_clock.set_time_step(data->time_step);
+
+    // 2) 重建/调整世界格子与空间索引尺寸
+    try {
+        m_world_grid.resize(std::max(0, config.world_width), std::max(0, config.world_height));
+    } catch (const std::exception& e) {
+        spdlog::warn("[EcosystemState] world_grid.resize failed: {}", e.what());
+    }
+
+    const double cell_size = (spatial_grid ? spatial_grid->get_cell_size() : 100.0);
+    spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell_size);
+
+    // 3) 清理现有注册表与事物集合（准备完整替换）
+    races_registry.clear_all();
+    m_all_things.clear();
+    m_thing_counts.clear();
+    try {
+        m_world_grid.clear_things();
+    } catch (...) {
+        // 保守兜底：若 clear_things 出现异常，继续后续重建
+    }
+
+    // 4) 注入 Races：data->race_lists 中应包含已构造好的 shared_ptr<RaceBase>
+    int total_races = 0;
+    for (const auto& kv : data->race_lists) {
+        const std::string& species = kv.first;
+        const auto& vec = kv.second;
+
+        // 若 registry 未有该物种，注册占位
+        if (!races_registry.has_species(species)) {
+            races_registry.register_species(species, nullptr, static_cast<int>(vec.size()));
+        }
+
+        // 将对象直接加入 registry（保持 shared_ptr 所有权）
+        for (const auto& inst : vec) {
+            if (!inst) continue;
+            // 确保 species_name 与映射一致
+            if (inst->species_name.empty()) inst->species_name = species;
+            races_registry.add_individual(species, inst);
+            ++total_races;
+        }
+    }
+
+    // 5) 注入 Things：把所有 thing 放入 m_all_things 并 attach 到 world_grid（设置 grid 索引）
+    int total_things = 0;
+    for (const auto& kv : data->thing_lists) {
+        const std::string& species = kv.first;
+        const auto& vec = kv.second;
+        for (const auto& inst : vec) {
+            if (!inst) continue;
+            // 设置 species_name 若为空
+            if (inst->species_name.empty()) inst->species_name = species;
+            // 计算格子坐标（取 floor），并 clamp 到合法范围
+            int gx = static_cast<int>(std::floor(inst->position.x));
+            int gy = static_cast<int>(std::floor(inst->position.y));
+            if (config.world_width > 0) gx = std::clamp(gx, 0, config.world_width - 1);
+            else gx = 0;
+            if (config.world_height > 0) gy = std::clamp(gy, 0, config.world_height - 1);
+            inst->m_grid_x = gx;
+            inst->m_grid_y = gy;
+
+            // push 到全局容器并计数
+            m_all_things.push_back(inst);
+            ++total_things;
+            m_thing_counts[species] = m_thing_counts[species] + 1;
+
+            // 尝试 attach 到 world_grid 的 tile
+            try {
+                m_world_grid.add_thing_to_tile(inst.get());
+            } catch (const std::exception& e) {
+                spdlog::warn("[EcosystemState] attach thing failed: {} at ({:.1f},{:.1f}) - {}", inst->species_name, inst->position.x, inst->position.y, e.what());
+            }
+        }
+    }
+
+    // 6) 重建 SpatialGrid 的索引（基于 races_registry）
+    try {
+        spatial_grid->build(races_registry);
+    } catch (const std::exception& e) {
+        spdlog::warn("[EcosystemState] spatial_grid->build failed: {}", e.what());
+    }
+
+    // 7) 重新计算统计和其它衍生结构
+    try {
+        update_statistics();
+    } catch (const std::exception& e) {
+        spdlog::warn("[EcosystemState] update_statistics failed: {}", e.what());
+    }
+
+    spdlog::info("[EcosystemState] loadFromData complete: races={} things={}",
+                 races_registry.get_total_count(), static_cast<int>(m_all_things.size()));
+}
+
 void EcosystemState::attach_thing_to_world(const std::shared_ptr<ThingBase>& thing) {
     if (!thing) {
         return;

@@ -120,6 +120,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/backend/include
     ${CMAKE_SOURCE_DIR}/external
     ${CMAKE_SOURCE_DIR}/src/ui
+    ${CMAKE_SOURCE_DIR}/src/utils
 )
 
 # --- 将源文件分为 核心后端 和 GUI ---
@@ -146,6 +147,7 @@ set(BACKEND_CORE_SOURCES
     backend/models/map_config_loader.cpp 
     backend/models/map_generator.cpp 
     backend/models/pathfinding.cpp 
+    backend/models/ecosystem_state_yaml.cpp 
 )
 
 set(GUI_SOURCES 
@@ -161,7 +163,9 @@ set(GUI_SOURCES
     src/ui/CameraController.h 
     src/ui/CameraController.cpp 
     src/ui/SimulationRenderer.h 
-    src/ui/SimulationRenderer.cpp 
+    src/ui/SimulationRenderer.cpp
+    src/utils/SaveManager.cpp 
+    src/utils/SaveManager.h
 )
 # --- 拆分结束 ---
 

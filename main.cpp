@@ -35,14 +35,24 @@ int main(int argc, char *argv[])
         // 安全兜底，避免日志系统异常中断应用启动
     }
     QApplication app(argc, argv);
-    
+
+    // 确保在可预测的位置创建存档目录（使用 exe 所在目录）
+    QString exeDir = QCoreApplication::applicationDirPath();
+    QDir exeQDir(exeDir);
+    QString savesPath = exeQDir.filePath("saves");
+    if (!QDir(savesPath).exists()) {
+        bool ok = exeQDir.mkpath("saves");
+        qDebug() << "创建 saves 目录:" << savesPath << " 结果:" << ok;
+    } else {
+        qDebug() << "saves 目录存在于:" << savesPath;
+    }
+
     QString currentPath = QDir::currentPath();
     qDebug() << "当前工作目录:" << currentPath;
     
     auto configExistsAt = [](const QString& dir) -> bool {
         return QFileInfo(QDir(dir).filePath("config/species.yaml")).exists();
     };
-    QString exeDir = QCoreApplication::applicationDirPath();
     QString configRoot = currentPath;
     if (!configExistsAt(configRoot)) {
         if (configExistsAt(exeDir)) {

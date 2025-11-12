@@ -97,12 +97,14 @@ public:
     SpeciesStatistics births;
     SpeciesStatistics deaths;
     std::vector<std::map<std::string, int>> population_history;
-
+    Eigen::MatrixXd grass_positions_array; // 新增：用于存/读草的位置
     EcosystemState(const EcosystemConfig& config);
 
     // 时钟访问器
     const WorldClock& clock() const { return m_clock; }
     WorldClock& clock() { return m_clock; }
+
+    void loadFromData(const std::shared_ptr<EcosystemStateData>& data);
 
     void initialize_populations();
     EcosystemStateData get_ecosystem_state() const;

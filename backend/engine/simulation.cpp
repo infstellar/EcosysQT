@@ -4,7 +4,7 @@
 #include <chrono>
 #include <iostream>
 #include <mutex>
-
+#include <spdlog/spdlog.h>
 // --- SimulationEngine Implementation ---
 
 SimulationEngine::SimulationEngine(const EcosystemConfig& config)
@@ -115,65 +115,71 @@ bool SimulationEngine::is_paused() const {
 
 void SimulationEngine::simulation_loop() {
     // Raise timer resolution for the duration of the simulation loop on Windows.
-    // This improves precision of short sleeps used for frame pacing.
     #ifdef _WIN32
     HighResolutionTimer _hrt(1);
     #endif
-    while (!stop_event) {
-        ZoneScoped;
-        const auto frame_start = std::chrono::steady_clock::now();
-        if (!paused) {
-            std::shared_ptr<EcosystemStateData> new_snapshot;
-            {
-                ZoneScopedN("Update Frame");
-                std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
 
-                update_ecosystem();
-            }
-            {
-                ZoneScopedN("Create Snapshot");
-                const int ts = ecosystem->clock().time_step();
-                if (ts % 30 == 0) {
-                    new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
-                    new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
-                    std::atomic_store(&m_visible_data, new_snapshot);
+    try {
+        while (!stop_event) {
+            ZoneScoped;
+            const auto frame_start = std::chrono::steady_clock::now();
+            if (!paused) {
+                std::shared_ptr<EcosystemStateData> new_snapshot;
+                {
+                    ZoneScopedN("Update Frame");
+                    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+                    update_ecosystem();
+                }
+                {
+                    ZoneScopedN("Create Snapshot");
+                    const int ts = ecosystem->clock().time_step();
+                    if (ts % 30 == 0) {
+                        new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+                        new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+                        std::atomic_store(&m_visible_data, new_snapshot);
+                    }
                 }
             }
-            
-        }
-        {
-            ZoneScopedN("Sleep");
-            const auto frame_end = std::chrono::steady_clock::now();
-            const auto target_frame_duration = std::chrono::duration<double, std::milli>(1000.0 / target_fps);
-            const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
-            // 打印 frame_elapsed 时间，单位是毫秒
 
-            // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
-            // todo: 建议改为sleep_duration.count() > 0，否则60fps以上的设置无效
-            // 建议你妈，windows的线程sleep最小间隔就是15.6ms，你是傻逼吗？
-            const auto sleep_duration = target_frame_duration - frame_elapsed;
-            if (sleep_duration.count() > 15.6) {
-                const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
-                std::this_thread::sleep_for(sleep_ns);
+            {
+                ZoneScopedN("Sleep");
+                const auto frame_end = std::chrono::steady_clock::now();
+                const auto target_frame_duration = std::chrono::duration<double, std::milli>(1000.0 / target_fps);
+                const auto frame_elapsed = std::chrono::duration<double, std::milli>(frame_end - frame_start);
+                const auto sleep_duration = target_frame_duration - frame_elapsed;
+                if (sleep_duration.count() > 15.6) {
+                    const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);
+                    std::this_thread::sleep_for(sleep_ns);
+                }
             }
-        }
-        // TPS 计算逻辑：每秒更新一次当前TPS
-        {
-            ZoneScopedN("TPS Calculation");
-            m_tps_frame_counter++;
-            const auto tps_now = std::chrono::steady_clock::now();
-            const auto tps_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tps_now - m_tps_last_update_time).count();
-            if (tps_elapsed_ms >= 1000) {
-                const double tps = static_cast<double>(m_tps_frame_counter) / (static_cast<double>(tps_elapsed_ms) / 1000.0);
-                m_current_tps.store(tps, std::memory_order_relaxed);
-                m_tps_last_update_time = tps_now;
-                m_tps_frame_counter = 0;
-            }
-        }
-        
 
-        FrameMark;
+            // TPS 计算
+            {
+                ZoneScopedN("TPS Calculation");
+                m_tps_frame_counter++;
+                const auto tps_now = std::chrono::steady_clock::now();
+                const auto tps_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tps_now - m_tps_last_update_time).count();
+                if (tps_elapsed_ms >= 1000) {
+                    const double tps = static_cast<double>(m_tps_frame_counter) / (static_cast<double>(tps_elapsed_ms) / 1000.0);
+                    m_current_tps.store(tps, std::memory_order_relaxed);
+                    m_tps_last_update_time = tps_now;
+                    m_tps_frame_counter = 0;
+                }
+            }
+
+            FrameMark;
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("[SimulationEngine] Uncaught exception in simulation_loop: {}", e.what());
+        // 将 stop_event 标志设为 true，确保线程能安全退出
+        stop_event = true;
+    } catch (...) {
+        spdlog::error("[SimulationEngine] Unknown exception in simulation_loop");
+        stop_event = true;
     }
+
+    // 不能直接将 std::atomic<bool> 传给 fmt/spdlog，先读取值
+    spdlog::info("[SimulationEngine] simulation_loop exiting (stop_event={})", stop_event.load());
 }
 
 void SimulationEngine::update_ecosystem() {
@@ -260,6 +266,44 @@ void SimulationEngine::update_ecosystem() {
 
 }
 
+void SimulationEngine::loadSnapshot(const std::shared_ptr<EcosystemStateData>& data) {
+    std::lock_guard<std::mutex> lock(m_ecosystem_mutex);
+    try {
+        spdlog::info("[SimulationEngine] loadSnapshot: begin");
+
+        if (!data) {
+            spdlog::warn("[SimulationEngine] loadSnapshot: provided data is null");
+            return;
+        }
+
+        // 停止模拟循环（外部通常已 stop()，这里再次保证）
+        if (running && !stop_event) {
+            spdlog::info("[SimulationEngine] loadSnapshot: stopping engine before load");
+            stop_event = true;
+            // 如果有线程，join 在 stop() 内已经处理；这里只确保状态一致
+        }
+
+        // 把数据加载到生态系统状态（会重建 registry / world grid / spatial grid）
+        ecosystem->loadFromData(data);
+
+        // 强制一次准备/重建，确保内部索引一致（如果实现了 prepare_for_update，会做清理与 rebuild）
+        ecosystem->prepare_for_update();
+
+        // 更新并发布可见快照给 GUI（不可带锁地 publish 指针）
+        auto new_snapshot = std::make_shared<EcosystemStateData>(ecosystem->get_ecosystem_state());
+        new_snapshot->current_tps = m_current_tps.load(std::memory_order_relaxed);
+        std::atomic_store(&m_visible_data, new_snapshot);
+
+        spdlog::info("[SimulationEngine] loadSnapshot: published visible snapshot");
+
+        // 注意：这里不自动重启线程。上层（SimulationController / UI）应决定何时 start()
+    } catch (const std::exception& e) {
+        spdlog::error("[SimulationEngine] loadSnapshot failed: {}", e.what());
+    } catch (...) {
+        spdlog::error("[SimulationEngine] loadSnapshot failed: unknown exception");
+    }
+}
+
 // --- SimulationController Implementation ---
 
 SimulationController::SimulationController(const EcosystemConfig& config)
@@ -308,4 +352,10 @@ bool SimulationController::is_running() const {
 
 bool SimulationController::is_paused() const {
     return engine->is_paused();
+}
+
+void SimulationController::loadFromSnapshot(const std::shared_ptr<EcosystemStateData>& data) {
+    engine->stop();
+    // 你需要在 SimulationEngine 里实现 loadSnapshot
+    engine->loadSnapshot(data);
 }

@@ -1,6 +1,6 @@
 #ifndef UTILS_H
 #define UTILS_H
-#define _USE_MATH_DEFINES // 把这行加在 #include <cmath> 之前
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
 #include <string>
@@ -9,6 +9,7 @@
 #include <optional>
 #include <map>
 #include <Eigen/Dense>
+#include <yaml-cpp/yaml.h>
 
 // 前向声明
 class RaceBase;
@@ -46,6 +47,9 @@ struct EcosystemStateData {
     double current_tps;
     // 新增：世界网格指针（只读引用）
     const WorldGrid* world_grid = nullptr;
+    
+    std::string toYaml() const;
+    void fromYaml(const YAML::Node& node);
     
 };
 
