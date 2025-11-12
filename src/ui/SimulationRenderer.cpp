@@ -106,6 +106,17 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (!anyTree) {
         qDebug() << "信息: 未找到 tree images, 装饰树将不可见";
     }
+
+    // 尝试加载用户提供的地形 atlas（优先资源路径，然后回退到文件系统）
+    m_riverAtlas.load(":/images/terrain/river.jpg");
+    if (m_riverAtlas.isNull()) {
+        // 尝试相对项目路径（运行时可能需要调整）
+        QString fsPath = QString("resources/images/terrain/river.jpg");
+        m_riverAtlas.load(fsPath);
+    }
+    if (m_riverAtlas.isNull()) {
+        qDebug() << "信息: 未找到 river atlas (: /resources/images/terrain/river.jpg)，河流将以纯色渲染";
+    }
 }
 
 namespace {
@@ -150,6 +161,10 @@ void SimulationRenderer::render(QPainter& painter,
     painter.setRenderHint(QPainter::Antialiasing);
 
     drawBackground(painter);
+    // 在背景之上绘制地形瓦片（例如河流）
+    if (data && data->world_grid) {
+        drawTerrainTiles(painter, data, camera);
+    }
     if (data->world_grid) {
         const WorldGrid* grid = data->world_grid;
         if (grid->width() > 0 && grid->height() > 0) {
@@ -822,4 +837,57 @@ void SimulationRenderer::drawGridInspect(QPainter& painter,
     painter.setPen(Qt::white);
     painter.setFont(font);
     painter.drawText(textRect.adjusted(10, 10, -10, -10), Qt::AlignLeft, infoText);
+}
+
+void SimulationRenderer::drawTerrainTiles(QPainter& painter,
+                                         const std::shared_ptr<EcosystemStateData>& data,
+                                         const CameraController& camera)
+{
+    if (!data || !data->world_grid) return;
+    const WorldGrid* grid = data->world_grid;
+    const QSize screenSize = m_parentWidget->size();
+
+    const double visibleWorldWidth = data->world_width / camera.getZoomFactor();
+    const double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    const double viewLeft = camera.getViewCenter().x() - visibleWorldWidth / 2.0;
+    const double viewTop = camera.getViewCenter().y() - visibleWorldHeight / 2.0;
+    const double viewRight = viewLeft + visibleWorldWidth;
+    const double viewBottom = viewTop + visibleWorldHeight;
+
+    constexpr int buffer = 2;
+    int startX = std::max(0, static_cast<int>(std::floor(viewLeft)) - buffer);
+    int endX = std::min(grid->width() - 1, static_cast<int>(std::ceil(viewRight)) + buffer);
+    int startY = std::max(0, static_cast<int>(std::floor(viewTop)) - buffer);
+    int endY = std::min(grid->height() - 1, static_cast<int>(std::ceil(viewBottom)) + buffer);
+
+    if (startX > endX || startY > endY) return;
+
+    bool haveAtlas = !m_riverAtlas.isNull();
+    int atlasCols = std::max(1, m_riverAtlasCols);
+    int atlasRows = std::max(1, m_riverAtlasRows);
+    int cellW = haveAtlas ? (m_riverAtlas.width() / atlasCols) : 0;
+    int cellH = haveAtlas ? (m_riverAtlas.height() / atlasRows) : 0;
+
+    for (int y = startY; y <= endY; ++y) {
+        for (int x = startX; x <= endX; ++x) {
+            const Tile& tile = grid->get_tile(x, y);
+            if (tile.terrain != TerrainType::SHALLOW_RIVER && tile.terrain != TerrainType::DEEP_RIVER) continue;
+
+            QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+            QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+            QRectF destRect(screenTopLeft, screenBottomRight);
+
+            if (haveAtlas && cellW > 0 && cellH > 0) {
+                int col = ((x % atlasCols) + atlasCols) % atlasCols;
+                int row = ((y % atlasRows) + atlasRows) % atlasRows;
+                QRect srcRect(col * cellW, row * cellH, cellW, cellH);
+                painter.drawPixmap(destRect, m_riverAtlas, srcRect);
+            } else {
+                // 没有 atlas 的回退：用蓝色渐层简单表示河流
+                QColor riverColor = (tile.terrain == TerrainType::DEEP_RIVER) ? QColor(20, 50, 180) : QColor(50, 120, 220);
+                painter.fillRect(destRect, riverColor);
+            }
+        }
+    }
 }

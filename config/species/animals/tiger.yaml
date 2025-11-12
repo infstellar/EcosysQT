@@ -6,8 +6,8 @@ species:
   # 美洲狮的体型为2，ecosys转换倍率为100，综上，美洲狮的能量为 200.
   energy: 200
   max_age: 180000 # 6个月，6*10*3000=180000
-  # 最小繁殖能量（门槛基数，实际判定为其 2×）
-  min_reproduction_energy: 120
+  # 最小繁殖能量（）
+  min_reproduction_energy: 160
 animal:
   movement_speed: 0.16
   energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
@@ -33,7 +33,7 @@ animal:
       wander_speed_multiplier: 0.9
       wander_energy_multiplier: 0.8
       chase_speed_multiplier: 1.4
-      chase_energy_multiplier: 1.3
+      chase_energy_multiplier: 2
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
@@ -46,15 +46,15 @@ animal:
   # 攻击冷却时长：
   hunting_cooldown_duration: 45 
   min_reproduction_age: 30
-  reproduction_cooldown: 800
+  reproduction_cooldown: 25000
 
   wandering_duration: 150
   
   # 繁殖相关
-  pregnancy_duration: 110  
+  pregnancy_duration: 3000  
   mating_range: 12.0       
   pregnancy_speed_penalty: 0.5
-  pregnant_energy_multiplier: 1.2 # 怀孕期间能量消耗倍率（>1 更费能；=1 无额外消耗）
+  pregnant_energy_multiplier: 2 # 怀孕期间能量消耗倍率（>1 更费能；=1 无额外消耗）
   mating_desire_probability: 0.5
   newborn_energy_ratio: 0.5 # 新生个体初始能量比例（0-1，按 max_energy 比例赋值）
 
@@ -72,7 +72,7 @@ animal:
   nutrition_bonus_max: 8.0 # 相当于最多额外获得猎物当前的power8倍
   nutrition_bonus_curve_alpha: 2.0 # 2.0就相当于二次曲线，从高power的牛那里获得更多能量
   # HP恢复基础值
-  hp_regen_base_per_day: 800.0
+  hp_regen_base_per_day: 600.0
   # HP恢复的状态加成：
   hp_regen_mul_satisfied: 5.0
   hp_regen_mul_normal: 1.0
