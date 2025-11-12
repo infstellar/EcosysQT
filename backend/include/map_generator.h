@@ -28,9 +28,8 @@ private:
 
     void calculate_lat_lon(int x, int y, double base_lat, double base_lon, double& out_lat, double& out_lon) const;
     BiomeType assign_biome(double temperature, double moisture) const;
-    TerrainType assign_terrain(double elevation, float flow_accumulation) const;
-    // Pre-pass to classify simple terrain from elevation alone (used during earlier phases)
     TerrainType assign_terrain_pre_pass(double elevation) const;
+    TerrainType assign_terrain(double elevation, float flow_accumulation) const;
 
     void CalculateFlowDirections(WorldGrid& grid, std::vector<std::pair<int, int>>& flow_directions) const;
     void CalculateFlowAccumulation(

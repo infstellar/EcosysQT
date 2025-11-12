@@ -52,10 +52,13 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     m_moisture_noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
     m_moisture_noise.SetFrequency(m_config.moisture_frequency);
 
-    if (logger) {
-        logger->info("[MapGenerator] Phase 1: Calculating elevation and geography...");
-    }
+    const std::size_t map_size = static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height);
+    const std::size_t width_sz = static_cast<std::size_t>(m_width);
 
+    // Phase 1 -----------------------------------------------------------------
+    if (logger) {
+        logger->info("[MapGenerator] Phase 1: Calculating elevation, moisture, and geography...");
+    }
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             Tile& tile = grid.get_tile(x, y);
@@ -70,18 +73,21 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
         }
     }
 
+    // Phase 2 -----------------------------------------------------------------
     if (logger) {
-        logger->info("[MapGenerator] Phase 2: Simulating hydrology...");
+        logger->info("[MapGenerator] Phase 2: Terrain Pre-Pass (Oceans/Land)...");
+    }
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            Tile& tile = grid.get_tile(x, y);
+            tile.terrain = assign_terrain_pre_pass(tile.elevation);
+        }
     }
 
     // Phase 3 -----------------------------------------------------------------
     if (logger) {
         logger->info("[MapGenerator] Phase 3: Post-processing moisture (Ocean Proximity)...");
     }
-
-    // Precompute commonly used sizes to avoid referencing undeclared identifiers
-    const std::size_t width_sz = static_cast<std::size_t>(m_width);
-    const std::size_t map_size = width_sz * static_cast<std::size_t>(m_height);
 
     std::vector<int> distance_to_water(map_size, -1);
     std::queue<std::pair<int, int>> bfs_queue;
@@ -242,13 +248,27 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
         logger->info("[MapGenerator] Phase 4: Simulating hydrology (using corrected moisture)...");
     }
     std::vector<std::pair<int, int>> flow_directions(map_size, {0, 0});
-    std::vector<float> flow_map(map_size, 1.0f);
+    std::vector<float> flow_map(map_size, 0.0f);
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            const Tile& tile = grid.get_tile(x, y);
+            const double scaled_moisture = std::clamp((tile.moisture + 1.0) * 0.5, 0.0, 1.0);
+
+            float precipitation = 0.0f;
+            if (scaled_moisture > 0.2) {
+                precipitation = static_cast<float>((scaled_moisture - 0.2) / 0.8);
+            }
+
+            flow_map[static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x)] = precipitation;
+        }
+    }
 
     CalculateFlowDirections(grid, flow_directions);
     CalculateFlowAccumulation(grid, flow_directions, flow_map);
 
+    // Phase 5 -----------------------------------------------------------------
     if (logger) {
-        logger->info("[MapGenerator] Phase 3: Assigning terrain and biomes...");
+        logger->info("[MapGenerator] Phase 5: Assigning final terrain (with rivers) and biomes...");
     }
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
@@ -263,59 +283,57 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
                 constexpr double kLapseRatePerKm = 6.5;
                 temp_drop = tile.elevation * kMetersPerElevationUnit * (kLapseRatePerKm / 1000.0);
             }
-
             const double effective_temperature = base_temp - temp_drop;
             tile.temperature = effective_temperature;
 
             const double scaled_moisture = std::clamp((tile.moisture + 1.0) * 0.5, 0.0, 1.0);
 
-            tile.biome = assign_biome(effective_temperature, scaled_moisture);
             tile.terrain = assign_terrain(tile.elevation, flow);
+            if (tile.terrain == TerrainType::DEEP_OCEAN || tile.terrain == TerrainType::SHALLOW_OCEAN) {
+                tile.biome = BiomeType::Ocean;
+            } else {
+                tile.biome = assign_biome(effective_temperature, scaled_moisture);
+            }
         }
     }
 
+    // Phase 6 -----------------------------------------------------------------
     if (logger) {
-        logger->info("[MapGenerator] Phase 3: Widening rivers (Erosion Pass)...");
+        logger->info("[MapGenerator] Phase 6: Widening rivers (Erosion Pass)...");
     }
-
     const int widening_iterations = 2;
-    const double carve_threshold = 0.02;
-
+    constexpr double kCarveThreshold = 0.02;
     for (int i = 0; i < widening_iterations; ++i) {
         std::vector<std::pair<int, int>> tiles_to_make_river;
-
         for (int y = 0; y < m_height; ++y) {
             for (int x = 0; x < m_width; ++x) {
                 Tile& tile = grid.get_tile(x, y);
+                if (tile.terrain != TerrainType::LAND && tile.terrain != TerrainType::HILLS) {
+                    continue;
+                }
 
-                if (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS) {
-                    bool adjacent_to_river = false;
-                    double lowest_river_neighbor_elevation = std::numeric_limits<double>::max();
-
-                    for (int dy = -1; dy <= 1; ++dy) {
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            if (dx == 0 && dy == 0) {
-                                continue;
-                            }
-
-                            const int nx = x + dx;
-                            const int ny = y + dy;
-
-                            if (!grid.is_valid_coord(nx, ny)) {
-                                continue;
-                            }
-
-                            const Tile& neighbor = grid.get_tile(nx, ny);
-                            if (neighbor.terrain == TerrainType::SHALLOW_RIVER || neighbor.terrain == TerrainType::DEEP_RIVER) {
-                                adjacent_to_river = true;
-                                lowest_river_neighbor_elevation = std::min(lowest_river_neighbor_elevation, neighbor.elevation);
-                            }
+                bool adjacent_to_river = false;
+                double lowest_neighbor = std::numeric_limits<double>::max();
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        if (dx == 0 && dy == 0) {
+                            continue;
+                        }
+                        const int nx = x + dx;
+                        const int ny = y + dy;
+                        if (!grid.is_valid_coord(nx, ny)) {
+                            continue;
+                        }
+                        const Tile& neighbor = grid.get_tile(nx, ny);
+                        if (neighbor.terrain == TerrainType::SHALLOW_RIVER || neighbor.terrain == TerrainType::DEEP_RIVER) {
+                            adjacent_to_river = true;
+                            lowest_neighbor = std::min(lowest_neighbor, neighbor.elevation);
                         }
                     }
+                }
 
-                    if (adjacent_to_river && tile.elevation < (lowest_river_neighbor_elevation + carve_threshold)) {
-                        tiles_to_make_river.emplace_back(x, y);
-                    }
+                if (adjacent_to_river && tile.elevation < (lowest_neighbor + kCarveThreshold)) {
+                    tiles_to_make_river.emplace_back(x, y);
                 }
             }
         }
@@ -332,31 +350,29 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
         }
 
         if (logger) {
-            logger->info(
-                "[MapGenerator]   Widening iteration {}: converted {} LAND/HILLS tiles to SHALLOW_RIVER.",
-                i + 1,
-                tiles_to_make_river.size());
+            logger->info("[MapGenerator]   Widening iteration {}: converted {} LAND/HILLS tiles to SHALLOW_RIVER.",
+                        i + 1,
+                        tiles_to_make_river.size());
         }
     }
 
+    // Phase 7 -----------------------------------------------------------------
     if (logger) {
-        logger->info("[MapGenerator] Phase 4: Generating coastal sand (Pass 2)...");
+        logger->info("[MapGenerator] Phase 7: Generating coastal sand (Pass 2)...");
     }
-
-    auto is_adjacent_to = [&](int x, int y, TerrainType targetTerrain) -> bool {
+    auto is_adjacent_to = [&](int x, int y, TerrainType terrain_type) {
         for (int dy = -1; dy <= 1; ++dy) {
             for (int dx = -1; dx <= 1; ++dx) {
                 if (dx == 0 && dy == 0) {
                     continue;
                 }
-
                 const int nx = x + dx;
                 const int ny = y + dy;
-
-                if (grid.is_valid_coord(nx, ny)) {
-                    if (grid.get_tile(nx, ny).terrain == targetTerrain) {
-                        return true;
-                    }
+                if (!grid.is_valid_coord(nx, ny)) {
+                    continue;
+                }
+                if (grid.get_tile(nx, ny).terrain == terrain_type) {
+                    return true;
                 }
             }
         }
@@ -364,14 +380,13 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     };
 
     std::vector<std::pair<int, int>> tiles_to_make_sand;
-    tiles_to_make_sand.reserve(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height) / 8);
+    tiles_to_make_sand.reserve(map_size / 8);
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             Tile& tile = grid.get_tile(x, y);
             if (tile.terrain != TerrainType::LAND) {
                 continue;
             }
-
             if (is_adjacent_to(x, y, TerrainType::SHALLOW_OCEAN) ||
                 is_adjacent_to(x, y, TerrainType::SHALLOW_RIVER) ||
                 is_adjacent_to(x, y, TerrainType::DEEP_RIVER)) {
@@ -388,15 +403,14 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
         logger->info("[MapGenerator]   Converted {} LAND tiles to SAND.", tiles_to_make_sand.size());
     }
 
+    // Phase 8 -----------------------------------------------------------------
     if (logger) {
-        logger->info("[MapGenerator] Phase 5: Refining terrain based on biomes (Pass 5)...");
+        logger->info("[MapGenerator] Phase 8: Refining terrain based on biomes (Pass 5)...");
     }
-
     int refined_tiles = 0;
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             Tile& tile = grid.get_tile(x, y);
-
             if (tile.biome == BiomeType::Desert && tile.terrain == TerrainType::LAND) {
                 tile.terrain = TerrainType::INLAND_SAND;
                 ++refined_tiles;
