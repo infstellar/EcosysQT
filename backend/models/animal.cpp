@@ -412,7 +412,7 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
         int eat_total = -1;
         auto it = bb.ints.find(bt::keys::EatGrassTotalTicks);
         if (it != bb.ints.end()) eat_total = it->second;
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+        SPDLOG_INFO_ONCE(spdlog::get("ecosim"),
             "[BT Params] '{}' eat_grass_total_ticks={} (after injection)",
             species_name, eat_total);
         // 初始化吃草当前进度键，便于进度装饰器与日志显示
