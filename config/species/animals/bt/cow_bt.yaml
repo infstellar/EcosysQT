@@ -22,7 +22,7 @@ BehaviorTreeDef:
                   status_name: "Selecting Flee Destination"
               - type: Action
                 action: plan_path_to_target
-                plan_path_move_mode: direct
+                plan_path_move_mode: path
                 speed_multiplier_key: flee_speed_multiplier
                 energy_multiplier_key: flee_energy_multiplier
                 status_name: "Fleeing"
@@ -41,7 +41,7 @@ BehaviorTreeDef:
                 status_name: "Selecting Flee Destination"
               - type: Action
                 action: plan_path_to_target
-                plan_path_move_mode: direct
+                plan_path_move_mode: path
                 speed_multiplier_key: flee_speed_multiplier
                 energy_multiplier_key: flee_energy_multiplier
                 status_name: "Fleeing"
@@ -101,7 +101,7 @@ BehaviorTreeDef:
                       status_name: "Scanning Food"
                   - type: Action
                     action: plan_path_to_target  # 每帧规划/移动至目标
-                    plan_path_move_mode: direct
+                    plan_path_move_mode: path
                     status_name: "Chasing Food"
 
       # ========== 游荡 ==========

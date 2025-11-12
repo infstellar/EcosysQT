@@ -12,6 +12,7 @@
 #include <functional>
 #include "utils.h"
 #include "race_base.h"
+#include "species_params.h"
 #include "animal_behavior.h" // 提供行为树构建函数声明，用于 friend 授权访问
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
@@ -88,6 +89,8 @@ public:
     void move_towards_target(const Position& target_position, int world_width, int world_height);
     // 路径规划（占位）
     virtual void plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target);
+    // 供寻路模块直接设置的路径
+    virtual void plan_path_to_target(const std::vector<Position>& path);
     // 执行向当前目标点移动
     void move_to_target_point(int world_width, int world_height);
 
@@ -158,6 +161,7 @@ public:
 
     // 路径快照：返回当前规划路径的副本，供 UI 调试快照使用
     std::vector<Position> get_planned_path_snapshot() const;
+    const PathfindingParams& get_pathfinding_params() const { return pathfinding_params; }
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式
@@ -198,6 +202,8 @@ protected:
     double regan_interval_ratio{0.25};
     // 自增计时器：自上次恢复以来的 tick 数
     int ticks_since_last_regen{0};
+
+    PathfindingParams pathfinding_params;
 
     // 交配相关配置
     int mating_duration;

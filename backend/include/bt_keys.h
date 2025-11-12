@@ -33,4 +33,10 @@ namespace bt::keys {
     // 吃草进度（用于 UI 或循环装饰器）
     constexpr const char* EatGrassTotalTicks = "eat_grass_total_ticks";
     constexpr const char* EatGrassCurrentTicks = "eat_grass_current_ticks";
+
+    // 寻路元数据
+    constexpr const char* PathLastPlanTick = "path_last_plan_tick";
+    constexpr const char* PathLastGoalX = "path_last_goal_x";
+    constexpr const char* PathLastGoalY = "path_last_goal_y";
+    constexpr const char* PathReplanInterval = "path_replan_interval";
 }

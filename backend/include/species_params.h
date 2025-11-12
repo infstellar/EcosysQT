@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include "tile.h"
 // 反射支持：用于自动从 YAML 键匹配到成员名
 #include <boost/describe.hpp>
 
@@ -14,6 +15,14 @@ struct SpeciesBaseParams {
     double min_reproduction_energy = 50.0;
     // 战斗：最大生命值
     double hp_max = 100.0;
+};
+
+struct PathfindingParams {
+    int replan_interval = 0;
+    bool enable_smoothing = true;
+    double budget_multiplier = 3.0;
+    double min_traversal_cost = 1.0;
+    std::unordered_map<TerrainType, double, TerrainTypeHash> terrain_cost_overrides;
 };
 
 // 动物通用参数（继承基础物种）
@@ -79,6 +88,7 @@ struct AnimalParams : SpeciesBaseParams {
     std::unordered_map<std::string, int> bt_params_ints;      // 例如：eat_grass_total_ticks: 300
     std::unordered_map<std::string, double> bt_params_doubles; // 例如：mate_total_ticks: 150.0
     std::unordered_map<std::string, std::string> bt_params_strings; // 备用：字符串型
+    PathfindingParams pathfinding;
 };
 
 // 植物通用参数（继承基础物种）
@@ -105,6 +115,6 @@ BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, min_reproduction_energy, hp_max))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
     (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, threat_detection_range, mate_detection_range, food_detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius, attack_damage, attack_damage_min, attack_damage_max, nutrition_value, nutrition_bonus_max, nutrition_bonus_curve_alpha, starvation_damage, starvation_damage_interval_ratio, hp_regen_base_per_day, hp_regen_mul_satisfied, hp_regen_mul_normal, hp_regen_mul_starving, regan_interval_ratio, mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty, pregnant_energy_multiplier, newborn_energy_ratio,
-    mating_desire_probability, bt_params_ints, bt_params_doubles, bt_params_strings))
+    mating_desire_probability, bt_params_ints, bt_params_doubles, bt_params_strings, pathfinding))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor, nutrition_value, repro_energy_threshold, repro_energy_accumulation_rate, newborn_energy_ratio))

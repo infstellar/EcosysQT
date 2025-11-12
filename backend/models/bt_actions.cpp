@@ -5,6 +5,7 @@
 #include "thing_base.h"
 #include "race_factory.h"
 #include "thing_factory.h"
+#include "pathfinding.h"
 #include <spdlog/spdlog.h>
 #include "logger_once.hpp"
 #include <algorithm>
@@ -481,15 +482,84 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
 
     if (!self.get_current_target().has_value()) return Status::Failure;
 
+    const Position target_pos = self.get_current_target().value();
+    const PathfindingParams& path_cfg = self.get_pathfinding_params();
+
     const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
     if (stop_range > 0.0) {
-        const double dist = self.position.distance_to(self.get_current_target().value());
+        const double dist = self.position.distance_to(target_pos);
         if (dist <= stop_range) {
             return Status::Failure;
         }
     }
 
-    self.plan_path_to_target(*world, self.get_current_target());
+    const std::string move_mode = params["plan_path_move_mode"] ? params["plan_path_move_mode"].as<std::string>() : std::string("path");
+
+    if (move_mode == "direct") {
+        self.plan_path_to_target(*world, self.get_current_target());
+    } else {
+        std::vector<Position> path_snapshot = self.get_planned_path_snapshot();
+        constexpr double kTargetTolerance = 0.5;
+        const int replan_interval = std::max(0, bb_get_int(ctx.blackboard, std::string(bt::keys::PathReplanInterval), path_cfg.replan_interval));
+        bool need_replan = path_snapshot.empty();
+        if (!need_replan) {
+            const Position& planned_goal = path_snapshot.back();
+            if (planned_goal.distance_to(target_pos) > kTargetTolerance) {
+                need_replan = true;
+            }
+        }
+        if (!need_replan) {
+            if (replan_interval <= 1) {
+                need_replan = true;
+            } else {
+                const int last_plan_tick = bb_get_int(ctx.blackboard, std::string(bt::keys::PathLastPlanTick), std::numeric_limits<int>::min());
+                if (last_plan_tick == std::numeric_limits<int>::min()) {
+                    need_replan = true;
+                } else {
+                    const int ticks_since_last_plan = world->time_step - last_plan_tick;
+                    if (ticks_since_last_plan < 0 || ticks_since_last_plan >= replan_interval) {
+                        need_replan = true;
+                    }
+                }
+            }
+        }
+        if (need_replan) {
+            const double straight_line_dist = self.position.distance_to(target_pos);
+            const double budget_multiplier = bb_get_double(ctx.blackboard, "pathfinding_budget_multiplier", path_cfg.budget_multiplier);
+            const double max_cost = (budget_multiplier > 0.0)
+                ? straight_line_dist * budget_multiplier
+                : std::numeric_limits<double>::infinity();
+
+            pathfinding::PathfindingSettings settings;
+            settings.enable_smoothing = path_cfg.enable_smoothing;
+            settings.min_traversal_cost = std::max(path_cfg.min_traversal_cost, 1e-6);
+            if (!path_cfg.terrain_cost_overrides.empty()) {
+                settings.terrain_cost_overrides = &path_cfg.terrain_cost_overrides;
+            }
+
+            auto path_result = pathfinding::find_path_a_star(self.position, target_pos, world->world_grid(), max_cost, settings);
+            if (!path_result.has_value() || path_result->path.empty()) {
+                SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
+                    "[Pathfinding] '{}' failed pathfind to ({:.1f},{:.1f}); budget={:.2f} straight={:.2f}",
+                    self.species_name, target_pos.x, target_pos.y, max_cost, straight_line_dist);
+                self.clear_current_target();
+                self.clear_path();
+                if (ctx.blackboard) {
+                    ctx.blackboard->ints[bt::keys::PathLastPlanTick] = world->time_step;
+                    ctx.blackboard->doubles[bt::keys::PathLastGoalX] = target_pos.x;
+                    ctx.blackboard->doubles[bt::keys::PathLastGoalY] = target_pos.y;
+                }
+                return Status::Failure;
+            }
+
+            self.plan_path_to_target(path_result->path);
+            if (ctx.blackboard) {
+                ctx.blackboard->ints[bt::keys::PathLastPlanTick] = world->time_step;
+                ctx.blackboard->doubles[bt::keys::PathLastGoalX] = target_pos.x;
+                ctx.blackboard->doubles[bt::keys::PathLastGoalY] = target_pos.y;
+            }
+        }
+    }
 
     const double base_mul = bb_get_double(ctx.blackboard, bt::keys::CurrentSpeedMultiplier, 1.0);
     const std::string speed_key = params["speed_multiplier_key"] ? params["speed_multiplier_key"].as<std::string>() : std::string("chase_speed_multiplier");
@@ -499,7 +569,6 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     const double base_energy_mul = bb_get_double(ctx.blackboard, bt::keys::CurrentEnergyMultiplier, 1.0);
     const std::string range_key = params["range_param"] ? params["range_param"].as<std::string>() : std::string("eating_range");
     const double eat_range = bb_get_double(ctx.blackboard, range_key, self.eating_range);
-    const std::string move_mode = params["plan_path_move_mode"] ? params["plan_path_move_mode"].as<std::string>() : std::string("path");
     const double final_mul = base_mul * speed_mul;
     if (self.get_current_target().has_value()) {
         const Position tgt = self.get_current_target().value();
