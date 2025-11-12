@@ -3,6 +3,7 @@
 #include "animal.h"
 #include "thing_base.h"
 #include "race_base.h"
+#include "producer.h"
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 #include "animal_ui_snapshot.h"
 #endif
@@ -484,6 +485,9 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
             }
             infoText += QString("\n状态: %1").arg(QString::fromStdString(status));
 
+            // 显示当前移速（每 tick 步长）
+            infoText += QString("\n移速: %1").arg(QString::number(ui.current_speed, 'f', 2));
+
             // 显示生命值（HP）
             infoText += QString("\n生命: %1 / %2")
                 .arg(QString::number(ui.hp_current, 'f', 0))
@@ -552,6 +556,14 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
                 }
             }
 #endif // ECOSIM_ENABLE_UI_DEBUG
+        }
+
+        // 为植物显示繁殖积累能量
+        auto producer_ptr = std::dynamic_pointer_cast<Producer>(arg);
+        if (producer_ptr) {
+            infoText += QString("\n繁殖积累: %1 / %2")
+                .arg(QString::number(producer_ptr->reproduction_energy_accumulated, 'f', 1))
+                .arg(QString::number(producer_ptr->repro_energy_threshold, 'f', 1));
         }
     }, entity);
 

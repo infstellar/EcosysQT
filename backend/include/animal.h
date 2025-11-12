@@ -199,6 +199,8 @@ protected:
     double mating_range;
     double pregnancy_speed_penalty;
     double mating_desire_probability;
+    // 怀孕期间能量消耗倍率
+    double pregnant_energy_multiplier{1.0};
 
     // 交配意图锁定，防止与捕食来回切换
 

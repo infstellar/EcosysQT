@@ -174,6 +174,7 @@ public:
     
 private:
     // --- 更新阶段标记 ---
+    void merge_worker_queues(); //
     // 用于在并发更新循环中标识当前所处阶段，便于加守卫确保请求仅在决策阶段提交。
     enum class UpdatePhase { Idle, Prepare, Decision, Resolve, Apply, Finalize };
     UpdatePhase current_phase = UpdatePhase::Idle;
@@ -187,9 +188,6 @@ private:
     std::vector<InteractionRequest> main_thread_requests;
     // 在交互解决阶段，所有工作线程的请求被合并到这里进行处理。
     std::vector<InteractionRequest> staged_requests;
-
-    // 合并各工作线程的请求队列到 staged_requests（仅内部使用）
-    void merge_worker_queues();
 
     // RaceBase 状态
     std::unordered_map<RaceBase*, double> race_energy_changes;

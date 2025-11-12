@@ -29,14 +29,14 @@ public:
     int reproduction_cooldown;
     std::string death_reason;
     std::string species_name;
-    double reproduction_energy_cost;
+    double min_reproduction_energy;
     std::optional<Position> pending_spawn_position;
 
     // 构造函数
     RaceBase(Position pos,
              double energy = 100,
              int max_age = 100,
-             double reproduction_energy_cost = 50,
+             double min_reproduction_energy = 50,
              double hp_max_ = 100);
 
     // 新增构造函数：允许在构造时指定物种名，便于下游按物种加载配置/YAML
@@ -44,7 +44,7 @@ public:
              const std::string& species_name_,
              double energy,
              int max_age,
-             double reproduction_energy_cost,
+             double min_reproduction_energy,
              double hp_max_ = 100);
 
     virtual ~RaceBase() = default;

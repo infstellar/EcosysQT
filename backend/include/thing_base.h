@@ -29,7 +29,7 @@ public:
     int reproduction_cooldown;
     std::string death_reason;
     std::string species_name;
-    double reproduction_energy_cost;
+    double min_reproduction_energy;
     // 网格索引（所在空间网格单元坐标），-1 表示未绑定
     int m_grid_x = -1;
     int m_grid_y = -1;
@@ -41,7 +41,7 @@ public:
     ThingBase(Position pos,
               double energy = 100,
               int max_age = 100,
-              double reproduction_energy_cost = 50);
+              double min_reproduction_energy = 50);
 
     virtual ~ThingBase() = default;
 

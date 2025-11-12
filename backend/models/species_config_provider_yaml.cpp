@@ -214,11 +214,20 @@ template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     if (params.attack_damage_max < params.attack_damage_min) {
         params.attack_damage_max = params.attack_damage_min;
     }
+    // 新生获得能量比例
+    clamp(params.newborn_energy_ratio, 0.0, 1.0);
+    // 孕期能耗倍率
+    if (params.pregnant_energy_multiplier < 0.0) params.pregnant_energy_multiplier = 0.0;
 }
 
 template <> inline void postprocess_params<PlantParams>(PlantParams& params) {
     // 植物营养值非负
     if (params.nutrition_value < 0.0) params.nutrition_value = 0.0;
+    // 累积式繁殖参数约束
+    if (params.repro_energy_threshold < 0.0) params.repro_energy_threshold = 0.0;
+    if (params.repro_energy_accumulation_rate < 0.0) params.repro_energy_accumulation_rate = 0.0;
+    // 子代初始能量比例
+    clamp(params.newborn_energy_ratio, 0.0, 1.0);
 }
 
 YamlSpeciesConfigProvider::YamlSpeciesConfigProvider(std::string config_root_dir)
