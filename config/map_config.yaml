@@ -56,3 +56,14 @@ map_generation:
 #      races: { cow: 20, tiger: 3 }
 #      things: { grass: 10 }
 # 两者会合并到 EcosystemConfig.initial_populations。
+
+# --- 草地生成密度图 ---
+# 定义不同地形上生成 'grass' 的概率 (0.0 到 1.0)
+# 未在此处列出的地形将默认为 0.0
+grass_density_by_terrain:
+  LAND: 0.85
+  HILLS: 0.5
+  SAND: 0.05
+  INLAND_SAND: 0.02
+# 其他地形概率默认为 0.0
+

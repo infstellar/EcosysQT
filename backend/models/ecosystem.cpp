@@ -139,6 +139,22 @@ struct FarthestFirstRaw {
     }
 };
 
+std::string getTerrainString(TerrainType t) {
+    switch (t) {
+        case TerrainType::LAND: return "LAND";
+        case TerrainType::WATER: return "WATER";
+        case TerrainType::SHALLOW_RIVER: return "SHALLOW_RIVER";
+        case TerrainType::DEEP_RIVER: return "DEEP_RIVER";
+        case TerrainType::SHALLOW_OCEAN: return "SHALLOW_OCEAN";
+        case TerrainType::DEEP_OCEAN: return "DEEP_OCEAN";
+        case TerrainType::SAND: return "SAND";
+        case TerrainType::INLAND_SAND: return "INLAND_SAND";
+        case TerrainType::HILLS: return "HILLS";
+        case TerrainType::MOUNTAIN: return "MOUNTAIN";
+        default: return "UNKNOWN";
+    }
+}
+
 } // namespace
 
 // --- EcosystemState ---
@@ -213,17 +229,64 @@ void EcosystemState::initialize_populations() {
         }
 
         std::mt19937& rng = get_thread_local_rng();
+        std::uniform_real_distribution<> prob_dist(0.0, 1.0);
+
+        bool grass_spawned_by_density = false;
+        if (!config.initial_grass_density_map.empty() && g_thing_factory.is_registered("grass")) {
+            if (logger) logger->info("[Init] Using per-tile density map for 'grass'");
+            grass_spawned_by_density = true;
+            int grass_spawned_count = 0;
+
+            for (int y = 0; y < config.world_height; ++y) {
+                for (int x = 0; x < config.world_width; ++x) {
+                    Tile& tile = m_world_grid.get_tile(x, y);
+                    std::string terrain_key = getTerrainString(tile.terrain);
+                    auto it = config.initial_grass_density_map.find(terrain_key);
+                    double spawn_prob = (it != config.initial_grass_density_map.end()) ? it->second : 0.0;
+
+                    if (spawn_prob > 0.0 && prob_dist(rng) < spawn_prob) {
+                        if (tile.things.empty()) {
+                            Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                            auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
+
+                            if (thing_unique) {
+                                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                                thing->position = world_pos;
+                                thing->m_grid_x = x;
+                                thing->m_grid_y = y;
+                                attach_thing_to_world(thing);
+                                ++grass_spawned_count;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (logger) logger->info("[Init] Spawned {} 'grass' individuals based on density map.", grass_spawned_count);
+        } else if (logger) {
+            logger->info("[Init] 'grass_density_by_terrain' not found in config or 'grass' not registered. 'grass' will use standard random placement if in initial_populations.");
+        }
+
         std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
         std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
 
         for (const auto& name : thing_names) {
+            if (name == "grass" && grass_spawned_by_density) {
+                continue;
+            }
+
             int initial_count = 0;
             auto it = config.initial_populations.find(name);
             if (it != config.initial_populations.end()) {
                 initial_count = it->second;
             }
+
+            if (initial_count == 0) {
+                continue;
+            }
+
             if (logger) {
-                logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
+                logger->info("[Init] '{}' initial thing count (random scatter): {}", name, initial_count);
             }
 
             int attempts = 0;
@@ -235,6 +298,7 @@ void EcosystemState::initialize_populations() {
                     int tile_x = dist_tile_x(rng);
                     int tile_y = dist_tile_y(rng);
                     Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
+
                     const bool is_plantable = (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS);
                     if (!is_plantable || !tile.things.empty()) {
                         continue;
