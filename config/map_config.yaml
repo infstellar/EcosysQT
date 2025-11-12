@@ -37,8 +37,8 @@ map_generation:
   axial_tilt_deg: 23.44
 
   # 海平面配置：可根据需要调整海洋面积
-  sea_level: -0.7
-  deep_sea_level: -0.9
+  sea_level: -0.5
+  deep_sea_level: -0.8
 
   # 盛行风配置
   wind_direction: "West"   # 可选: "West", "East", "None"
@@ -72,4 +72,19 @@ grass_density_by_terrain:
   SAND: 0.05
   INLAND_SAND: 0.02
 # 其他地形概率默认为 0.0
+
+# --- 动物生成密度图 ---
+# 定义不同物种在特定地形上生成的概率 (0.0 到 1.0)
+# 用于概率采样，直到达到 initial_populations 中的目标数量
+# 未在此处配置的动物将使用旧的、全地图随机坐标的生成方式
+animal_spawn_density_by_terrain:
+  cow:
+    LAND: 0.1
+    HILLS: 0.05
+    SAND: 0.01
+    INLAND_SAND: 0.01
+  tiger:
+    LAND: 0.02
+    HILLS: 0.05
+    MOUNTAIN: 0.01
 

@@ -117,6 +117,71 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (m_riverAtlas.isNull()) {
         qDebug() << "信息: 未找到 river atlas (: /resources/images/terrain/river.jpg)，河流将以纯色渲染";
     }
+
+    // --- 新增：尝试加载用户提供的生物群系配色图（resources/images/color/<name>.png） ---
+    // 对每个 BiomeType 尝试多种命名约定与扩展名（优先 Qt 资源路径，然后文件系统）
+    auto tryLoadCandidate = [&](const QString& candidate) -> QPixmap {
+        QPixmap pm;
+        // 试资源路径
+        QString rsrc = QString(":/images/color/%1").arg(candidate);
+        pm.load(rsrc);
+        if (!pm.isNull()) return pm;
+        // 试文件系统路径
+        QString fs1 = QString("resources/images/color/%1").arg(candidate);
+        pm.load(fs1);
+        if (!pm.isNull()) return pm;
+        // 试带扩展名 png/jpg/jpeg
+        for (const QString& ext : {"png", "jpg", "jpeg"}) {
+            QString r2 = rsrc + "." + ext;
+            pm.load(r2);
+            if (!pm.isNull()) return pm;
+            QString f2 = fs1 + "." + ext;
+            pm.load(f2);
+            if (!pm.isNull()) return pm;
+        }
+        return QPixmap();
+    };
+
+    auto pushBiomePixmap = [&](int biomeInt, const QString& baseName){
+        QPixmap loaded;
+        // candidate variants: exact, lower, underscore split, hyphen
+        std::vector<QString> candidates;
+        candidates.push_back(baseName);
+        QString lower = baseName.toLower();
+        candidates.push_back(lower);
+        // insert underscore before capitals -> e.g. "PolarIce" -> "polar_ice"
+        QString underscored;
+        for (int i=0;i<baseName.size();++i){
+            QChar c = baseName[i];
+            if (i>0 && c.isUpper()) underscored.push_back('_');
+            underscored.push_back(c.toLower());
+        }
+        candidates.push_back(underscored);
+        candidates.push_back(underscored.replace('_', '-'));
+        candidates.push_back(lower.replace(' ', '_'));
+
+        for (const QString& cand : candidates) {
+            loaded = tryLoadCandidate(cand);
+            if (!loaded.isNull()) {
+                m_biomePixmaps[biomeInt] = loaded;
+                qDebug() << "信息: 为生物群系加载贴图:" << cand << "(biome=" << biomeInt << ")";
+                return;
+            }
+        }
+        qDebug() << "信息: 未找到生物群系贴图 (biome=" << biomeInt << ")，将使用颜色回退";
+    };
+
+    // 枚举所有 BiomeType（手动列举以避免依赖反射）
+    pushBiomePixmap(static_cast<int>(BiomeType::PolarIce), "PolarIce");
+    pushBiomePixmap(static_cast<int>(BiomeType::Tundra), "Tundra");
+    pushBiomePixmap(static_cast<int>(BiomeType::BorealForest), "BorealForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::TemperateForest), "TemperateForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::TemperateRainforest), "TemperateRainforest");
+    pushBiomePixmap(static_cast<int>(BiomeType::Grassland), "Grassland");
+    pushBiomePixmap(static_cast<int>(BiomeType::Savanna), "Savanna");
+    pushBiomePixmap(static_cast<int>(BiomeType::TropicalForest), "TropicalForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::Desert), "Desert");
+    pushBiomePixmap(static_cast<int>(BiomeType::Ocean), "Ocean");
 }
 
 namespace {
@@ -147,7 +212,6 @@ namespace {
             case BiomeType::Savanna: return "稀树草原";
             case BiomeType::TropicalForest: return "热带雨林";
             case BiomeType::Desert: return "沙漠";
-            case BiomeType::Ocean: return "海洋";
             default: return "未知";
         }
     }
@@ -875,6 +939,49 @@ void SimulationRenderer::drawTerrainTiles(QPainter& painter,
     int cellW = haveAtlas ? (m_riverAtlas.width() / atlasCols) : 0;
     int cellH = haveAtlas ? (m_riverAtlas.height() / atlasRows) : 0;
 
+    // --- 新增: 首先绘制生物群系基底（使用图片回退到纯色） ---
+    for (int y = startY; y <= endY; ++y) {
+        for (int x = startX; x <= endX; ++x) {
+            const Tile& tile = grid->get_tile(x, y);
+
+            QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+            QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+            QRectF destRect(screenTopLeft, screenBottomRight);
+
+            // 尝试使用预加载的群系贴图
+            auto it = m_biomePixmaps.find(static_cast<int>(tile.biome));
+            if (it != m_biomePixmaps.end() && !it->second.isNull()) {
+                // 绘制并拉伸贴图以覆盖整个格子
+                // QPainter 没有接受 (QRectF, QPixmap) 的重载，使用带 sourceRect 的重载
+                QRectF srcRect(0.0, 0.0, static_cast<qreal>(it->second.width()), static_cast<qreal>(it->second.height()));
+                painter.drawPixmap(destRect, it->second, srcRect);
+            } else {
+                // 回退：按群系类型选择基本颜色并考虑亮度
+                QColor baseColor;
+                switch (tile.biome) {
+                    case BiomeType::PolarIce: baseColor = QColor(240, 250, 250); break;
+                    case BiomeType::Tundra: baseColor = QColor(200, 220, 200); break;
+                    case BiomeType::BorealForest: baseColor = QColor(100, 140, 100); break;
+                    case BiomeType::TemperateForest: baseColor = QColor(80, 160, 90); break;
+                    case BiomeType::TemperateRainforest: baseColor = QColor(40, 120, 60); break;
+                    case BiomeType::Grassland: baseColor = QColor(170, 210, 120); break;
+                    case BiomeType::Savanna: baseColor = QColor(200, 190, 120); break;
+                    case BiomeType::TropicalForest: baseColor = QColor(40, 140, 70); break;
+                    case BiomeType::Desert: baseColor = QColor(230, 210, 150); break;
+                    case BiomeType::Ocean: baseColor = QColor(30, 100, 180); break;
+                    default: baseColor = QColor(120, 120, 120); break;
+                }
+                // 考虑 tile.brightness（0..1）来调整颜色亮度
+                double b = std::clamp(tile.brightness, 0.0, 1.0);
+                int r = static_cast<int>(baseColor.red() * b + 10 * (1.0 - b));
+                int g = static_cast<int>(baseColor.green() * b + 10 * (1.0 - b));
+                int bl = static_cast<int>(baseColor.blue() * b + 10 * (1.0 - b));
+                painter.fillRect(destRect, QColor(r, g, bl));
+            }
+        }
+    }
+
+    // --- 然后绘制河流覆盖（保留原有河流 atlas 或纯色渲染） ---
     for (int y = startY; y <= endY; ++y) {
         for (int x = startX; x <= endX; ++x) {
             const Tile& tile = grid->get_tile(x, y);
