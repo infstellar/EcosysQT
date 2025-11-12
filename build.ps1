@@ -1,4 +1,4 @@
-﻿Param(
+Param(
     [string]$Preset,
     [string]$Target = "MyQtApp",
     [switch]$ConfigureOnly,
@@ -8,7 +8,8 @@
     [ValidateSet("skip","selected")]
     [string]$CleanMode,
     [int]$Parallel = [Environment]::ProcessorCount,
-    [switch]$Verbose
+    [switch]$Verbose,
+    [switch]$Headless
 )
 
 # Detect active Conda environment and exit early to avoid toolchain conflicts
@@ -239,7 +240,12 @@ if (-not $Preset) {
         Write-Host ("Using preset from .vscode/settings.json: {0}" -f $presetFromVS) -ForegroundColor Cyan
         $Preset = $presetFromVS
     } else {
-        $Preset = Select-PresetInteractively -Presets $presets
+        # 默认选择，根据 Headless 开关提供更贴近的预设
+        if ($Headless) {
+            $Preset = 'headless-debug'
+        } else {
+            $Preset = Select-PresetInteractively -Presets $presets
+        }
     }
 }
 
@@ -285,6 +291,10 @@ if (-not $BuildOnly) {
         $env:Path = $pathConfigure
     }
     $configureArgs = @('--preset', $Preset)
+    # 如果指定了 Headless 开关，注入 CMake 变量以启用无界面模式
+    if ($Headless) {
+        $configureArgs += @('-D', 'ECOSIM_HEADLESS=ON')
+    }
     # Inject cmake.configureSettings as -D variables
     if ($configureSettings) {
         Write-Host "Injecting cmake.configureSettings from .vscode." -ForegroundColor Green

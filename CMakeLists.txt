@@ -10,6 +10,10 @@ endif()
 # 项目名称和语言
 project(MyQtApp LANGUAGES CXX)
 
+# --- 添加 Headless 模式开关 ---
+option(ECOSIM_HEADLESS "Build in headless mode for performance testing" OFF)
+# --- 添加结束 ---
+
 # --- UI 调试快照编译选项 ---
 option(ECOSIM_UI_DEBUG "Enable UI debug snapshots for animal state" ON)
 
@@ -23,11 +27,19 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- 核心 Qt 配置 ---
-# 开启 Qt 的自动化工具，它会自动处理 MOC, UIC, RCC
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTORCC ON)
+# --- 核心 Qt 配置 (条件化) ---
+if(NOT ECOSIM_HEADLESS)
+    message(STATUS "GUI 模式: 启用 Qt Widgets, Multimedia, Spdlog")
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTOUIC ON)
+    set(CMAKE_AUTORCC ON)
+    
+    find_package(Qt5 COMPONENTS Core Gui Widgets Multimedia REQUIRED)
+else()
+    message(STATUS "Headless 模式: 仅启用 Qt Core")
+    # Headless 模式只需要 Qt Core 来驱动 QCoreApplication 和 QTimer
+    find_package(Qt5 COMPONENTS Core REQUIRED)
+endif()
 
 # 查找我们需要的库 (通过vcpkg管理)
 # 改为使用本地子模块提供的 TracyClient，避免 vcpkg 上的 MinGW 构建问题
@@ -60,7 +72,7 @@ else()
     message(WARNING "TracyClient 目标未找到，请确认 external/tracy 已正确加入并生成该目标")
 endif()
 
-find_package(Qt5 COMPONENTS Core Gui Widgets Multimedia REQUIRED)
+# 这两个库是 核心后端 依赖的，两种模式都需要
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -106,59 +118,84 @@ endif()
 include_directories(
     ${CMAKE_SOURCE_DIR}/backend/include
     ${CMAKE_SOURCE_DIR}/src/ui
-)# --- 添加源文件 ---
-# 定义可执行文件及其源文件
-add_executable(MyQtApp 
-    main.cpp
-    backend/engine/simulation.cpp
-    backend/engine/thread_pool.cpp
-    backend/models/ecosystem.cpp
-    backend/models/population_manager.cpp
-    backend/models/world_grid.cpp
-    backend/models/world_clock.cpp
-    backend/models/interaction_resolver.cpp
-    backend/models/spatial_grid.cpp
-    backend/models/races_registry.cpp
-    backend/models/species_statistics.cpp
-    backend/models/race_base.cpp
-    backend/models/thing_base.cpp
-    backend/models/producer.cpp
-    backend/models/animal.cpp
-    backend/models/animal_behavior.cpp
-    backend/models/bt_actions.cpp
-    backend/models/race_factory.cpp
-    backend/models/thing_factory.cpp
-    backend/models/species_config_provider_yaml.cpp
-    backend/models/map_config_loader.cpp
-    backend/engine/logging.cpp
-    # 前端 UI 模块
-    src/ui/Widget.cpp
-    src/ui/Widget.h
-    src/ui/MainWindow.h
-    src/ui/MainWindow.cpp
-    src/ui/StartScreenWidget.h
-    src/ui/StartScreenWidget.cpp
-    src/ui/CameraController.h
-    src/ui/CameraController.cpp
-    src/ui/SimulationRenderer.h
-    src/ui/SimulationRenderer.cpp
-    # 资源文件（AUTORCC）
-
-    resources/app.qrc)
-
-# --- 链接库 ---
-# 将你的可执行文件与所需库链接起来
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Widgets
-    Qt5::Multimedia
-    Eigen3::Eigen
-    nlohmann_json::nlohmann_json
-    spdlog::spdlog
-    yaml-cpp::yaml-cpp
-    TracyClient # <--- 链接本地 tracy 客户端
 )
+
+# --- 将源文件分为 核心后端 和 GUI ---
+set(BACKEND_CORE_SOURCES 
+    backend/engine/simulation.cpp 
+    backend/engine/thread_pool.cpp 
+    backend/models/ecosystem.cpp 
+    backend/models/population_manager.cpp 
+    backend/models/world_grid.cpp 
+    backend/models/world_clock.cpp 
+    backend/models/interaction_resolver.cpp 
+    backend/models/spatial_grid.cpp 
+    backend/models/races_registry.cpp 
+    backend/models/species_statistics.cpp 
+    backend/models/race_base.cpp 
+    backend/models/thing_base.cpp 
+    backend/models/producer.cpp 
+    backend/models/animal.cpp 
+    backend/models/animal_behavior.cpp 
+    backend/models/bt_actions.cpp 
+    backend/models/race_factory.cpp 
+    backend/models/thing_factory.cpp 
+    backend/models/species_config_provider_yaml.cpp 
+    backend/models/map_config_loader.cpp 
+)
+
+set(GUI_SOURCES 
+    main.cpp # <-- GUI 入口 
+    backend/engine/logging.cpp # <-- 日志仅 GUI 需要 
+    # 前端 UI 模块 
+    src/ui/Widget.cpp 
+    src/ui/Widget.h 
+    src/ui/MainWindow.h 
+    src/ui/MainWindow.cpp 
+    src/ui/StartScreenWidget.h 
+    src/ui/StartScreenWidget.cpp 
+    src/ui/CameraController.h 
+    src/ui/CameraController.cpp 
+    src/ui/SimulationRenderer.h 
+    src/ui/SimulationRenderer.cpp 
+    # 资源文件 
+    resources/app.qrc 
+)
+# --- 拆分结束 ---
+
+# --- 添加源文件 (条件化) ---
+# 定义可执行文件，首先包含所有模式都需要的核心后端
+add_executable(MyQtApp ${BACKEND_CORE_SOURCES})
+
+# 根据模式，添加 GUI 源文件 或 Headless 源文件
+if(ECOSIM_HEADLESS)
+    target_sources(MyQtApp PRIVATE main_headless.cpp)
+else()
+    target_sources(MyQtApp PRIVATE ${GUI_SOURCES})
+endif()
+
+# --- 链接库 (条件化) ---
+# 链接所有模式都需要的库
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    Eigen3::Eigen 
+    nlohmann_json::nlohmann_json 
+    yaml-cpp::yaml-cpp 
+    spdlog::spdlog 
+    TracyClient # <--- 链接本地 tracy 客户端 
+)
+
+# 仅在 GUI 模式下链接 GUI 和 日志库
+if(NOT ECOSIM_HEADLESS)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        Qt5::Core 
+        Qt5::Gui 
+        Qt5::Widgets 
+        Qt5::Multimedia 
+    )
+else()
+    # Headless 模式仅链接 Qt Core
+    target_link_libraries(${PROJECT_NAME} PRIVATE Qt5::Core)
+endif()
 
 target_compile_definitions(${PROJECT_NAME}
     PRIVATE

@@ -52,7 +52,7 @@ class TextAggregator:
             '.git', '.svn', '.hg', '__pycache__', '.pytest_cache',
             'node_modules', '.vscode', '.idea', '.vs', 'build', 'dist',
             '.DS_Store', 'Thumbs.db', 'package-lock.json', 'vcpkg', 'external',
-            'vcpkg_installed', 'old', 'prompts', 'text_aggregated'
+            'vcpkg_installed', 'old', 'prompts', 'text_aggregated', 'build-tracy-off', 'build-tracy-on'
         }
         
         self.processed_files = []

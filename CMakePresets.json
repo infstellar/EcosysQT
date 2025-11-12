@@ -60,6 +60,39 @@
         "TRACY_ON_DEMAND": false,
         "ECOSIM_UI_DEBUG": false
       }
+    },
+    {
+      "name": "headless-debug",
+      "displayName": "Headless (Debug)",
+      "description": "Debug build for headless mode (no GUI)",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build-headless-debug",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
+        "ECOSIM_HEADLESS": true,
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false
+      }
+    },
+    {
+      "name": "headless-release",
+      "displayName": "Headless (Release)",
+      "description": "Release build for headless mode (no GUI)",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build-headless-release",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-dynamic",
+        "ECOSIM_HEADLESS": true,
+        "TRACY_ENABLE": false,
+        "TRACY_ON_DEMAND": false,
+        "ECOSIM_UI_DEBUG": false
+      }
     }
   ],
   "buildPresets": [
@@ -78,6 +111,14 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "headless-debug",
+      "configurePreset": "headless-debug"
+    },
+    {
+      "name": "headless-release",
+      "configurePreset": "headless-release"
     }
   ]
 }
