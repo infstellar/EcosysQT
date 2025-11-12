@@ -143,8 +143,8 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 // 交配计时器（用于 UI 展示或进度装饰器）
                 bb.ints[bt::keys::MatingTimerTicks] = std::max(0, self.mating_timer);
 
-                // 繁殖守卫相关键：最低能量、最低年龄、冷却剩余
-                bb.doubles["repro_energy_min"] = self.min_reproduction_energy * 2.0;
+                // 繁殖守卫相关键：最低能量、最低年龄、冷却剩余（使用直观阈值，不再乘2）
+                bb.doubles["repro_energy_min"] = self.min_reproduction_energy;
                 bb.ints["repro_age_min"] = self.min_reproduction_age;
                 bb.ints["repro_cooldown_ticks"] = self.reproduction_cooldown;
 
