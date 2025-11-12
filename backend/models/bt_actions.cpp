@@ -457,13 +457,13 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
     const int wh = world->config.world_height;
 
     auto score_candidate = [&](const Position& p) -> double {
-        // 更远离威胁更好；靠近世界边界有适度惩罚
-        const double dth = p.distance_to(threat);
-        const double edge_x = std::min(p.x, static_cast<double>(ww) - p.x);
-        const double edge_y = std::min(p.y, static_cast<double>(wh) - p.y);
-        const double edge_min = std::min(edge_x, edge_y);
-        const double penalty = (edge_min < 3.0) ? (10.0 * (3.0 - edge_min)) : 0.0;
-        return dth - penalty;
+        // 新评分策略：同时奖励“远离威胁”和“远离边界”
+        const double distance_from_threat = p.distance_to(threat);
+        const double distance_to_edge_x = std::min(p.x, static_cast<double>(ww) - p.x);
+        const double distance_to_edge_y = std::min(p.y, static_cast<double>(wh) - p.y);
+        const double min_distance_to_any_edge = std::min(distance_to_edge_x, distance_to_edge_y);
+        // 权重 0.5：鼓励朝开阔区域逃离，避免角落堆叠
+        return distance_from_threat + min_distance_to_any_edge * 0.5;
     };
 
     double best_score = -std::numeric_limits<double>::infinity();

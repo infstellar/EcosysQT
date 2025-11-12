@@ -149,7 +149,7 @@ void SimulationEngine::simulation_loop() {
             // 打印 frame_elapsed 时间，单位是毫秒
 
             // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
-            
+            // todo: 建议改为sleep_duration.count() > 0，否则60fps以上的设置无效
             const auto sleep_duration = target_frame_duration - frame_elapsed;
             if (sleep_duration.count() > 15.6) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);

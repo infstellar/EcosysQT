@@ -65,7 +65,7 @@ void RaceBase::apply(const EcosystemState& ecosystem_state) {
 }
 
 bool RaceBase::can_reproduce() const {
-    return alive && energy >= min_reproduction_energy * 2 && reproduction_cooldown <= 0;
+    return alive && energy >= min_reproduction_energy && reproduction_cooldown <= 0;
 }
 
 std::unique_ptr<RaceBase> RaceBase::reproduce(const EcosystemState& ecosystem_state) {
