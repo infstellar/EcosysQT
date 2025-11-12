@@ -92,17 +92,13 @@ BehaviorTreeDef:
                 status_name: "Eating"
               - type: Sequence
                 children:
-                  - type: TickIntervalDecorator  # 每300tick选择目标；不执行移动
-                    name: SelectTarget
-                    interval: 300
-                    child:
-                      type: Action
-                      action: select_target_point
-                      status_name: "Scanning Food"
                   - type: Action
-                    action: plan_path_to_target  # 每帧规划/移动至目标
-                    plan_path_move_mode: path
-                    status_name: "Chasing Food"
+                    action: seek_thing_with_path
+                    kind: grass
+                    search_interval: 300
+                    status_name: "Seeking Food"
+                    speed_multiplier_key: chase_speed_multiplier
+                    energy_multiplier_key: chase_energy_multiplier
 
       # ========== 游荡 ==========
       - type: TickIntervalDecorator  # 每帧评估游荡；轻量检查
