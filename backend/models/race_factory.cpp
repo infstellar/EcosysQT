@@ -54,16 +54,26 @@ static void scan_and_register_animals(const std::string& directory_path) {
         throw std::runtime_error("Config provider is not YamlSpeciesConfigProvider");
     }
 
-    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Scanning '{}' for animal definitions", directory_path);
-    QDir dir(QString::fromStdString(directory_path));
-    if (!dir.exists()) {
-        SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Register] Directory '{}' does not exist, skipping animal scan", directory_path);
-        return;
+    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Scanning '{}' for animal definitions (FS first)", directory_path);
+    QFileInfoList files;
+    {
+        QDir dir(QString::fromStdString(directory_path));
+        if (dir.exists()) {
+            dir.setFilter(QDir::Files);
+            dir.setNameFilters(QStringList() << "*.yaml");
+            files = dir.entryInfoList();
+        } else {
+            SPDLOG_LOGGER_WARN(spdlog::get("ecosim"), "[Register] FS directory '{}' missing for animals; will try resource fallback", directory_path);
+        }
     }
-
-    dir.setFilter(QDir::Files);
-    dir.setNameFilters(QStringList() << "*.yaml");
-    const QFileInfoList files = dir.entryInfoList();
+    if (files.isEmpty()) {
+        // 资源目录兜底
+        QDir rdir(QStringLiteral(":/config/species/animals"));
+        rdir.setFilter(QDir::Files);
+        rdir.setNameFilters(QStringList() << "*.yaml");
+        files = rdir.entryInfoList();
+        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[Register] Using resource directory for animals; found {} files", files.size());
+    }
     for (const QFileInfo& fi : files) {
         const std::string def_name = fi.baseName().toStdString();
 

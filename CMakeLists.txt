@@ -32,14 +32,15 @@ if(NOT ECOSIM_HEADLESS)
     message(STATUS "GUI 模式: 启用 Qt Widgets, Multimedia, Spdlog")
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTOUIC ON)
-    set(CMAKE_AUTORCC ON)
-    
     find_package(Qt5 COMPONENTS Core Gui Widgets Multimedia REQUIRED)
 else()
     message(STATUS "Headless 模式: 仅启用 Qt Core")
     # Headless 模式只需要 Qt Core 来驱动 QCoreApplication 和 QTimer
     find_package(Qt5 COMPONENTS Core REQUIRED)
 endif()
+
+# 资源系统在两种模式都启用，以便 .qrc 可被编译
+set(CMAKE_AUTORCC ON)
 
 # 查找我们需要的库 (通过vcpkg管理)
 # 改为使用本地子模块提供的 TracyClient，避免 vcpkg 上的 MinGW 构建问题
@@ -158,8 +159,6 @@ set(GUI_SOURCES
     src/ui/CameraController.cpp 
     src/ui/SimulationRenderer.h 
     src/ui/SimulationRenderer.cpp 
-    # 资源文件 
-    resources/app.qrc 
 )
 # --- 拆分结束 ---
 
@@ -173,6 +172,9 @@ if(ECOSIM_HEADLESS)
 else()
     target_sources(MyQtApp PRIVATE ${GUI_SOURCES})
 endif()
+
+# 无论模式，始终编入 Qt 资源 (.qrc)
+target_sources(MyQtApp PRIVATE resources/app.qrc)
 
 # --- 链接库 (条件化) ---
 # 链接所有模式都需要的库

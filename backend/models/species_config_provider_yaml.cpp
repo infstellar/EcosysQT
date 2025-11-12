@@ -11,6 +11,8 @@ YAML 物种配置提供者实现
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QString>
+#include <QFile>
+#include <QIODevice>
 // 反射: 成员名与继承枚举
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
@@ -75,12 +77,49 @@ static std::string resolve_primary_path(const std::string& name, const std::stri
     return root_dir + std::string("/config/species/") + category + "/" + name + ".yaml";
 }
 
+// 资源别名路径：与上面保持一致，指向 ":/config/..."
+static QString resolve_resource_alias_path(const std::string& name, const char* category) {
+    if (name == "species") {
+        return QStringLiteral(":/config/species.yaml");
+    }
+    if (name.rfind("base_", 0) == 0) {
+        return QString::fromLatin1(":/config/species_base/") + QString::fromStdString(name) + QStringLiteral(".yaml");
+    }
+    return QString::fromLatin1(":/config/species/") + QString::fromLatin1(category) + QStringLiteral("/") + QString::fromStdString(name) + QStringLiteral(".yaml");
+}
+
+static YAML::Node load_yaml_from_resource(const QString& alias_path) {
+    QFile f(alias_path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return YAML::Node();
+    }
+    const QByteArray content = f.readAll();
+    f.close();
+    try {
+        return YAML::Load(std::string(content.constData(), static_cast<size_t>(content.size())));
+    } catch (const std::exception& e) {
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Failed to load YAML from resource '{}': {}", alias_path.toStdString(), e.what());
+        return YAML::Node();
+    }
+}
+
 static YAML::Node load_yaml_in_category(const std::string& name, const std::string& root_dir, const char* category) {
     const std::string primary = resolve_primary_path(name, root_dir, category);
     SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Loading '{}' YAML for '{}' from '{}'", category, name, primary);
+    // 文件系统优先
     try {
-        return YAML::LoadFile(primary);
+        auto node = YAML::LoadFile(primary);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Loaded '{}' from FS: '{}'", name, primary);
+        return node;
     } catch (const std::exception& e) {
+        // 资源别名兜底
+        const QString alias = resolve_resource_alias_path(name, category);
+        SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] FS missing for '{}', try resource '{}'", name, alias.toStdString());
+        YAML::Node node_resource = load_yaml_from_resource(alias);
+        if (node_resource) {
+            SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Loaded '{}' from resource: '{}'", name, alias.toStdString());
+            return node_resource;
+        }
         // 主路径缺失属于正常回退场景，降低为 DEBUG，避免污染 info 日志
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Primary '{}' YAML not available for '{}': {}. Searching...", category, name, e.what());
         const std::string found = search_yaml_path(name, root_dir, category);
@@ -90,11 +129,11 @@ static YAML::Node load_yaml_in_category(const std::string& name, const std::stri
                 return YAML::LoadFile(found);
             } catch (const std::exception& e2) {
                 SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] Failed to load searched '{}' YAML for '{}': {}", category, name, e2.what());
-                throw std::runtime_error("Failed to load YAML '" + name + "' at '" + primary + "' and searched '" + found + "': " + e2.what());
+                throw std::runtime_error("Failed to load YAML '" + name + "' at '" + primary + "', resource '" + alias.toStdString() + "' and searched '" + found + "': " + e2.what());
             }
         }
-        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] '{}' YAML for '{}' not found after search", category, name);
-        throw std::runtime_error("Failed to locate YAML '" + name + "' from '" + primary + "' or anywhere under '" + (root_dir + "/config") + "'");
+        SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[Config] '{}' YAML for '{}' not found after FS, resource, and search", category, name);
+        throw std::runtime_error("Failed to locate YAML '" + name + "' from FS '" + primary + "', resource alias '" + alias.toStdString() + "' or anywhere under '" + (root_dir + "/config") + "'");
     }
 }
 
