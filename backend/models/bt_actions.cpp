@@ -302,9 +302,25 @@ bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 
     if (hunt_dist(rng_local) < rate * desire) {
         const std::string dmg_key = params["damage_param"] ? params["damage_param"].as<std::string>() : std::string("attack_damage");
-        const double damage = bb_get_double(ctx.blackboard, dmg_key, 10.0);
+        // 支持攻击伤害区间：优先读取 <key>_min / <key>_max ，否则使用默认伤害
+        const std::string dmg_min_key = dmg_key + std::string("_min");
+        const std::string dmg_max_key = dmg_key + std::string("_max");
 
-        world->submit_interaction_request(DamageRaceRequest{self.shared_from_this(), target_to_attack, damage});
+        const double dmg_min = bb_get_double(ctx.blackboard, dmg_min_key, bb_get_double(ctx.blackboard, "attack_damage_min", 0.0));
+        const double dmg_max = bb_get_double(ctx.blackboard, dmg_max_key, bb_get_double(ctx.blackboard, "attack_damage_max", 0.0));
+
+        double damage = 0.0;
+        if (dmg_max > 0.0 && dmg_max >= dmg_min) {
+            std::uniform_real_distribution<> dmg_dist(dmg_min, dmg_max);
+            damage = dmg_dist(rng_local);
+        } else {
+            damage = bb_get_double(ctx.blackboard, dmg_key, 10.0);
+        }
+
+        DamageRaceRequest req{self.shared_from_this(), target_to_attack, damage};
+        req.damage_min = (dmg_max > 0.0 && dmg_max >= dmg_min) ? dmg_min : bb_get_double(ctx.blackboard, dmg_key, 10.0);
+        req.damage_max = (dmg_max > 0.0 && dmg_max >= dmg_min) ? dmg_max : req.damage_min;
+        world->submit_interaction_request(req);
 
         self.start_hunting_cooldown();
         self.set_skip_movement(true);
