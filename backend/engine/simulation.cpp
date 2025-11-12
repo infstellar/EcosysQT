@@ -150,6 +150,7 @@ void SimulationEngine::simulation_loop() {
 
             // Adjust sleep time by subtracting the work duration to keep frame pacing accurate.
             // todo: 建议改为sleep_duration.count() > 0，否则60fps以上的设置无效
+            // 建议你妈，windows的线程sleep最小间隔就是15.6ms，你是傻逼吗？
             const auto sleep_duration = target_frame_duration - frame_elapsed;
             if (sleep_duration.count() > 15.6) {
                 const auto sleep_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(sleep_duration);

@@ -1,9 +1,12 @@
 #include "world_grid.h"
 
 #include "thing_base.h"
+#include "thread_pool.h"
+#include "world_clock.h"
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 
 WorldGrid::WorldGrid(int width, int height) {
@@ -98,4 +101,112 @@ std::vector<std::shared_ptr<ThingBase>> WorldGrid::get_nearby_things_broad(const
     }
 
     return nearby;
+}
+
+void WorldGrid::update_tile_local_time(Tile& tile, const WorldClock& clock) {
+    const int global_hour = clock.current_hour();
+    const double raw_offset = tile.longitude / 15.0;
+    const int hour_offset = static_cast<int>(std::lround(raw_offset));
+
+    int local_hour = global_hour + hour_offset;
+    local_hour %= 24;
+    if (local_hour < 0) {
+        local_hour += 24;
+    }
+
+    tile.local_hour = local_hour;
+}
+
+void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
+    double base_temperature = 15.0;
+    double seasonal_amplitude = 10.0;
+    double diurnal_amplitude = 6.0;
+
+    switch (tile.biome) {
+    case BiomeType::Temperate:
+        base_temperature = 15.0;
+        seasonal_amplitude = 12.0;
+        diurnal_amplitude = 6.0;
+        break;
+    case BiomeType::Tropical:
+        base_temperature = 28.0;
+        seasonal_amplitude = 4.0;
+        diurnal_amplitude = 4.0;
+        break;
+    case BiomeType::Frigid:
+        base_temperature = -5.0;
+        seasonal_amplitude = 16.0;
+        diurnal_amplitude = 5.0;
+        break;
+    case BiomeType::Polar:
+        base_temperature = -18.0;
+        seasonal_amplitude = 20.0;
+        diurnal_amplitude = 3.0;
+        break;
+    }
+
+    const int days_per_year = std::max(1, clock.days_in_year());
+    const int day_of_year = ((clock.current_day() - 1) % days_per_year);
+    constexpr double two_pi = 6.28318530717958647692;
+    const double seasonal_phase = static_cast<double>(day_of_year) / static_cast<double>(days_per_year);
+    const double seasonal_offset = std::cos(seasonal_phase * two_pi);
+
+    const double diurnal_phase = static_cast<double>(tile.local_hour) / 24.0;
+    const double diurnal_offset = std::cos((diurnal_phase - 0.5) * two_pi);
+
+    tile.temperature = base_temperature + seasonal_amplitude * seasonal_offset + diurnal_amplitude * diurnal_offset;
+}
+
+void WorldGrid::update_tile_state(Tile& tile, const WorldClock& clock) {
+    update_tile_local_time(tile, clock);
+    update_tile_weather(tile, clock);
+}
+
+void WorldGrid::dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock) {
+    const std::size_t total_tiles = m_tiles.size();
+    if (total_tiles == 0) {
+        return;
+    }
+
+    const int amortization_ticks = std::max(1, m_map_update_amortization_ticks);
+    const int current_tick = clock.time_step();
+    int chunk_index = current_tick % amortization_ticks;
+    if (chunk_index < 0) {
+        chunk_index += amortization_ticks;
+    }
+    const std::size_t chunk_size = (total_tiles + static_cast<std::size_t>(amortization_ticks) - 1) / static_cast<std::size_t>(amortization_ticks);
+
+    if (chunk_size == 0) {
+        return;
+    }
+
+    const std::size_t start_index = static_cast<std::size_t>(chunk_index) * chunk_size;
+    if (start_index >= total_tiles) {
+        return;
+    }
+
+    const std::size_t end_index = std::min(total_tiles, start_index + chunk_size);
+    if (end_index <= start_index) {
+        return;
+    }
+
+    constexpr std::size_t task_chunk_size = 4096;
+    const std::size_t range_length = end_index - start_index;
+    const std::size_t estimated_task_count = (range_length + task_chunk_size - 1) / task_chunk_size;
+
+    std::vector<std::function<void()>> tasks;
+    tasks.reserve(estimated_task_count);
+
+    for (std::size_t task_start = start_index; task_start < end_index; task_start += task_chunk_size) {
+        const std::size_t task_end = std::min(end_index, task_start + task_chunk_size);
+        tasks.push_back([this, &clock, task_start, task_end] {
+            for (std::size_t j = task_start; j < task_end; ++j) {
+                update_tile_state(m_tiles[j], clock);
+            }
+        });
+    }
+
+    if (!tasks.empty()) {
+        pool.submit_bulk_light(std::move(tasks));
+    }
 }
