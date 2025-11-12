@@ -45,9 +45,9 @@ BehaviorTreeDef:
                 mating_range_param: mating_range
               - type: Sequence
                 children:
-                  - type: TickIntervalDecorator  # 每60tick搜索配偶（昂贵决策）
+                  - type: TickIntervalDecorator  # 每300tick搜索配偶（昂贵决策）
                     name: FindMate
-                    interval: 60
+                    interval: 300
                     child:
                       type: Action
                       action: find_available_mate
@@ -70,9 +70,9 @@ BehaviorTreeDef:
                 status_name: "Hunting"
               - type: Sequence
                 children:
-                  - type: TickIntervalDecorator  # 每30tick选择一次猎物目标；不执行移动
+                  - type: TickIntervalDecorator  # 每300tick选择一次猎物目标；不执行移动
                     name: SelectTarget
-                    interval: 30
+                    interval: 300
                     child:
                       type: Action
                       action: select_target_point
