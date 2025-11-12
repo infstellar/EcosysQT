@@ -106,6 +106,8 @@ private:
     std::unordered_map<const ThingBase*, int> m_grassVariantMap;
     // 用于在首次遇到时随机分配变体
     std::mt19937 m_rng;
+    // 每种生物群系对应的贴图（按 BiomeType 的整型值索引）
+    std::unordered_map<int, QPixmap> m_biomePixmaps;
 };
 
 #endif // SIMULATIONRENDERER_H
