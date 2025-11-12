@@ -6,7 +6,7 @@ world:
 initial_populations:
   grass: 7000
   cow: 100
-  tiger: 5
+  tiger: 0
 
 # 模拟参数（可选覆盖，缺省使用默认值）
 simulation:

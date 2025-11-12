@@ -41,6 +41,7 @@ animal:
       attack_recovery_speed_multiplier: 0.6
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
+      pathfinding_absolute_budget: 6000.0
     ints:
       flee_total_duration_ticks: 150
   pathfinding:

@@ -509,6 +509,7 @@ bt::Status SeekThingWithPath(Animal& self, bt::TickContext& ctx, const YAML::Nod
             settings.terrain_cost_overrides = &path_cfg.terrain_cost_overrides;
         }
 
+        const double absolute_budget = bb_get_double(&bb, "pathfinding_absolute_budget", 0.0);
         double budget_multiplier = bb_get_double(&bb, "pathfinding_budget_multiplier", path_cfg.budget_multiplier);
         if (budget_multiplier <= 0.0) {
             budget_multiplier = path_cfg.budget_multiplier;
@@ -518,7 +519,9 @@ bt::Status SeekThingWithPath(Animal& self, bt::TickContext& ctx, const YAML::Nod
         }
 
         double max_cost = std::numeric_limits<double>::infinity();
-        if (detection_range > 0.0) {
+        if (absolute_budget > 0.0 && std::isfinite(absolute_budget)) {
+            max_cost = absolute_budget;
+        } else if (detection_range > 0.0) {
             max_cost = detection_range * budget_multiplier;
         }
 
@@ -730,10 +733,16 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
         }
         if (need_replan) {
             const double straight_line_dist = self.position.distance_to(target_pos);
-            const double budget_multiplier = bb_get_double(ctx.blackboard, "pathfinding_budget_multiplier", path_cfg.budget_multiplier);
-            const double max_cost = (budget_multiplier > 0.0)
-                ? straight_line_dist * budget_multiplier
-                : std::numeric_limits<double>::infinity();
+            const double absolute_budget = bb_get_double(ctx.blackboard, "pathfinding_absolute_budget", 0.0);
+            double max_cost = std::numeric_limits<double>::infinity();
+            if (absolute_budget > 0.0 && std::isfinite(absolute_budget)) {
+                max_cost = absolute_budget;
+            } else {
+                const double budget_multiplier = bb_get_double(ctx.blackboard, "pathfinding_budget_multiplier", path_cfg.budget_multiplier);
+                max_cost = (budget_multiplier > 0.0)
+                    ? straight_line_dist * budget_multiplier
+                    : std::numeric_limits<double>::infinity();
+            }
 
             pathfinding::PathfindingSettings settings;
             settings.enable_smoothing = path_cfg.enable_smoothing;
