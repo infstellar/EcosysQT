@@ -19,6 +19,7 @@
 #include <yaml-cpp/yaml.h>
 #include <spdlog/spdlog.h>
 #include "race_factory.h"
+#include "logger_once.hpp"
 #include "species_config_provider.h"
 // 新的可复用行为动作封装
 #include "bt_actions.h"
@@ -760,7 +761,7 @@ std::unique_ptr<BehaviorTree> build_tree_for_animal(Animal& self) {
 
     auto tree = std::make_unique<BehaviorTree>(root_seq);
     tree->blackboard().strings["bt_source"] = std::string("yaml:") + self.species_name;
-    SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from YAML", self.species_name);
+    SPDLOG_INFO_ONCE(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from YAML", self.species_name);
     return tree;
 }
 

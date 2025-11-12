@@ -163,7 +163,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 target_compile_definitions(${PROJECT_NAME}
     PRIVATE
     $<$<BOOL:${TRACY_ENABLE}>:TRACY_ENABLE> # 通过变量控制启用
-    $<$<BOOL:${TRACY_ON_DEMAND}>:TRACY_ONDEMAND>
+    $<$<BOOL:${TRACY_ON_DEMAND}>:TRACY_ON_DEMAND>
     NOMINMAX
     $<$<BOOL:${ECOSIM_UI_DEBUG}>:ECOSIM_ENABLE_UI_DEBUG> # 
 )

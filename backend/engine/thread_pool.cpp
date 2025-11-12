@@ -39,10 +39,35 @@ void ThreadPool::submit(std::function<void()> task) {
             // 拒绝在停止后提交任务
             return;
         }
-        tasks_.push(std::move(task));
+        tasks_.push_back(Task{std::move(task), TaskPriority::Light});
         ++outstanding_;
     }
     cv_task_.notify_one();
+}
+
+void ThreadPool::submit_light(std::function<void()> task) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) {
+            return;
+        }
+        tasks_.push_back(Task{std::move(task), TaskPriority::Light});
+        ++outstanding_;
+    }
+    cv_task_.notify_one();
+}
+
+void ThreadPool::submit_heavy(std::function<void()> task) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) {
+            return;
+        }
+        tasks_.push_front(Task{std::move(task), TaskPriority::Heavy});
+        ++outstanding_;
+    }
+    // 重任务倾向唤醒更多工作线程，加速启动
+    cv_task_.notify_all();
 }
 
 void ThreadPool::submit_bulk(std::vector<std::function<void()>> tasks) {
@@ -57,12 +82,53 @@ void ThreadPool::submit_bulk(std::vector<std::function<void()>> tasks) {
         }
 
         outstanding_.fetch_add(tasks.size(), std::memory_order_relaxed);
-        for (auto& task : tasks) {
-            tasks_.push(std::move(task));
+        for (auto& t : tasks) {
+            tasks_.push_back(Task{std::move(t), TaskPriority::Light});
         }
     }
 
     // 唤醒所有等待线程，以便快速开始处理批量任务
+    cv_task_.notify_all();
+}
+
+void ThreadPool::submit_bulk_light(std::vector<std::function<void()>> tasks) {
+    if (tasks.empty()) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) {
+            return;
+        }
+
+        outstanding_.fetch_add(tasks.size(), std::memory_order_relaxed);
+        for (auto& t : tasks) {
+            tasks_.push_back(Task{std::move(t), TaskPriority::Light});
+        }
+    }
+
+    cv_task_.notify_all();
+}
+
+void ThreadPool::submit_bulk_heavy(std::vector<std::function<void()>> tasks) {
+    if (tasks.empty()) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) {
+            return;
+        }
+
+        outstanding_.fetch_add(tasks.size(), std::memory_order_relaxed);
+        // 为保持原始顺序，重任务使用逆序 push_front
+        for (auto it = tasks.rbegin(); it != tasks.rend(); ++it) {
+            tasks_.push_front(Task{std::move(*it), TaskPriority::Heavy});
+        }
+    }
+
     cv_task_.notify_all();
 }
 
@@ -108,7 +174,7 @@ void ThreadPool::worker_loop(std::size_t worker_index) {
     std::string thread_name = "Worker " + std::to_string(worker_index);
     tracy::SetThreadName(thread_name.c_str());
     while (true) {
-        std::function<void()> task;
+        Task task;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             cv_task_.wait(lock, [this] {
@@ -120,12 +186,17 @@ void ThreadPool::worker_loop(std::size_t worker_index) {
             }
 
             task = std::move(tasks_.front());
-            tasks_.pop();
+            tasks_.pop_front();
         }
 
         // 执行任务（不持锁）
         try {
-            if (task) task();
+            if (task.fn){
+                ZoneScoped;
+                std::string zone_name = task.priority == TaskPriority::Heavy ? "Heavy Task" : "Light Task";
+                ZoneText(zone_name.c_str(), zone_name.length());
+                task.fn();
+            }
         } catch (...) {
             // 生产环境可接入日志系统；此处静默失败以不影响线程池
         }

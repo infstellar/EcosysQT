@@ -435,16 +435,15 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
 
     std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
-    std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve(
-        (races_agg->size() / heavy_chunk_size) +
-        (all_things_to_update.size() / light_chunk_size) + 2
-    );
+    std::vector<std::function<void()>> heavy_tasks;
+    heavy_tasks.reserve((races_agg->size() / heavy_chunk_size) + 1);
+    std::vector<std::function<void()>> light_tasks;
+    light_tasks.reserve((all_things_to_update.size() / light_chunk_size) + 1);
 
     if (!races_agg->empty()) {
         for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
             const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
-            master_task_list.push_back([this, races_agg, begin, end] {
+            heavy_tasks.push_back([this, races_agg, begin, end] {
                 const auto worker_index = ThreadPool::current_worker_index();
                 std::vector<InteractionRequest>* active_queue = nullptr;
                 if (worker_index < worker_request_queues.size()) {
@@ -468,7 +467,7 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     if (!all_things_to_update.empty()) {
         for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
             const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
-            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+            light_tasks.push_back([this, &all_things_to_update, begin, end] {
                 const auto worker_index = ThreadPool::current_worker_index();
                 std::vector<InteractionRequest>* active_queue = nullptr;
                 if (worker_index < worker_request_queues.size()) {
@@ -490,9 +489,14 @@ void EcosystemState::dispatch_decision_tasks(ThreadPool& pool) {
     }
 
     auto& rng = get_thread_local_rng();
-    std::shuffle(master_task_list.begin(), master_task_list.end(), rng);
-
-    pool.submit_bulk(std::move(master_task_list));
+    if (!heavy_tasks.empty()) {
+        std::shuffle(heavy_tasks.begin(), heavy_tasks.end(), rng);
+        pool.submit_bulk_heavy(std::move(heavy_tasks));
+    }
+    if (!light_tasks.empty()) {
+        std::shuffle(light_tasks.begin(), light_tasks.end(), rng);
+        pool.submit_bulk_light(std::move(light_tasks));
+    }
 }
 
 // Consolidate per-thread queues into the shared staging buffer.
@@ -554,7 +558,7 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
     current_phase = UpdatePhase::Apply;
 
     constexpr std::size_t heavy_chunk_size = 64;
-    constexpr std::size_t light_chunk_size = 4096;
+    constexpr std::size_t light_chunk_size = 512;
 
     std::vector<std::shared_ptr<RaceBase>> all_races_to_update;
     const auto species_names = races_registry.get_all_species_names();
@@ -571,16 +575,15 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
 
     std::vector<std::shared_ptr<ThingBase>>& all_things_to_update = m_all_things;
 
-    std::vector<std::function<void()>> master_task_list;
-    master_task_list.reserve(
-        (races_agg->size() / heavy_chunk_size) +
-        (all_things_to_update.size() / light_chunk_size) + 2
-    );
+    std::vector<std::function<void()>> heavy_tasks;
+    heavy_tasks.reserve((races_agg->size() / heavy_chunk_size) + 1);
+    std::vector<std::function<void()>> light_tasks;
+    light_tasks.reserve((all_things_to_update.size() / light_chunk_size) + 1);
 
     if (!races_agg->empty()) {
         for (std::size_t begin = 0; begin < races_agg->size(); begin += heavy_chunk_size) {
             const std::size_t end = std::min(begin + heavy_chunk_size, races_agg->size());
-            master_task_list.push_back([this, races_agg, begin, end] {
+            heavy_tasks.push_back([this, races_agg, begin, end] {
                 for (std::size_t i = begin; i < end; ++i) {
                     auto& individual = (*races_agg)[i];
                     if (individual) {
@@ -594,7 +597,7 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
     if (!all_things_to_update.empty()) {
         for (std::size_t begin = 0; begin < all_things_to_update.size(); begin += light_chunk_size) {
             const std::size_t end = std::min(begin + light_chunk_size, all_things_to_update.size());
-            master_task_list.push_back([this, &all_things_to_update, begin, end] {
+            light_tasks.push_back([this, &all_things_to_update, begin, end] {
                 for (std::size_t i = begin; i < end; ++i) {
                     auto& individual = all_things_to_update[i];
                     if (individual) {
@@ -605,11 +608,15 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
         }
     }
 
-    if (!master_task_list.empty()) {
-        std::shuffle(master_task_list.begin(), master_task_list.end(), get_thread_local_rng());
+    auto& rng2 = get_thread_local_rng();
+    if (!heavy_tasks.empty()) {
+        std::shuffle(heavy_tasks.begin(), heavy_tasks.end(), rng2);
+        pool.submit_bulk_heavy(std::move(heavy_tasks));
     }
-
-    pool.submit_bulk(std::move(master_task_list));
+    if (!light_tasks.empty()) {
+        std::shuffle(light_tasks.begin(), light_tasks.end(), rng2);
+        pool.submit_bulk_light(std::move(light_tasks));
+    }
 }
 
 /**

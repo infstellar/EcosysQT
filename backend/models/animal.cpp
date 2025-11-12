@@ -10,6 +10,7 @@
 #include "behavior_tree.h"
 #include "animal_behavior.h"
 #include "bt_keys.h"
+#include "logger_once.hpp"
 #include "tracy/Tracy.hpp"
 #include <spdlog/spdlog.h>
 #include <random>
@@ -352,7 +353,7 @@ void Animal::build_behavior_tree() {
     if (behavior_tree) {
         auto& bb = behavior_tree->blackboard();
         const std::string source = (bb.strings.find("bt_source") != bb.strings.end()) ? bb.strings.at("bt_source") : std::string("unknown");
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", species_name, source);
+        SPDLOG_INFO_ONCE(spdlog::get("ecosim"), "[BT] Loaded tree for '{}' from {}", species_name, source);
     } else {
         SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT] Failed to build behavior tree for '{}'", species_name);
     }
@@ -412,7 +413,7 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
         int eat_total = -1;
         auto it = bb.ints.find(bt::keys::EatGrassTotalTicks);
         if (it != bb.ints.end()) eat_total = it->second;
-        SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
+        SPDLOG_INFO_ONCE(spdlog::get("ecosim"),
             "[BT Params] '{}' eat_grass_total_ticks={} (after injection)",
             species_name, eat_total);
         // 初始化吃草当前进度键，便于进度装饰器与日志显示

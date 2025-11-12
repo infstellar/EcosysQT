@@ -85,6 +85,8 @@ private:
     QPushButton* m_restartButton; 
     QPushButton* m_customSpeedButton;
     QPushButton* m_toggleGridButton; // 新增：显示/隐藏网格按钮
+    QPushButton* m_toggleHpBarButton = nullptr;
+
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     QPushButton* m_historyButton;
 #endif
@@ -94,6 +96,7 @@ private:
     // ========== UI 状态 ==========
     bool m_isDragging;     // 是否正在拖动视图
     bool m_isInspectMode;  // 是否处于查看模式
+    bool m_showHpBar = false; // 默认不显示血条
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     bool m_showHistory;
 #endif

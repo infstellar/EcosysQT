@@ -7,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <deque>
 #include <atomic>
 #include <cstddef>
 
@@ -20,6 +21,10 @@ public:
     // 提交一个无参数任务到队列
     void submit(std::function<void()> task);
 
+    // 轻重任务分别提交（单队列优先级：heavy 使用 push_front，light 使用 push_back）
+    void submit_light(std::function<void()> task);
+    void submit_heavy(std::function<void()> task);
+
     /**
      * @brief 批量提交一组任务到队列，减少互斥锁竞争。
      *
@@ -27,6 +32,8 @@ public:
      * 高频小任务提交时的调度开销。
      */
     void submit_bulk(std::vector<std::function<void()>> tasks);
+    void submit_bulk_light(std::vector<std::function<void()>> tasks);
+    void submit_bulk_heavy(std::vector<std::function<void()>> tasks);
 
     // 阻塞直到所有已提交的任务执行完毕
     void wait_for_completion();
@@ -57,7 +64,12 @@ private:
     void worker_loop(std::size_t worker_index);
 
     std::vector<std::thread> workers_;
-    std::queue<std::function<void()>> tasks_;
+    enum class TaskPriority { Light, Heavy };
+    struct Task {
+        std::function<void()> fn;
+        TaskPriority priority{TaskPriority::Light};
+    };
+    std::deque<Task> tasks_;
     std::mutex mutex_;
     std::condition_variable cv_task_;
     std::condition_variable cv_completed_;
