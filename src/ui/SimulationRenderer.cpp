@@ -4,6 +4,8 @@
 #include "thing_base.h"
 #include "race_base.h"
 #include "producer.h"
+#include "world_grid.h"
+#include "tile.h"
 #ifdef ECOSIM_ENABLE_UI_DEBUG
 #include "animal_ui_snapshot.h"
 #endif
@@ -12,6 +14,7 @@
 #include <QDateTime>
 #include <unordered_set>
 #include <cmath>
+#include <QCursor>
 
 // DrawableEntity 结构体只在渲染时使用，所以定义在这里
 struct DrawableEntity {
@@ -103,6 +106,115 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (!anyTree) {
         qDebug() << "信息: 未找到 tree images, 装饰树将不可见";
     }
+
+    // 尝试加载用户提供的地形 atlas（优先资源路径，然后回退到文件系统）
+    m_riverAtlas.load(":/images/terrain/river.jpg");
+    if (m_riverAtlas.isNull()) {
+        // 尝试相对项目路径（运行时可能需要调整）
+        QString fsPath = QString("resources/images/terrain/river.jpg");
+        m_riverAtlas.load(fsPath);
+    }
+    if (m_riverAtlas.isNull()) {
+        qDebug() << "信息: 未找到 river atlas (: /resources/images/terrain/river.jpg)，河流将以纯色渲染";
+    }
+
+    // --- 新增：尝试加载用户提供的生物群系配色图（resources/images/color/<name>.png） ---
+    // 对每个 BiomeType 尝试多种命名约定与扩展名（优先 Qt 资源路径，然后文件系统）
+    auto tryLoadCandidate = [&](const QString& candidate) -> QPixmap {
+        QPixmap pm;
+        // 试资源路径
+        QString rsrc = QString(":/images/color/%1").arg(candidate);
+        pm.load(rsrc);
+        if (!pm.isNull()) return pm;
+        // 试文件系统路径
+        QString fs1 = QString("resources/images/color/%1").arg(candidate);
+        pm.load(fs1);
+        if (!pm.isNull()) return pm;
+        // 试带扩展名 png/jpg/jpeg
+        for (const QString& ext : {"png", "jpg", "jpeg"}) {
+            QString r2 = rsrc + "." + ext;
+            pm.load(r2);
+            if (!pm.isNull()) return pm;
+            QString f2 = fs1 + "." + ext;
+            pm.load(f2);
+            if (!pm.isNull()) return pm;
+        }
+        return QPixmap();
+    };
+
+    auto pushBiomePixmap = [&](int biomeInt, const QString& baseName){
+        QPixmap loaded;
+        // candidate variants: exact, lower, underscore split, hyphen
+        std::vector<QString> candidates;
+        candidates.push_back(baseName);
+        QString lower = baseName.toLower();
+        candidates.push_back(lower);
+        // insert underscore before capitals -> e.g. "PolarIce" -> "polar_ice"
+        QString underscored;
+        for (int i=0;i<baseName.size();++i){
+            QChar c = baseName[i];
+            if (i>0 && c.isUpper()) underscored.push_back('_');
+            underscored.push_back(c.toLower());
+        }
+        candidates.push_back(underscored);
+        candidates.push_back(underscored.replace('_', '-'));
+        candidates.push_back(lower.replace(' ', '_'));
+
+        for (const QString& cand : candidates) {
+            loaded = tryLoadCandidate(cand);
+            if (!loaded.isNull()) {
+                m_biomePixmaps[biomeInt] = loaded;
+                qDebug() << "信息: 为生物群系加载贴图:" << cand << "(biome=" << biomeInt << ")";
+                return;
+            }
+        }
+        qDebug() << "信息: 未找到生物群系贴图 (biome=" << biomeInt << ")，将使用颜色回退";
+    };
+
+    // 枚举所有 BiomeType（手动列举以避免依赖反射）
+    pushBiomePixmap(static_cast<int>(BiomeType::PolarIce), "PolarIce");
+    pushBiomePixmap(static_cast<int>(BiomeType::Tundra), "Tundra");
+    pushBiomePixmap(static_cast<int>(BiomeType::BorealForest), "BorealForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::TemperateForest), "TemperateForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::TemperateRainforest), "TemperateRainforest");
+    pushBiomePixmap(static_cast<int>(BiomeType::Grassland), "Grassland");
+    pushBiomePixmap(static_cast<int>(BiomeType::Savanna), "Savanna");
+    pushBiomePixmap(static_cast<int>(BiomeType::TropicalForest), "TropicalForest");
+    pushBiomePixmap(static_cast<int>(BiomeType::Desert), "Desert");
+    pushBiomePixmap(static_cast<int>(BiomeType::Ocean), "Ocean");
+}
+
+namespace {
+    QString terrainToString(TerrainType t) {
+        switch (t) {
+            case TerrainType::LAND: return "土地";
+            case TerrainType::WATER: return "水";
+            case TerrainType::SHALLOW_RIVER: return "浅河";
+            case TerrainType::DEEP_RIVER: return "深河";
+            case TerrainType::SHALLOW_OCEAN: return "浅海";
+            case TerrainType::DEEP_OCEAN: return "深海";
+            case TerrainType::SAND: return "沙地";
+            case TerrainType::INLAND_SAND: return "内陆沙地";
+            case TerrainType::HILLS: return "丘陵";
+            case TerrainType::MOUNTAIN: return "山脉";
+            default: return "未知";
+        }
+    }
+
+    QString biomeToString(BiomeType b) {
+        switch (b) {
+            case BiomeType::PolarIce: return "极地冰盖";
+            case BiomeType::Tundra: return "苔原";
+            case BiomeType::BorealForest: return "寒温带针叶林";
+            case BiomeType::TemperateForest: return "温带森林";
+            case BiomeType::TemperateRainforest: return "温带雨林";
+            case BiomeType::Grassland: return "草原";
+            case BiomeType::Savanna: return "稀树草原";
+            case BiomeType::TropicalForest: return "热带雨林";
+            case BiomeType::Desert: return "沙漠";
+            default: return "未知";
+        }
+    }
 }
 
 void SimulationRenderer::render(QPainter& painter,
@@ -110,71 +222,87 @@ void SimulationRenderer::render(QPainter& painter,
                                 const CameraController& camera,
                                 const std::optional<SelectableEntity>& hovered,
                                 const std::optional<SelectableEntity>& selected,
-                                bool isInspectMode)
+                                bool isInspectMode,
+                                bool isGridInspectMode,
+                                const std::optional<QPoint>& hoveredGridCoords)
 {
     if (!data) return;
 
     painter.setRenderHint(QPainter::Antialiasing);
 
     drawBackground(painter);
+    // 在背景之上绘制地形瓦片（例如河流）
+    if (data && data->world_grid) {
+        drawTerrainTiles(painter, data, camera);
+    }
+    if (data->world_grid) {
+        const WorldGrid* grid = data->world_grid;
+        if (grid->width() > 0 && grid->height() > 0) {
+            const QSize screenSize = m_parentWidget->size();
+            if (screenSize.width() > 0 && screenSize.height() > 0) {
+                const double visibleWorldWidth = data->world_width / camera.getZoomFactor();
+                if (visibleWorldWidth > 0.0) {
+                    const double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+                    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+                    const double viewLeft = camera.getViewCenter().x() - visibleWorldWidth / 2.0;
+                    const double viewTop = camera.getViewCenter().y() - visibleWorldHeight / 2.0;
+                    const double viewRight = viewLeft + visibleWorldWidth;
+                    const double viewBottom = viewTop + visibleWorldHeight;
+
+                    constexpr int buffer = 2;
+                    int startX = std::max(0, static_cast<int>(std::floor(viewLeft)) - buffer);
+                    int endX = std::min(grid->width() - 1, static_cast<int>(std::ceil(viewRight)) + buffer);
+                    int startY = std::max(0, static_cast<int>(std::floor(viewTop)) - buffer);
+                    int endY = std::min(grid->height() - 1, static_cast<int>(std::ceil(viewBottom)) + buffer);
+
+                    if (startX <= endX && startY <= endY) {
+                        painter.setPen(Qt::NoPen);
+                        constexpr double kBrightnessRange = 1.0 - 0.1;
+
+                        for (int y = startY; y <= endY; ++y) {
+                            for (int x = startX; x <= endX; ++x) {
+                                const Tile& tile = grid->get_tile(x, y);
+                                const double darkness = 1.0 - tile.brightness;
+                                if (darkness <= 0.0) {
+                                    continue;
+                                }
+
+                                int alpha = static_cast<int>((darkness / kBrightnessRange) * 160.0);
+                                alpha = std::clamp(alpha, 0, 255);
+                                if (alpha <= 0) {
+                                    continue;
+                                }
+
+                                const QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+                                const QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+                                painter.setBrush(QColor(0, 0, 30, alpha));
+                                painter.drawRect(QRectF(screenTopLeft, screenBottomRight));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (m_parentWidget->isGridEnabled()) {
         drawGrid(painter, camera, data->world_width, data->world_height);
     }
     drawEntities(painter, data, camera);
     if (isInspectMode) {
         drawSelection(painter, camera, hovered, selected);
+    } else if (isGridInspectMode && hoveredGridCoords.has_value()) {
+        drawGridInspect(painter, data, camera, hoveredGridCoords.value());
     }
     drawHud(painter);
 }
 
 void SimulationRenderer::drawBackground(QPainter& painter)
 {
-    // ========== 步骤1: 绘制背景和时间遮罩 ==========
-    // 1.1 首先绘制基础背景图
+    // 绘制基础背景
     if (!m_backgroundImage.isNull()) {
         painter.drawPixmap(m_parentWidget->rect(), m_backgroundImage);
     } else {
         painter.fillRect(m_parentWidget->rect(), QColor(34, 139, 34)); // 回退方案
-    }
-
-    // 1.2 根据当前小时计算并绘制一个半透明的遮罩层
-    {
-        int alpha = 0; // 透明度 (0=完全透明, 255=完全不透明)
-        const int nightAlpha = 160; // 夜晚最暗时的透明度
-
-        // 定义一天中的四个阶段
-        const int dawnStart = 4;  // 黎明开始 (4:00)
-        const int dayStart = 8;   // 白天开始 (8:00)
-        const int duskStart = 18; // 黄昏开始 (18:00)
-        const int nightStart = 22; // 夜晚开始 (22:00)
-
-        const int currentHour = m_parentWidget->m_currentHour;
-
-        if (currentHour >= nightStart || currentHour < dawnStart) {
-            // --- 夜晚 (22:00 - 03:59) ---
-            alpha = nightAlpha;
-        } else if (currentHour >= duskStart) {
-            // --- 黄昏 (18:00 - 21:59) ---
-            // 透明度从 0 (18:00) 线性增加到 nightAlpha (22:00)
-            double progress = static_cast<double>(currentHour - duskStart) / (nightStart - duskStart);
-            alpha = static_cast<int>(progress * nightAlpha);
-        } else if (currentHour >= dayStart) {
-            // --- 白天 (08:00 - 17:59) ---
-            alpha = 0; // 完全明亮，无遮罩
-        } else if (currentHour >= dawnStart) {
-            // --- 黎明 (04:00 - 07:59) ---
-            // 透明度从 nightAlpha (04:00) 线性减少到 0 (08:00)
-            double progress = static_cast<double>(currentHour - dawnStart) / (dayStart - dawnStart);
-            alpha = static_cast<int>((1.0 - progress) * nightAlpha);
-        }
-
-        // 限制 alpha 在有效范围内
-        alpha = std::clamp(alpha, 0, 255);
-
-        // 绘制遮罩
-        if (alpha > 0) {
-            painter.fillRect(m_parentWidget->rect(), QColor(0, 0, 30, alpha)); // 使用深蓝色调的遮罩，效果更自然
-        }
     }
 }
 
@@ -712,5 +840,167 @@ void SimulationRenderer::drawGrid(QPainter& painter, const CameraController& cam
         QPointF left = camera.toScreenCoords(QPointF(viewLeft, y), screenSize);
         QPointF right = camera.toScreenCoords(QPointF(viewRight, y), screenSize);
         painter.drawLine(QLineF(left, right));
+    }
+}
+
+void SimulationRenderer::drawGridInspect(QPainter& painter,
+                                         const std::shared_ptr<EcosystemStateData>& data,
+                                         const CameraController& camera,
+                                         const QPoint& gridCoords)
+{
+    QPointF worldTopLeft(gridCoords.x(), gridCoords.y());
+    QPointF worldBottomRight(gridCoords.x() + 1.0, gridCoords.y() + 1.0);
+
+    QPointF screenTopLeft = camera.toScreenCoords(worldTopLeft, m_parentWidget->size());
+    QPointF screenBottomRight = camera.toScreenCoords(worldBottomRight, m_parentWidget->size());
+
+    QRectF highlightRect(screenTopLeft, screenBottomRight);
+    painter.setBrush(QColor(255, 255, 0, 70));
+    painter.setPen(QPen(QColor(255, 255, 0, 200), 2));
+    painter.drawRect(highlightRect);
+
+    if (!data->world_grid) {
+        qWarning() << "Renderer: data->world_grid is null";
+        return;
+    }
+
+    const WorldGrid* grid = data->world_grid;
+    if (!grid->is_valid_coord(gridCoords.x(), gridCoords.y())) {
+        return;
+    }
+
+    const Tile& tile = grid->get_tile(gridCoords.x(), gridCoords.y());
+
+    QString infoText;
+    infoText += QString("格子坐标: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
+    // 显示经纬度
+    infoText += QString("纬度: %1°\n").arg(QString::number(tile.latitude, 'f', 2));
+    infoText += QString("经度: %1°\n").arg(QString::number(tile.longitude, 'f', 2));
+    infoText += QString("地形: %1\n").arg(terrainToString(tile.terrain));
+    infoText += QString("生物群系: %1\n").arg(biomeToString(tile.biome));
+    infoText += QString("----------\n");
+    infoText += QString("温度: %1 °C\n").arg(QString::number(tile.temperature, 'f', 1));
+    infoText += QString("本地时间: %1:00\n").arg(tile.local_hour);
+    infoText += QString("湿度: %1\n").arg(QString::number(tile.moisture, 'f', 2));
+    infoText += QString("海拔: %1\n").arg(QString::number(tile.elevation, 'f', 2));
+    infoText += QString("肥沃度: %1\n").arg(tile.fertility);
+    infoText += QString("亮度: %1\n").arg(tile.brightness);
+    infoText += QString("物体数量: %1").arg(tile.things.size());
+
+    QFont font("Arial", 10);
+    QFontMetrics fm(font);
+    QRect textRect = fm.boundingRect(QRect(), Qt::AlignLeft, infoText);
+    textRect.adjust(-10, -10, 10, 10);
+
+    QPointF cursorPos = m_parentWidget->mapFromGlobal(QCursor::pos());
+    textRect.moveTo(cursorPos.x() + 20.0, cursorPos.y() + 20.0);
+
+    if (textRect.right() > m_parentWidget->width()) textRect.moveRight(m_parentWidget->width() - 10);
+    if (textRect.bottom() > m_parentWidget->height()) textRect.moveBottom(m_parentWidget->height() - 10);
+    if (textRect.left() < 0) textRect.moveLeft(10);
+    if (textRect.top() < 0) textRect.moveTop(10);
+
+    painter.setBrush(QColor(0, 0, 0, 190));
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(textRect, 5, 5);
+
+    painter.setPen(Qt::white);
+    painter.setFont(font);
+    painter.drawText(textRect.adjusted(10, 10, -10, -10), Qt::AlignLeft, infoText);
+}
+
+void SimulationRenderer::drawTerrainTiles(QPainter& painter,
+                                         const std::shared_ptr<EcosystemStateData>& data,
+                                         const CameraController& camera)
+{
+    if (!data || !data->world_grid) return;
+    const WorldGrid* grid = data->world_grid;
+    const QSize screenSize = m_parentWidget->size();
+
+    const double visibleWorldWidth = data->world_width / camera.getZoomFactor();
+    const double screenAspect = static_cast<double>(screenSize.width()) / static_cast<double>(screenSize.height());
+    const double visibleWorldHeight = visibleWorldWidth / screenAspect;
+    const double viewLeft = camera.getViewCenter().x() - visibleWorldWidth / 2.0;
+    const double viewTop = camera.getViewCenter().y() - visibleWorldHeight / 2.0;
+    const double viewRight = viewLeft + visibleWorldWidth;
+    const double viewBottom = viewTop + visibleWorldHeight;
+
+    constexpr int buffer = 2;
+    int startX = std::max(0, static_cast<int>(std::floor(viewLeft)) - buffer);
+    int endX = std::min(grid->width() - 1, static_cast<int>(std::ceil(viewRight)) + buffer);
+    int startY = std::max(0, static_cast<int>(std::floor(viewTop)) - buffer);
+    int endY = std::min(grid->height() - 1, static_cast<int>(std::ceil(viewBottom)) + buffer);
+
+    if (startX > endX || startY > endY) return;
+
+    bool haveAtlas = !m_riverAtlas.isNull();
+    int atlasCols = std::max(1, m_riverAtlasCols);
+    int atlasRows = std::max(1, m_riverAtlasRows);
+    int cellW = haveAtlas ? (m_riverAtlas.width() / atlasCols) : 0;
+    int cellH = haveAtlas ? (m_riverAtlas.height() / atlasRows) : 0;
+
+    // --- 新增: 首先绘制生物群系基底（使用图片回退到纯色） ---
+    for (int y = startY; y <= endY; ++y) {
+        for (int x = startX; x <= endX; ++x) {
+            const Tile& tile = grid->get_tile(x, y);
+
+            QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+            QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+            QRectF destRect(screenTopLeft, screenBottomRight);
+
+            // 尝试使用预加载的群系贴图
+            auto it = m_biomePixmaps.find(static_cast<int>(tile.biome));
+            if (it != m_biomePixmaps.end() && !it->second.isNull()) {
+                // 绘制并拉伸贴图以覆盖整个格子
+                // QPainter 没有接受 (QRectF, QPixmap) 的重载，使用带 sourceRect 的重载
+                QRectF srcRect(0.0, 0.0, static_cast<qreal>(it->second.width()), static_cast<qreal>(it->second.height()));
+                painter.drawPixmap(destRect, it->second, srcRect);
+            } else {
+                // 回退：按群系类型选择基本颜色并考虑亮度
+                QColor baseColor;
+                switch (tile.biome) {
+                    case BiomeType::PolarIce: baseColor = QColor(240, 250, 250); break;
+                    case BiomeType::Tundra: baseColor = QColor(200, 220, 200); break;
+                    case BiomeType::BorealForest: baseColor = QColor(100, 140, 100); break;
+                    case BiomeType::TemperateForest: baseColor = QColor(80, 160, 90); break;
+                    case BiomeType::TemperateRainforest: baseColor = QColor(40, 120, 60); break;
+                    case BiomeType::Grassland: baseColor = QColor(170, 210, 120); break;
+                    case BiomeType::Savanna: baseColor = QColor(200, 190, 120); break;
+                    case BiomeType::TropicalForest: baseColor = QColor(40, 140, 70); break;
+                    case BiomeType::Desert: baseColor = QColor(230, 210, 150); break;
+                    case BiomeType::Ocean: baseColor = QColor(30, 100, 180); break;
+                    default: baseColor = QColor(120, 120, 120); break;
+                }
+                // 考虑 tile.brightness（0..1）来调整颜色亮度
+                double b = std::clamp(tile.brightness, 0.0, 1.0);
+                int r = static_cast<int>(baseColor.red() * b + 10 * (1.0 - b));
+                int g = static_cast<int>(baseColor.green() * b + 10 * (1.0 - b));
+                int bl = static_cast<int>(baseColor.blue() * b + 10 * (1.0 - b));
+                painter.fillRect(destRect, QColor(r, g, bl));
+            }
+        }
+    }
+
+    // --- 然后绘制河流覆盖（保留原有河流 atlas 或纯色渲染） ---
+    for (int y = startY; y <= endY; ++y) {
+        for (int x = startX; x <= endX; ++x) {
+            const Tile& tile = grid->get_tile(x, y);
+            if (tile.terrain != TerrainType::SHALLOW_RIVER && tile.terrain != TerrainType::DEEP_RIVER) continue;
+
+            QPointF screenTopLeft = camera.toScreenCoords(QPointF(static_cast<double>(x), static_cast<double>(y)), screenSize);
+            QPointF screenBottomRight = camera.toScreenCoords(QPointF(static_cast<double>(x + 1), static_cast<double>(y + 1)), screenSize);
+            QRectF destRect(screenTopLeft, screenBottomRight);
+
+            if (haveAtlas && cellW > 0 && cellH > 0) {
+                int col = ((x % atlasCols) + atlasCols) % atlasCols;
+                int row = ((y % atlasRows) + atlasRows) % atlasRows;
+                QRect srcRect(col * cellW, row * cellH, cellW, cellH);
+                painter.drawPixmap(destRect, m_riverAtlas, srcRect);
+            } else {
+                // 没有 atlas 的回退：用蓝色渐层简单表示河流
+                QColor riverColor = (tile.terrain == TerrainType::DEEP_RIVER) ? QColor(20, 50, 180) : QColor(50, 120, 220);
+                painter.fillRect(destRect, riverColor);
+            }
+        }
     }
 }

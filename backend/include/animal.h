@@ -12,6 +12,7 @@
 #include <functional>
 #include "utils.h"
 #include "race_base.h"
+#include "species_params.h"
 #include "animal_behavior.h" // 提供行为树构建函数声明，用于 friend 授权访问
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
@@ -50,6 +51,9 @@ public:
     double hunting_range;
     double hunting_success_rate;
     double detection_range;
+    double threat_detection_range;
+    double mate_detection_range;
+    double food_detection_range;
     std::vector<std::string> food_types;
     int hunting_cooldown;
     int hunting_cooldown_duration;
@@ -85,6 +89,8 @@ public:
     void move_towards_target(const Position& target_position, int world_width, int world_height);
     // 路径规划（占位）
     virtual void plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target);
+    // 供寻路模块直接设置的路径
+    virtual void plan_path_to_target(const std::vector<Position>& path);
     // 执行向当前目标点移动
     void move_to_target_point(int world_width, int world_height);
 
@@ -124,10 +130,25 @@ public:
     double get_wander_radius() const;
     double get_mating_desire_probability() const;
     double get_detection_range() const;
+    double get_threat_detection_range() const;
+    double get_mate_detection_range() const;
+    double get_food_detection_range() const;
     double get_pregnancy_speed_penalty() const;
     // 移动控制
     bool get_skip_movement() const;
     void set_skip_movement(bool v);
+    // 设置/控制 HP 恢复的全局倍率（可由行为树根据情境覆盖，例如遇到威胁时降低恢复速度）
+    void set_hp_regen_multiplier(double m);
+    // 逃跑疲惫状态更新：当动物持续处于被追击状态时，计时并在达到阈值后进入疲惫状态
+    // - is_fleeing: 当前帧是否处于逃逸冷却（FleeModeCooldownTicks>0）
+    // - ticks_per_day: world ticks_per_day，用于将秒转换为 ticks
+    // - tired_after_seconds: 持续逃跑多少秒后变为疲惫
+    // - tired_speed_multiplier: 疲惫后的速度倍率（0..1），例如 0.8
+    void update_flee_ticks(bool is_fleeing, int ticks_per_day, double tired_after_seconds, double tired_speed_multiplier);
+    // 是否当前处于疲惫状态
+    bool is_tired() const;
+    // 获取疲惫时的速度倍率（仅在 is_tired()==true 时有意义）
+    double get_tired_speed_multiplier() const;
     // 意图锁定
     // 感知缓存操作
     void clear_sensor_caches();
@@ -152,6 +173,7 @@ public:
 
     // 路径快照：返回当前规划路径的副本，供 UI 调试快照使用
     std::vector<Position> get_planned_path_snapshot() const;
+    const PathfindingParams& get_pathfinding_params() const { return pathfinding_params; }
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式
@@ -193,6 +215,12 @@ protected:
     // 自增计时器：自上次恢复以来的 tick 数
     int ticks_since_last_regen{0};
 
+    // 全局 HP 恢复倍率（可被行为树在 Update 阶段按情境覆盖，例如遇到威胁时降低恢复速度）
+    double hp_regen_multiplier{1.0};
+
+
+    PathfindingParams pathfinding_params;
+
     // 交配相关配置
     int mating_duration;
     int pregnancy_duration;
@@ -210,6 +238,10 @@ protected:
 
     // 饱食状态更新与属性调整
     void update_hunger_state();
+    // 连续逃跑计数与疲惫状态
+    int consecutive_flee_ticks{0};
+    bool tired{false};
+    double current_tired_speed_multiplier{1.0};
     // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
     std::optional<Position> wander_target;
     bool skip_movement{false};

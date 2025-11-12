@@ -6,17 +6,20 @@ species:
   # 美洲狮的体型为2，ecosys转换倍率为100，综上，美洲狮的能量为 200.
   energy: 200
   max_age: 180000 # 6个月，6*10*3000=180000
-  # 最小繁殖能量（门槛基数，实际判定为其 2×）
+  # 最小繁殖能量
   min_reproduction_energy: 120
 animal:
   movement_speed: 0.16
   energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
   hunting_range: 2
-  hunting_success_rate: 0.66 # 建议增加hitting ratio
+  hunting_success_rate: 0.7 # 建议增加hitting ratio
   attack_damage: 66.0 # 默认伤害
   attack_damage_min: 30.0 #伤害下限，优先于默认伤害
   attack_damage_max: 66.0 #伤害上限，优先于默认伤害
   detection_range: 300.0
+  threat_detection_range: 150.0
+  mate_detection_range: 200.0
+  food_detection_range: 300.0
   wander_radius: 100.0
   food_types:
     - cow
@@ -24,7 +27,6 @@ animal:
   # 行为树黑板默认逃离倍率配置
   bt_params:
     doubles:
-      hunting_range: 10          # <--- 在这里添加这一行
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       flee_destination_radius: 120.0
@@ -36,15 +38,30 @@ animal:
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
       # 攻击后摇减速倍率：处于攻击冷却时的全局速度乘数
-      attack_recovery_speed_multiplier: 0.7
+      attack_recovery_speed_multiplier: 0.6
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
     ints:
       flee_total_duration_ticks: 150
+  pathfinding:
+    replan_interval: 100
+    enable_smoothing: true
+    budget_multiplier: 2.5
+    terrain_costs:
+      LAND: 1.0
+      HILLS: 1.5
+      SAND: 2.0
+      INLAND_SAND: 2.5
+      SHALLOW_RIVER: 6.0
+      DEEP_RIVER: 15.0
+      WATER: 18.0
+      SHALLOW_OCEAN: 25.0
+      DEEP_OCEAN: 9999.0
+      MOUNTAIN: 9999.0
   # 攻击冷却时长：
   hunting_cooldown_duration: 45 
   min_reproduction_age: 30
-  reproduction_cooldown: 800
+  reproduction_cooldown: 25000
 
   wandering_duration: 150
   

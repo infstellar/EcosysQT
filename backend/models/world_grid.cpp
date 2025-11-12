@@ -9,6 +9,12 @@
 #include <functional>
 #include <stdexcept>
 
+namespace {
+inline double lerp(double v0, double v1, double t) {
+    return v0 * (1.0 - t) + v1 * t;
+}
+}
+
 WorldGrid::WorldGrid(int width, int height) {
     resize(width, height);
 }
@@ -103,18 +109,100 @@ std::vector<std::shared_ptr<ThingBase>> WorldGrid::get_nearby_things_broad(const
     return nearby;
 }
 
-void WorldGrid::update_tile_local_time(Tile& tile, const WorldClock& clock) {
-    const int global_hour = clock.current_hour();
-    const double raw_offset = tile.longitude / 15.0;
-    const int hour_offset = static_cast<int>(std::lround(raw_offset));
-
-    int local_hour = global_hour + hour_offset;
-    local_hour %= 24;
-    if (local_hour < 0) {
-        local_hour += 24;
+void WorldGrid::initialize_all_tile_states(const WorldClock& clock) {
+    if (m_tiles.empty()) {
+        return;
     }
 
-    tile.local_hour = local_hour;
+    for (auto& tile : m_tiles) {
+        update_tile_state(tile, clock);
+    }
+}
+
+void WorldGrid::initialize_brightness_lut(int days_per_year, double axial_tilt_deg) {
+    constexpr double kMinBrightness = 0.1;
+    constexpr double kMaxBrightness = 1.0;
+    constexpr double kTwilightStartDeg = 0.0;
+    constexpr double kTwilightEndDeg = -18.0;
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kBrightnessRange = kMaxBrightness - kMinBrightness;
+    constexpr double two_pi = 6.28318530717958647692;
+
+    const int num_lats = 181;  // -90 to +90 inclusive
+    const int num_days = std::max(1, days_per_year);
+    const int num_hours = 24;
+
+    m_lut_initialized = false;
+    m_lut_lat_count = num_lats;
+    m_lut_day_count = num_days;
+    m_lut_hour_count = num_hours;
+
+    const std::size_t total_entries = static_cast<std::size_t>(num_lats) *
+                                      static_cast<std::size_t>(num_days) *
+                                      static_cast<std::size_t>(num_hours);
+    m_brightness_lut.assign(total_entries, kMaxBrightness);
+
+    const double axial_tilt_rad = axial_tilt_deg * (kPi / 180.0);
+
+    for (int lat_idx = 0; lat_idx < num_lats; ++lat_idx) {
+        const double latitude_deg = static_cast<double>(lat_idx - 90);
+        const double latitude_rad = latitude_deg * (kPi / 180.0);
+        const double sin_latitude = std::sin(latitude_rad);
+        const double cos_latitude = std::cos(latitude_rad);
+
+        for (int day = 0; day < num_days; ++day) {
+            const double seasonal_angle = (two_pi * (static_cast<double>(day) + 10.0)) /
+                                          static_cast<double>(num_days);
+            const double declination_rad = std::asin(-std::sin(axial_tilt_rad) * std::cos(seasonal_angle));
+            const double sin_declination = std::sin(declination_rad);
+            const double cos_declination = std::cos(declination_rad);
+
+            for (int hour = 0; hour < num_hours; ++hour) {
+                const double hour_angle_rad = (static_cast<double>(hour) - 12.0) * 15.0 * (kPi / 180.0);
+                const double cos_hour_angle = std::cos(hour_angle_rad);
+
+                const double sin_elevation = sin_latitude * sin_declination +
+                                             cos_latitude * cos_declination * cos_hour_angle;
+                const double elevation_rad = std::asin(std::clamp(sin_elevation, -1.0, 1.0));
+                const double elevation_deg = elevation_rad * (180.0 / kPi);
+
+                double brightness = kMinBrightness;
+                if (elevation_deg >= kTwilightStartDeg) {
+                    brightness = kMaxBrightness;
+                } else if (elevation_deg > kTwilightEndDeg) {
+                    double progress = (elevation_deg - kTwilightEndDeg) /
+                                      (kTwilightStartDeg - kTwilightEndDeg);
+                    progress = std::clamp(progress, 0.0, 1.0);
+                    brightness = kMinBrightness + (kBrightnessRange * progress);
+                }
+
+                const std::size_t index = (static_cast<std::size_t>(lat_idx) *
+                                           static_cast<std::size_t>(num_days) +
+                                           static_cast<std::size_t>(day)) *
+                                          static_cast<std::size_t>(num_hours) +
+                                          static_cast<std::size_t>(hour);
+                m_brightness_lut[index] = std::clamp(brightness, kMinBrightness, kMaxBrightness);
+            }
+        }
+    }
+
+    m_lut_initialized = true;
+}
+
+void WorldGrid::update_tile_local_time(Tile& tile, const WorldClock& clock) {
+    const double global_hour = static_cast<double>(clock.current_hour());
+    const double global_hour_frac = static_cast<double>(clock.current_minute()) / 60.0;
+    const double raw_offset = tile.longitude / 15.0;
+
+    double exact_local_hour = global_hour + global_hour_frac + raw_offset;
+    exact_local_hour = std::fmod(exact_local_hour, 24.0);
+    if (exact_local_hour < 0.0) {
+        exact_local_hour += 24.0;
+    }
+
+    const double local_hour_floor = std::floor(exact_local_hour);
+    tile.local_hour = static_cast<int>(local_hour_floor);
+    tile.local_hour_fraction = std::clamp(exact_local_hour - local_hour_floor, 0.0, 1.0);
 }
 
 void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
@@ -123,25 +211,57 @@ void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
     double diurnal_amplitude = 6.0;
 
     switch (tile.biome) {
-    case BiomeType::Temperate:
-        base_temperature = 15.0;
-        seasonal_amplitude = 12.0;
+    case BiomeType::PolarIce:
+        base_temperature = -25.0;
+        seasonal_amplitude = 18.0;
+        diurnal_amplitude = 2.0;
+        break;
+    case BiomeType::Tundra:
+        base_temperature = -10.0;
+        seasonal_amplitude = 15.0;
+        diurnal_amplitude = 3.0;
+        break;
+    case BiomeType::BorealForest:
+        base_temperature = 2.0;
+        seasonal_amplitude = 14.0;
+        diurnal_amplitude = 5.0;
+        break;
+    case BiomeType::TemperateForest:
+        base_temperature = 12.0;
+        seasonal_amplitude = 10.0;
         diurnal_amplitude = 6.0;
         break;
-    case BiomeType::Tropical:
-        base_temperature = 28.0;
+    case BiomeType::TemperateRainforest:
+        base_temperature = 14.0;
+        seasonal_amplitude = 8.0;
+        diurnal_amplitude = 5.0;
+        break;
+    case BiomeType::Grassland:
+        base_temperature = 18.0;
+        seasonal_amplitude = 12.0;
+        diurnal_amplitude = 7.0;
+        break;
+    case BiomeType::Savanna:
+        base_temperature = 24.0;
+        seasonal_amplitude = 6.0;
+        diurnal_amplitude = 6.0;
+        break;
+    case BiomeType::TropicalForest:
+        base_temperature = 27.0;
         seasonal_amplitude = 4.0;
         diurnal_amplitude = 4.0;
         break;
-    case BiomeType::Frigid:
-        base_temperature = -5.0;
-        seasonal_amplitude = 16.0;
-        diurnal_amplitude = 5.0;
+    case BiomeType::Desert:
+        base_temperature = 30.0;
+        seasonal_amplitude = 13.0;
+        diurnal_amplitude = 9.0;
         break;
-    case BiomeType::Polar:
-        base_temperature = -18.0;
-        seasonal_amplitude = 20.0;
+    case BiomeType::Ocean:
+        base_temperature = 16.0;
+        seasonal_amplitude = 6.0;
         diurnal_amplitude = 3.0;
+        break;
+    default:
         break;
     }
 
@@ -160,6 +280,70 @@ void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
 void WorldGrid::update_tile_state(Tile& tile, const WorldClock& clock) {
     update_tile_local_time(tile, clock);
     update_tile_weather(tile, clock);
+    update_tile_brightness(tile, clock);
+}
+
+void WorldGrid::update_tile_brightness(Tile& tile, const WorldClock& clock) {
+    if (!m_lut_initialized || m_brightness_lut.empty() ||
+        m_lut_lat_count <= 0 || m_lut_day_count <= 0 || m_lut_hour_count <= 0) {
+        tile.brightness = 1.0;
+        return;
+    }
+
+    const double exact_lat = tile.latitude + 90.0;
+    const double lat_floor = std::floor(exact_lat);
+    int lat_idx_0 = static_cast<int>(lat_floor);
+    int lat_idx_1 = lat_idx_0 + 1;
+    double lat_t = exact_lat - lat_floor;
+
+    const int max_lat_idx = m_lut_lat_count - 1;
+    lat_idx_0 = std::clamp(lat_idx_0, 0, max_lat_idx);
+    lat_idx_1 = std::clamp(lat_idx_1, 0, max_lat_idx);
+    lat_t = std::clamp(lat_t, 0.0, 1.0);
+
+    int day_idx = clock.current_day() - 1;
+    if (day_idx < 0) {
+        tile.brightness = 1.0;
+        return;
+    }
+    if (m_lut_day_count > 0) {
+        day_idx %= m_lut_day_count;
+    }
+    if (day_idx < 0 || day_idx >= m_lut_day_count) {
+        tile.brightness = 1.0;
+        return;
+    }
+
+    const int hour_idx_0 = tile.local_hour;
+    if (hour_idx_0 < 0 || hour_idx_0 >= m_lut_hour_count) {
+        tile.brightness = 1.0;
+        return;
+    }
+
+    const int hour_idx_1 = (hour_idx_0 + 1) % m_lut_hour_count;
+    const double hour_t = std::clamp(tile.local_hour_fraction, 0.0, 1.0);
+
+    const auto lut_value = [this](int lat_idx, int day_idx_inner, int hour_idx_inner) {
+        const std::size_t index = (static_cast<std::size_t>(lat_idx) *
+                                   static_cast<std::size_t>(m_lut_day_count) +
+                                   static_cast<std::size_t>(day_idx_inner)) *
+                                  static_cast<std::size_t>(m_lut_hour_count) +
+                                  static_cast<std::size_t>(hour_idx_inner);
+        if (index >= m_brightness_lut.size()) {
+            return 1.0;
+        }
+        return m_brightness_lut[index];
+    };
+
+    const double v00 = lut_value(lat_idx_0, day_idx, hour_idx_0);
+    const double v10 = lut_value(lat_idx_1, day_idx, hour_idx_0);
+    const double v01 = lut_value(lat_idx_0, day_idx, hour_idx_1);
+    const double v11 = lut_value(lat_idx_1, day_idx, hour_idx_1);
+
+    const double b_interp_hour_0 = lerp(v00, v10, lat_t);
+    const double b_interp_hour_1 = lerp(v01, v11, lat_t);
+
+    tile.brightness = lerp(b_interp_hour_0, b_interp_hour_1, hour_t);
 }
 
 void WorldGrid::dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock) {

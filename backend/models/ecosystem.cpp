@@ -9,6 +9,7 @@
 #include "thing_factory.h"
 #include "thing_base.h"
 #include "thread_pool.h"
+#include "map_generator.h"
 #include "tracy/Tracy.hpp"
 #include <random>
 #include <algorithm>
@@ -138,6 +139,22 @@ struct FarthestFirstRaw {
     }
 };
 
+std::string getTerrainString(TerrainType t) {
+    switch (t) {
+        case TerrainType::LAND: return "LAND";
+        case TerrainType::WATER: return "WATER";
+        case TerrainType::SHALLOW_RIVER: return "SHALLOW_RIVER";
+        case TerrainType::DEEP_RIVER: return "DEEP_RIVER";
+        case TerrainType::SHALLOW_OCEAN: return "SHALLOW_OCEAN";
+        case TerrainType::DEEP_OCEAN: return "DEEP_OCEAN";
+        case TerrainType::SAND: return "SAND";
+        case TerrainType::INLAND_SAND: return "INLAND_SAND";
+        case TerrainType::HILLS: return "HILLS";
+        case TerrainType::MOUNTAIN: return "MOUNTAIN";
+        default: return "UNKNOWN";
+    }
+}
+
 } // namespace
 
 // --- EcosystemState ---
@@ -148,10 +165,12 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
                 births(),
                 deaths(),
                 population_history(),
-                spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 100.0)),
+                spatial_grid(std::make_unique<SpatialGrid>(config.world_width, config.world_height, 25.0)),
                 m_world_grid(config.world_width, config.world_height),
                 m_all_things() {
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_clock.attach_config(&this->config);
+    m_world_grid.initialize_brightness_lut(m_clock.days_in_year(), config.map_gen_config.axial_tilt_deg);
     initialize_populations();
 }
 
@@ -160,34 +179,113 @@ EcosystemState::EcosystemState(const EcosystemConfig& config)
 */
 void EcosystemState::initialize_populations() {
     auto logger = spdlog::get("ecosim");
+    m_world_grid.set_axial_tilt_deg(config.map_gen_config.axial_tilt_deg);
     m_world_grid.resize(config.world_width, config.world_height);
     m_world_grid.clear_things();
     m_all_things.clear();
     m_thing_counts.clear();
+
+    {
+        MapGenerator generator(config);
+        generator.generate_map(m_world_grid, get_thread_local_rng());
+        m_world_grid.initialize_all_tile_states(m_clock);
+        if (logger) {
+            logger->info("[Init] Map generation and tile state initialization complete.");
+        }
+    }
     // 动物初始化块
     auto init_animals = [&]() {
         auto race_names = races_registry.get_all_species_names();
         if (logger) {
             logger->info("[Init] Initializing populations for {} races", race_names.size());
         }
+        std::mt19937& rng = get_thread_local_rng();
+        std::uniform_real_distribution<> chance_dist(0.0, 1.0);
+        const bool world_valid = (config.world_width > 0 && config.world_height > 0);
         for (const auto& name : race_names) {
             int initial_count = races_registry.get_initial_count(name);
             if (logger) {
                 logger->info("[Init] '{}' initial count: {}", name, initial_count);
             }
-            for (int i = 0; i < initial_count; ++i) {
-                std::uniform_real_distribution<> distX(0, config.world_width);
-                std::uniform_real_distribution<> distY(0, config.world_height);
-                int x = distX(get_thread_local_rng());
-                int y = distY(get_thread_local_rng());
+            if (initial_count <= 0) {
+                continue;
+            }
+
+            if (!world_valid) {
+                if (logger) {
+                    logger->warn("[Init] World dimensions invalid; skipping animal spawn for '{}'.", name);
+                }
+                continue;
+            }
+
+            auto density_it = config.animal_spawn_density_map.find(name);
+            if (density_it == config.animal_spawn_density_map.end() || density_it->second.empty()) {
+                if (logger) {
+                    logger->warn("[Init] No 'animal_spawn_density_by_terrain' config found for '{}'. Using legacy random placement.", name);
+                }
+                std::uniform_real_distribution<> distX_legacy(0.0, static_cast<double>(config.world_width));
+                std::uniform_real_distribution<> distY_legacy(0.0, static_cast<double>(config.world_height));
+                for (int i = 0; i < initial_count; ++i) {
+                    const double world_x = distX_legacy(rng);
+                    const double world_y = distY_legacy(rng);
+                    try {
+                        auto new_individual = g_race_factory.create(name, Position{world_x, world_y}, rng);
+                        races_registry.add_individual(name, std::move(new_individual));
+                    } catch (const std::exception& e) {
+                        if (logger) {
+                            logger->error("[Init] Legacy create failed for '{}' at index {}: {}", name, i, e.what());
+                        }
+                        throw;
+                    }
+                }
+                continue;
+            }
+
+            if (logger) {
+                logger->info("[Init] Using terrain density map to spawn '{}'.", name);
+            }
+
+            std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+            std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+            const auto& density_map = density_it->second;
+
+            int spawned = 0;
+            int attempts = 0;
+            const int max_attempts = std::max(100000, initial_count * 50);
+
+            while (spawned < initial_count && attempts < max_attempts) {
+                ++attempts;
+
+                const int tile_x = dist_tile_x(rng);
+                const int tile_y = dist_tile_y(rng);
+                const Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
+
+                auto terrain_it = density_map.find(getTerrainString(tile.terrain));
+                const double spawn_probability = (terrain_it != density_map.end()) ? terrain_it->second : 0.0;
+
+                if (spawn_probability <= 0.0 || chance_dist(rng) >= spawn_probability) {
+                    continue;
+                }
+
+                Position world_pos{static_cast<double>(tile_x) + 0.5, static_cast<double>(tile_y) + 0.5};
                 try {
-                    auto new_individual = g_race_factory.create(name, Position{static_cast<double>(x), static_cast<double>(y)}, get_thread_local_rng());
-                    races_registry.add_individual(name, std::move(new_individual));
+                    auto new_individual = g_race_factory.create(name, world_pos, rng);
+                    if (new_individual) {
+                        races_registry.add_individual(name, std::move(new_individual));
+                        ++spawned;
+                    }
                 } catch (const std::exception& e) {
                     if (logger) {
-                        logger->error("[Init] Failed to create instance for '{}' at index {}: {}", name, i, e.what());
+                        logger->error("[Init] Density create failed for '{}': {}", name, e.what());
                     }
-                    throw;
+                    break;
+                }
+            }
+
+            if (logger) {
+                logger->info("[Init] Animal density sampling complete: Spawned {} / {} '{}' ({} attempts)", spawned, initial_count, name, attempts);
+                if (attempts >= max_attempts && spawned < initial_count) {
+                    logger->warn("[Init] Animal density sampling hit max attempts for '{}'. Map may be unsuitable or probabilities too low.", name);
                 }
             }
         }
@@ -201,17 +299,95 @@ void EcosystemState::initialize_populations() {
         }
 
         std::mt19937& rng = get_thread_local_rng();
+
+        // 专属草生成逻辑：使用概率采样在空地块上生成目标数量的草
+        if (g_thing_factory.is_registered("grass")) {
+            if (logger) logger->info("[Init] 启动 概率采样 模式生成 'grass'...");
+
+            int target_count = 0;
+            auto pop_it = config.initial_populations.find("grass");
+            if (pop_it != config.initial_populations.end()) {
+                target_count = pop_it->second;
+            }
+
+            const auto& density_map = config.initial_grass_density_map;
+
+            if (target_count > 0 && !density_map.empty()) {
+                int spawned_count = 0;
+                int attempts = 0;
+                const int max_attempts = std::max(100000, target_count * 50);
+
+                std::uniform_int_distribution<int> dist_x(0, config.world_width - 1);
+                std::uniform_int_distribution<int> dist_y(0, config.world_height - 1);
+                std::uniform_real_distribution<> prob_dist(0.0, 1.0);
+
+                while (spawned_count < target_count && attempts < max_attempts) {
+                    ++attempts;
+
+                    const int x = dist_x(rng);
+                    const int y = dist_y(rng);
+                    Tile& tile = m_world_grid.get_tile(x, y);
+
+                    if (!tile.things.empty()) {
+                        continue;
+                    }
+
+                    std::string terrain_key = getTerrainString(tile.terrain);
+                    auto it = density_map.find(terrain_key);
+                    const double spawn_prob = (it != density_map.end()) ? it->second : 0.0;
+
+                    if (spawn_prob > 0.0 && prob_dist(rng) < spawn_prob) {
+                        Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                        auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
+
+                        if (thing_unique) {
+                            std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                            thing->position = world_pos;
+                            thing->m_grid_x = x;
+                            thing->m_grid_y = y;
+                            attach_thing_to_world(thing);
+                            ++spawned_count;
+                        }
+                    }
+                }
+
+                if (logger) {
+                    logger->info("[Init] 概率采样 完成: 生成 {} / {} 个 'grass' (尝试了 {} 次)", spawned_count, target_count, attempts);
+                    if (attempts >= max_attempts && spawned_count < target_count) {
+                        logger->warn("[Init] 概率采样 达到最大尝试次数。地图可能已满，或地形概率设置过低。");
+                    }
+                }
+            } else if (target_count > 0 && density_map.empty()) {
+                if (logger) {
+                    logger->warn("[Init] 'grass' 在 initial_populations 中已指定，但 'grass_density_by_terrain' 未配置。无法计算概率，跳过草地生成。");
+                }
+            } else {
+                if (logger) {
+                    logger->info("[Init] 'grass' 目标数量为 0 或未配置，跳过生成。");
+                }
+            }
+        }
+
         std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
         std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
 
         for (const auto& name : thing_names) {
+            if (name == "grass") {
+                continue;
+            }
+
             int initial_count = 0;
             auto it = config.initial_populations.find(name);
             if (it != config.initial_populations.end()) {
                 initial_count = it->second;
             }
+
+            if (initial_count == 0) {
+                continue;
+            }
+
             if (logger) {
-                logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
+                logger->info("[Init] '{}' initial thing count (random scatter): {}", name, initial_count);
             }
 
             int attempts = 0;
@@ -223,7 +399,9 @@ void EcosystemState::initialize_populations() {
                     int tile_x = dist_tile_x(rng);
                     int tile_y = dist_tile_y(rng);
                     Tile& tile = m_world_grid.get_tile(tile_x, tile_y);
-                    if (tile.terrain != TerrainType::LAND || !tile.things.empty()) {
+
+                    const bool is_plantable = (tile.terrain == TerrainType::LAND || tile.terrain == TerrainType::HILLS);
+                    if (!is_plantable || !tile.things.empty()) {
                         continue;
                     }
 
@@ -393,6 +571,7 @@ EcosystemStateData EcosystemState::get_ecosystem_state() const {
     EcosystemStateData state;
     state.world_width = config.world_width;
     state.world_height = config.world_height;
+    state.world_grid = &m_world_grid;
     state.time_step = m_clock.time_step();
     state.current_day = m_clock.current_day();
     state.current_quadrum = m_clock.current_quadrum();
@@ -742,62 +921,70 @@ void EcosystemState::dispatch_apply_tasks(ThreadPool& pool) {
  * 并发控制和逻辑。
  */
 void EcosystemState::apply_registry_changes() {
+    ZoneScoped;
     // 标记当前阶段为最终化阶段
     current_phase = UpdatePhase::Finalize;
-    m_population_manager.apply_changes(*this);
-    m_resolution_state.clear();
-    staged_requests.clear();
-    current_phase = UpdatePhase::Idle;
-
-    // --- 装饰树的自动保持逻辑 ---
-    // 如果配置中指定了 initial_populations 中的 "decor_tree" 值，则以其为基准，
-    // 保持树的数量在 [base-5, base+5] 区间内（最小为0）。否则使用默认范围 [20,30]
-    int base = -1;
-    auto it = config.initial_populations.find("decor_tree");
-    if (it != config.initial_populations.end()) base = it->second;
-
-    int minTrees = 1000;
-    int maxTrees = 3000;
-    if (base >= 0) {
-        minTrees = std::max(0, base - 5);
-        maxTrees = base + 5;
+    {
+        ZoneScopedN("Apply Registry Changes");
+        m_population_manager.apply_changes(*this);
+        m_resolution_state.clear();
+        staged_requests.clear();
+        current_phase = UpdatePhase::Idle;
     }
+    
+    {
+        ZoneScopedN("Deco Tree");
+        // --- 装饰树的自动保持逻辑 ---
+        // 如果配置中指定了 initial_populations 中的 "decor_tree" 值，则以其为基准，
+        // 保持树的数量在 [base-5, base+5] 区间内（最小为0）。否则使用默认范围 [20,30]
+        int base = -1;
+        auto it = config.initial_populations.find("decor_tree");
+        if (it != config.initial_populations.end()) base = it->second;
 
-    std::size_t currentTrees = 0;
-    auto itc = m_thing_counts.find("decor_tree");
-    if (itc != m_thing_counts.end()) currentTrees = itc->second;
+        int minTrees = 1000;
+        int maxTrees = 3000;
+        if (base >= 0) {
+            minTrees = std::max(0, base - 5);
+            maxTrees = base + 5;
+        }
 
-    if (currentTrees < static_cast<std::size_t>(minTrees)) {
-        std::mt19937& rng = get_thread_local_rng();
-        std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
-        std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
-        int attempts = 0;
-        const int maxAttempts = 1000;
-        while (currentTrees < static_cast<std::size_t>(minTrees) && attempts < maxAttempts) {
-            ++attempts;
-            int tx = dist_tile_x(rng);
-            int ty = dist_tile_y(rng);
-            Tile& tile = m_world_grid.get_tile(tx, ty);
-            if (tile.terrain != TerrainType::LAND) continue;
-            if (!tile.things.empty()) continue;
+        std::size_t currentTrees = 0;
+        auto itc = m_thing_counts.find("decor_tree");
+        if (itc != m_thing_counts.end()) currentTrees = itc->second;
 
-            Position pos{static_cast<double>(tx) + 0.5, static_cast<double>(ty) + 0.5};
-            try {
-                auto thing_unique = g_thing_factory.create("decor_tree", pos, rng);
-                if (!thing_unique) continue;
-                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
-                thing->position = pos;
-                thing->m_grid_x = tx;
-                thing->m_grid_y = ty;
-                attach_thing_to_world(thing);
-                ++currentTrees;
-            } catch (const std::exception& e) {
-                if (auto logger = spdlog::get("ecosim")) {
-                    logger->warn("[DecorTreeSpawn] failed to create decor_tree: {}", e.what());
+        if (currentTrees < static_cast<std::size_t>(minTrees)) {
+            std::mt19937& rng = get_thread_local_rng();
+            std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+            std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+            int attempts = 0;
+            const int maxAttempts = 1000;
+            while (currentTrees < static_cast<std::size_t>(minTrees) && attempts < maxAttempts) {
+                ++attempts;
+                int tx = dist_tile_x(rng);
+                int ty = dist_tile_y(rng);
+                Tile& tile = m_world_grid.get_tile(tx, ty);
+                if (tile.terrain != TerrainType::LAND) continue;
+                if (!tile.things.empty()) continue;
+
+                Position pos{static_cast<double>(tx) + 0.5, static_cast<double>(ty) + 0.5};
+                try {
+                    auto thing_unique = g_thing_factory.create("decor_tree", pos, rng);
+                    if (!thing_unique) continue;
+                    std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                    thing->position = pos;
+                    thing->m_grid_x = tx;
+                    thing->m_grid_y = ty;
+                    attach_thing_to_world(thing);
+                    ++currentTrees;
+                } catch (const std::exception& e) {
+                    if (auto logger = spdlog::get("ecosim")) {
+                        logger->warn("[DecorTreeSpawn] failed to create decor_tree: {}", e.what());
+                    }
                 }
             }
         }
     }
+    
 }
 
 /**
@@ -914,6 +1101,8 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     config = new_config;
     m_clock.attach_config(&config);
     m_clock.reset();
+    m_world_grid.set_axial_tilt_deg(new_config.map_gen_config.axial_tilt_deg);
+    m_world_grid.initialize_brightness_lut(m_clock.days_in_year(), new_config.map_gen_config.axial_tilt_deg);
     // 重新构造注册表以应用新的初始数量
     races_registry = RacesRegistry(config);
     births.reset();
@@ -924,7 +1113,7 @@ void EcosystemState::reset(const EcosystemConfig& new_config) {
     main_thread_requests.clear();
     m_resolution_state.clear();
     m_thing_counts.clear();
-    const double cell = spatial_grid ? spatial_grid->get_cell_size() : 100.0;
+    const double cell = spatial_grid ? spatial_grid->get_cell_size() : 25.0;
     spatial_grid = std::make_unique<SpatialGrid>(config.world_width, config.world_height, cell);
     initialize_populations();
 }

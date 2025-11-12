@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <cstddef>
 
 class ThingBase;
 
@@ -18,23 +19,38 @@ enum class TerrainType {
     MOUNTAIN
 };
 
+struct TerrainTypeHash {
+    std::size_t operator()(TerrainType t) const noexcept {
+        return static_cast<std::size_t>(t);
+    }
+};
+
 // 生物群系类型（原 ClimateZone）
 enum class BiomeType {
-    Temperate,
-    Tropical,
-    Frigid,
-    Polar
+    PolarIce,
+    Tundra,
+    BorealForest,
+    TemperateForest,
+    TemperateRainforest,
+    Grassland,
+    Savanna,
+    TropicalForest,
+    Desert,
+    Ocean
 };
 
 struct Tile {
     TerrainType terrain { TerrainType::LAND };
     double elevation {0.0};
     double moisture {0.0};
-    BiomeType biome { BiomeType::Temperate };
+    BiomeType biome { BiomeType::TemperateForest };
     int fertility {0};
     double longitude {0.0};
     double latitude {0.0};
     double temperature {0.0};
     int local_hour {0};
+    double local_hour_fraction {0.0};
+    // 局部亮度 (0.0 = 夜晚, 1.0 = 正午)
+    double brightness {1.0};
     std::vector<ThingBase*> things;
 };

@@ -118,6 +118,7 @@ endif()
 # 添加头文件搜索路径（后端与前端 UI 接口）
 include_directories(
     ${CMAKE_SOURCE_DIR}/backend/include
+    ${CMAKE_SOURCE_DIR}/external
     ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/utils
 )
@@ -143,7 +144,9 @@ set(BACKEND_CORE_SOURCES
     backend/models/race_factory.cpp 
     backend/models/thing_factory.cpp 
     backend/models/species_config_provider_yaml.cpp 
-    backend/models/map_config_loader.cpp
+    backend/models/map_config_loader.cpp 
+    backend/models/map_generator.cpp 
+    backend/models/pathfinding.cpp 
     backend/models/ecosystem_state_yaml.cpp 
 )
 

@@ -30,18 +30,32 @@ public:
 
     std::vector<std::shared_ptr<ThingBase>> get_nearby_things_broad(const Position& center, double radius) const;
 
+    void initialize_all_tile_states(const WorldClock& clock);
+
+    void initialize_brightness_lut(int days_per_year, double axial_tilt_deg);
+
     void dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock);
 
     int width() const noexcept { return m_width; }
     int height() const noexcept { return m_height; }
+
+    void set_axial_tilt_deg(double degrees) noexcept { m_axial_tilt_deg = degrees; }
+    double axial_tilt_deg() const noexcept { return m_axial_tilt_deg; }
 
 private:
     int m_width{0};
     int m_height{0};
     std::vector<Tile> m_tiles;
     int m_map_update_amortization_ticks{10};
+    double m_axial_tilt_deg{23.44};
+    std::vector<double> m_brightness_lut;
+    int m_lut_lat_count{0};
+    int m_lut_day_count{0};
+    int m_lut_hour_count{0};
+    bool m_lut_initialized{false};
 
     void update_tile_state(Tile& tile, const WorldClock& clock);
     void update_tile_local_time(Tile& tile, const WorldClock& clock);
     void update_tile_weather(Tile& tile, const WorldClock& clock);
+    void update_tile_brightness(Tile& tile, const WorldClock& clock);
 };

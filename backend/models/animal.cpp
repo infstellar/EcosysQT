@@ -33,6 +33,9 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             hunting_range(params.hunting_range),
             hunting_success_rate(params.hunting_success_rate),
             detection_range(params.detection_range),
+            threat_detection_range(params.threat_detection_range > 0.0 ? params.threat_detection_range : params.detection_range),
+            mate_detection_range(params.mate_detection_range > 0.0 ? params.mate_detection_range : params.detection_range),
+            food_detection_range(params.food_detection_range > 0.0 ? params.food_detection_range : params.detection_range),
             food_types(params.food_types),
             hunting_cooldown(0),
             hunting_cooldown_duration(params.hunting_cooldown_duration),
@@ -48,7 +51,8 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             starving_threshold(params.energy * params.starving_threshold_ratio),
             wander_radius(params.wander_radius),
             mating_desire_probability(params.mating_desire_probability),
-            nutrition_value(params.nutrition_value) {
+            nutrition_value(params.nutrition_value),
+            pathfinding_params(params.pathfinding) {
     // 交配/怀孕相关参数初始化
     mating_duration = params.mating_duration;
     pregnancy_duration = params.pregnancy_duration;
@@ -157,13 +161,15 @@ void Animal::apply_hp_regen(const EcosystemState& ecosystem_state) {
         return;
     }
     // 批量恢复：保持每日期望不变（按间隔汇总 base_per_tick * ticks）
-    const double regen_amount = base_per_tick * hunger_mul * static_cast<double>(ticks_since_last_regen);
+    double regen_amount = base_per_tick * hunger_mul * static_cast<double>(ticks_since_last_regen);
     ticks_since_last_regen = 0;
     if (regen_amount > 0.0 && hp_current < hp_max) {
+        // Apply global HP regen multiplier (may be lowered by behavior tree when threat nearby)
+        regen_amount *= hp_regen_multiplier;
         hp_current = std::min(hp_max, hp_current + regen_amount);
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[HP Regen] '{}' +{:.3f} (tpd={}, interval_ticks={}, base/day={:.2f}, hunger_mul={:.2f})",
-            species_name, regen_amount, tpd, interval_ticks, hp_regen_base_per_day, hunger_mul);
+            "[HP Regen] '{}' +{:.3f} (after mul {:.2f}) (tpd={}, interval_ticks={}, base/day={:.2f}, hunger_mul={:.2f})",
+            species_name, regen_amount, hp_regen_multiplier, tpd, interval_ticks, hp_regen_base_per_day, hunger_mul);
     }
 }
 
@@ -177,6 +183,52 @@ void Animal::update_hunger_state() {
     }
 }
 
+// 设置全局 HP 恢复倍率（由行为树 Update 节点在检测到威胁时调用）
+void Animal::set_hp_regen_multiplier(double m) {
+    hp_regen_multiplier = std::max(0.0, m);
+}
+
+void Animal::update_flee_ticks(bool is_fleeing, int ticks_per_day, double tired_after_seconds, double tired_speed_multiplier) {
+    // Convert seconds to ticks using ticks_per_day / 86400 (seconds per day)
+    const double ticks_per_sec = (ticks_per_day > 0) ? (static_cast<double>(ticks_per_day) / 86400.0) : 0.0;
+    int threshold_ticks = 1;
+    if (ticks_per_sec > 0.0) {
+        threshold_ticks = std::max(1, static_cast<int>(std::ceil(ticks_per_sec * std::max(0.0, tired_after_seconds))));
+    }
+
+    if (is_fleeing) {
+        consecutive_flee_ticks += 1;
+        if (!tired && consecutive_flee_ticks >= threshold_ticks) {
+            tired = true;
+            current_tired_speed_multiplier = std::max(0.0, tired_speed_multiplier);
+            if (auto logger = spdlog::get("ecosim")) {
+                logger->info("[FleeState] '{}' entered TIRED state after {} ticks (threshold {}), speed mul -> {:.2f}",
+                             species_name, consecutive_flee_ticks, threshold_ticks, current_tired_speed_multiplier);
+            }
+        }
+    } else {
+        if (consecutive_flee_ticks > 0 || tired) {
+            if (tired) {
+                if (auto logger = spdlog::get("ecosim")) {
+                    logger->info("[FleeState] '{}' recovered from TIRED after {} flee ticks", species_name, consecutive_flee_ticks);
+                }
+            }
+        }
+        consecutive_flee_ticks = 0;
+        tired = false;
+        current_tired_speed_multiplier = 1.0;
+    }
+}
+
+bool Animal::is_tired() const {
+    return tired;
+}
+
+double Animal::get_tired_speed_multiplier() const {
+    return current_tired_speed_multiplier;
+}
+
+
 // ---- 新增：公共访问接口实现（供行为树使用） ----
 HungerState Animal::get_hunger_state() const { return hunger_state; }
 void Animal::refresh_hunger_state() { update_hunger_state(); }
@@ -184,6 +236,9 @@ double Animal::get_mating_range() const { return mating_range; }
 double Animal::get_wander_radius() const { return wander_radius; }
 double Animal::get_mating_desire_probability() const { return mating_desire_probability; }
 double Animal::get_detection_range() const { return detection_range; }
+double Animal::get_threat_detection_range() const { return threat_detection_range; }
+double Animal::get_mate_detection_range() const { return mate_detection_range; }
+double Animal::get_food_detection_range() const { return food_detection_range; }
 double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
 bool Animal::get_skip_movement() const { return skip_movement; }
 void Animal::set_skip_movement(bool v) { skip_movement = v; }
@@ -253,9 +308,15 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 
 
 void Animal::plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target) {
-    if (!target.has_value()) return;
-    planned_path.clear();
-    planned_path.push_back(target.value());
+    if (!target.has_value()) {
+        clear_path();
+        return;
+    }
+    plan_path_to_target(std::vector<Position>{target.value()});
+}
+
+void Animal::plan_path_to_target(const std::vector<Position>& path) {
+    planned_path = path;
     planned_path_index = 0;
 }
 
@@ -333,7 +394,7 @@ std::optional<std::shared_ptr<Animal>> Animal::find_available_mate(const Ecosyst
     if (sex == Sex::FEMALE) return std::nullopt;
     std::optional<std::shared_ptr<Animal>> nearest_mate;
     double min_distance = std::numeric_limits<double>::max();
-    const auto nearby_entities = ecosystem_state.get_nearby_races_broad(position, detection_range);
+    const auto nearby_entities = ecosystem_state.get_nearby_races_broad(position, mate_detection_range);
     for (const auto& entity_ptr : nearby_entities) {
         if (!entity_ptr || !entity_ptr->alive || entity_ptr.get() == this || entity_ptr->species_name != this->species_name) continue;
         auto potential_mate = std::dynamic_pointer_cast<Animal>(entity_ptr);
@@ -381,6 +442,9 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     if (bb.doubles.find("attack_damage_max") == bb.doubles.end()) {
         bb.doubles["attack_damage_max"] = params.attack_damage_max;
     }
+    if (bb.doubles.find("pathfinding_budget_multiplier") == bb.doubles.end()) {
+        bb.doubles["pathfinding_budget_multiplier"] = params.pathfinding.budget_multiplier;
+    }
     // 注入字符串参数
     for (const auto& kv : params.bt_params_strings) {
         bb.strings[kv.first] = kv.second;
@@ -406,6 +470,10 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     // 追草多步推进的默认值（未在 YAML 指定时），缓解“逐帧小步·放大似瞬移”问题
     if (bb.ints.find("chase_substeps_per_tick") == bb.ints.end()) {
         bb.ints["chase_substeps_per_tick"] = 3; // 默认每 tick 连续推进 3 步
+    }
+
+    if (bb.ints.find(bt::keys::PathReplanInterval) == bb.ints.end()) {
+        bb.ints[bt::keys::PathReplanInterval] = params.pathfinding.replan_interval;
     }
 
     // 打印调试信息：eat_grass_total_ticks 来源与当前黑板值

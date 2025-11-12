@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 #include <QFile>
 #include <QIODevice>
@@ -225,6 +226,146 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         for (const auto& kv : cfg.initial_populations) {
             logger->info("[MapConfig] init '{}' = {}", kv.first, kv.second);
         }
+    }
+
+    if (const auto map_gen = root["map_generation"]; map_gen) {
+        if (logger) logger->info("[MapConfig] Loading 'map_generation' parameters...");
+        auto& mg_cfg = cfg.map_gen_config;
+
+        const auto read_float = [&](const char* key, float fallback) -> float {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<float>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid float for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
+        const auto read_double = [&](const char* key, double fallback) -> double {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<double>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid double for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
+        const auto read_string = [&](const char* key, const std::string& fallback) -> std::string {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<std::string>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid string for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
+        mg_cfg.elevation_frequency = read_float("elevation_frequency", mg_cfg.elevation_frequency);
+        mg_cfg.moisture_frequency = read_float("moisture_frequency", mg_cfg.moisture_frequency);
+        mg_cfg.flow_river_threshold = read_float("flow_river_threshold", mg_cfg.flow_river_threshold);
+        mg_cfg.tiles_per_degree = read_double("tiles_per_degree", mg_cfg.tiles_per_degree);
+        mg_cfg.base_latitude = read_double("base_latitude", mg_cfg.base_latitude);
+        mg_cfg.base_longitude = read_double("base_longitude", mg_cfg.base_longitude);
+        mg_cfg.axial_tilt_deg = read_double("axial_tilt_deg", mg_cfg.axial_tilt_deg);
+        mg_cfg.sea_level = read_double("sea_level", mg_cfg.sea_level);
+        mg_cfg.deep_sea_level = read_double("deep_sea_level", mg_cfg.deep_sea_level);
+        mg_cfg.wind_direction = read_string("wind_direction", mg_cfg.wind_direction);
+        mg_cfg.wind_strength = read_double("wind_strength", mg_cfg.wind_strength);
+
+        // 仅支持已知方向，其他值回退为 "None"
+        if (mg_cfg.wind_direction != "West" && mg_cfg.wind_direction != "East" && mg_cfg.wind_direction != "None") {
+            if (logger) {
+                logger->warn("[MapConfig] Unsupported wind_direction '{}', falling back to 'None'", mg_cfg.wind_direction);
+            }
+            mg_cfg.wind_direction = "None";
+        }
+        mg_cfg.wind_strength = std::clamp(mg_cfg.wind_strength, 0.0, 5.0);
+
+        if (logger) {
+            logger->info("[MapConfig]   elev_freq: {}", mg_cfg.elevation_frequency);
+            logger->info("[MapConfig]   moisture_freq: {}", mg_cfg.moisture_frequency);
+            logger->info("[MapConfig]   flow_river_threshold: {}", mg_cfg.flow_river_threshold);
+            logger->info("[MapConfig]   tiles_per_degree: {}", mg_cfg.tiles_per_degree);
+            if (std::abs(mg_cfg.base_latitude - 999.0) < 1e-6) {
+                logger->info("[MapConfig]   base_lat: Random");
+            } else {
+                logger->info("[MapConfig]   base_lat: {}", mg_cfg.base_latitude);
+            }
+            if (std::abs(mg_cfg.base_longitude - 999.0) < 1e-6) {
+                logger->info("[MapConfig]   base_lon: Random");
+            } else {
+                logger->info("[MapConfig]   base_lon: {}", mg_cfg.base_longitude);
+            }
+            logger->info("[MapConfig]   axial_tilt_deg: {}", mg_cfg.axial_tilt_deg);
+            logger->info("[MapConfig]   sea_level (shallow): {}", mg_cfg.sea_level);
+            logger->info("[MapConfig]   deep_sea_level (deep): {}", mg_cfg.deep_sea_level);
+            logger->info("[MapConfig]   wind_direction: {}", mg_cfg.wind_direction);
+            logger->info("[MapConfig]   wind_strength: {}", mg_cfg.wind_strength);
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'map_generation' node missing. Using default map parameters.");
+    }
+
+    if (const auto grass_density = root["grass_density_by_terrain"]; grass_density && grass_density.IsMap()) {
+        if (logger) logger->info("[MapConfig] Loading 'grass_density_by_terrain'...");
+        for (const auto& entry : grass_density) {
+            try {
+                std::string terrain_name = entry.first.as<std::string>();
+                double probability = entry.second.as<double>();
+                probability = std::max(0.0, std::min(1.0, probability));
+                cfg.initial_grass_density_map[terrain_name] = probability;
+                if (logger) logger->info("[MapConfig]   {} density = {}", terrain_name, probability);
+            } catch (const std::exception& e) {
+                if (logger) logger->warn("[MapConfig]   Skipping invalid entry in grass_density_by_terrain: {}", e.what());
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'grass_density_by_terrain' not found. 'grass' will use standard random placement if specified in initial_populations.");
+    }
+
+    if (const auto animal_density_root = root["animal_spawn_density_by_terrain"]; animal_density_root && animal_density_root.IsMap()) {
+        if (logger) logger->info("[MapConfig] Loading 'animal_spawn_density_by_terrain'...");
+        for (const auto& species_entry : animal_density_root) {
+            try {
+                if (!species_entry.first.IsScalar()) {
+                    if (logger) logger->warn("[MapConfig]   Skipping non-scalar key in animal_spawn_density_by_terrain.");
+                    continue;
+                }
+
+                std::string species_name = species_entry.first.as<std::string>();
+                const YAML::Node& terrain_map_node = species_entry.second;
+                if (!terrain_map_node.IsMap()) {
+                    if (logger) logger->warn("[MapConfig]   Skipping '{}' in animal_spawn_density_by_terrain: value is not a map.", species_name);
+                    continue;
+                }
+
+                std::map<std::string, double> terrain_map;
+                for (const auto& terrain_entry : terrain_map_node) {
+                    try {
+                        std::string terrain_name = terrain_entry.first.as<std::string>();
+                        double probability = terrain_entry.second.as<double>();
+                        probability = std::max(0.0, std::min(1.0, probability));
+                        terrain_map[terrain_name] = probability;
+                    } catch (const std::exception& e) {
+                        if (logger) logger->warn("[MapConfig]     Skipping invalid terrain entry for '{}': {}", species_name, e.what());
+                    }
+                }
+
+                if (!terrain_map.empty()) {
+                    cfg.animal_spawn_density_map[species_name] = std::move(terrain_map);
+                    if (logger) logger->info("[MapConfig]   Loaded {} terrain entries for animal '{}'", cfg.animal_spawn_density_map[species_name].size(), species_name);
+                }
+            } catch (const std::exception& e) {
+                if (logger) logger->warn("[MapConfig]   Skipping invalid entry in animal_spawn_density_by_terrain: {}", e.what());
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'animal_spawn_density_by_terrain' not found. Animals will use standard random placement.");
     }
 
     return cfg;

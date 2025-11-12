@@ -14,6 +14,9 @@
 // 前向声明
 class RaceBase;
 class ThingBase;
+class WorldGrid;
+
+// 交互请求类型已迁移至 interaction.h
 
 // 表示2D空间中坐标的位置结构体
 struct Position {
@@ -42,8 +45,12 @@ struct EcosystemStateData {
     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;
     // 新增：后端模拟TPS（每秒tick数）
     double current_tps;
+    // 新增：世界网格指针（只读引用）
+    const WorldGrid* world_grid = nullptr;
+    
     std::string toYaml() const;
     void fromYaml(const YAML::Node& node);
+    
 };
 
 #endif // UTILS_H

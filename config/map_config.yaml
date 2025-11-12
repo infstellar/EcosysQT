@@ -1,6 +1,6 @@
 world:
-  width: 800
-  height: 600
+  width: 1080
+  height: 720
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
@@ -17,6 +17,32 @@ simulation:
   days_per_year: 40
   quadrums_per_year: 4
   days_per_quadrum: 10
+
+# --- 地图生成参数 ---
+map_generation:
+  # 噪声频率设置
+  elevation_frequency: 0.002
+  moisture_frequency: 0.005
+  # 流量累积阈值：代表一个地块需要汇聚多少上游地块的水流才能形成河流
+  flow_river_threshold: 100
+
+  # 经纬度缩放：多少格≈1度
+  tiles_per_degree: 5.0
+
+  # 基准经纬度：999.0 表示随机生成
+  base_latitude: 0.0
+  base_longitude: 17.0
+
+  # 行星轴向倾斜（单位：度），用于计算季节与昼夜循环
+  axial_tilt_deg: 23.44
+
+  # 海平面配置：可根据需要调整海洋面积
+  sea_level: -0.5
+  deep_sea_level: -0.8
+
+  # 盛行风配置
+  wind_direction: "West"   # 可选: "West", "East", "None"
+  wind_strength: 0.6       # 0.0 = 无影响, 1.0 = 完全由风决定湿度
 
 # 可选的分区结构（演示用途）：
 #populations:
@@ -36,3 +62,29 @@ simulation:
 #      races: { cow: 20, tiger: 3 }
 #      things: { grass: 10 }
 # 两者会合并到 EcosystemConfig.initial_populations。
+
+# --- 草地生成密度图 ---
+# 定义不同地形上生成 'grass' 的概率 (0.0 到 1.0)
+# 未在此处列出的地形将默认为 0.0
+grass_density_by_terrain:
+  LAND: 0.85
+  HILLS: 0.5
+  SAND: 0.05
+  INLAND_SAND: 0.02
+# 其他地形概率默认为 0.0
+
+# --- 动物生成密度图 ---
+# 定义不同物种在特定地形上生成的概率 (0.0 到 1.0)
+# 用于概率采样，直到达到 initial_populations 中的目标数量
+# 未在此处配置的动物将使用旧的、全地图随机坐标的生成方式
+animal_spawn_density_by_terrain:
+  cow:
+    LAND: 0.1
+    HILLS: 0.05
+    SAND: 0.01
+    INLAND_SAND: 0.01
+  tiger:
+    LAND: 0.02
+    HILLS: 0.05
+    MOUNTAIN: 0.01
+
