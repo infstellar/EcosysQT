@@ -13,7 +13,7 @@ animal:
   movement_speed: 0.08 # 3.5m/s
   energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
   detection_range: 100.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
-  threat_detection_range: 200.0
+  threat_detection_range: 30.0
   mate_detection_range: 80.0
   food_detection_range: 60.0
   wander_radius: 50.0 # 游荡目标采样半径，选择随机目标点时的最大范围。采样公式： r = max(movement_speed, sqrt(U) * wander_radius) （ U∈[0,1] ），因此目标点在圆盘内近似面积均匀分布。
