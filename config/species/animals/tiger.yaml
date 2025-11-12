@@ -7,12 +7,12 @@ species:
   energy: 200
   max_age: 180000 # 6个月，6*10*3000=180000
   # 最小繁殖能量（）
-  min_reproduction_energy: 160
+  min_reproduction_energy: 180
 animal:
   movement_speed: 0.16
   energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
   hunting_range: 2
-  hunting_success_rate: 0.66 # 建议增加hitting ratio
+  hunting_success_rate: 0.7 # 建议增加hitting ratio
   attack_damage: 66.0 # 默认伤害
   attack_damage_min: 30.0 #伤害下限，优先于默认伤害
   attack_damage_max: 66.0 #伤害上限，优先于默认伤害
@@ -38,7 +38,7 @@ animal:
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
       # 攻击后摇减速倍率：处于攻击冷却时的全局速度乘数
-      attack_recovery_speed_multiplier: 0.7
+      attack_recovery_speed_multiplier: 0.6
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
     ints:
@@ -46,7 +46,7 @@ animal:
   # 攻击冷却时长：
   hunting_cooldown_duration: 45 
   min_reproduction_age: 30
-  reproduction_cooldown: 25000
+  reproduction_cooldown: 6000
 
   wandering_duration: 150
   
