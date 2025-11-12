@@ -28,7 +28,8 @@ enum class BiomeType {
     Grassland,
     Savanna,
     TropicalForest,
-    Desert
+    Desert,
+    Ocean
 };
 
 struct Tile {

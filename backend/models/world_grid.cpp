@@ -256,6 +256,11 @@ void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
         seasonal_amplitude = 13.0;
         diurnal_amplitude = 9.0;
         break;
+    case BiomeType::Ocean:
+        base_temperature = 16.0;
+        seasonal_amplitude = 6.0;
+        diurnal_amplitude = 3.0;
+        break;
     default:
         break;
     }
