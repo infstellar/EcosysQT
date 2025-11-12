@@ -36,6 +36,7 @@ struct Tile {
     double latitude {0.0};
     double temperature {0.0};
     int local_hour {0};
+    double local_hour_fraction {0.0};
     // 局部亮度 (0.0 = 夜晚, 1.0 = 正午)
     double brightness {1.0};
     std::vector<ThingBase*> things;

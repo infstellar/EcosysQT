@@ -9,6 +9,12 @@
 #include <functional>
 #include <stdexcept>
 
+namespace {
+inline double lerp(double v0, double v1, double t) {
+    return v0 * (1.0 - t) + v1 * t;
+}
+}
+
 WorldGrid::WorldGrid(int width, int height) {
     resize(width, height);
 }
@@ -184,17 +190,19 @@ void WorldGrid::initialize_brightness_lut(int days_per_year, double axial_tilt_d
 }
 
 void WorldGrid::update_tile_local_time(Tile& tile, const WorldClock& clock) {
-    const int global_hour = clock.current_hour();
+    const double global_hour = static_cast<double>(clock.current_hour());
+    const double global_hour_frac = static_cast<double>(clock.current_minute()) / 60.0;
     const double raw_offset = tile.longitude / 15.0;
-    const int hour_offset = static_cast<int>(std::lround(raw_offset));
 
-    int local_hour = global_hour + hour_offset;
-    local_hour %= 24;
-    if (local_hour < 0) {
-        local_hour += 24;
+    double exact_local_hour = global_hour + global_hour_frac + raw_offset;
+    exact_local_hour = std::fmod(exact_local_hour, 24.0);
+    if (exact_local_hour < 0.0) {
+        exact_local_hour += 24.0;
     }
 
-    tile.local_hour = local_hour;
+    const double local_hour_floor = std::floor(exact_local_hour);
+    tile.local_hour = static_cast<int>(local_hour_floor);
+    tile.local_hour_fraction = std::clamp(exact_local_hour - local_hour_floor, 0.0, 1.0);
 }
 
 void WorldGrid::update_tile_weather(Tile& tile, const WorldClock& clock) {
@@ -250,11 +258,16 @@ void WorldGrid::update_tile_brightness(Tile& tile, const WorldClock& clock) {
         return;
     }
 
-    const int lat_idx = static_cast<int>(std::lround(tile.latitude)) + 90;
-    if (lat_idx < 0 || lat_idx >= m_lut_lat_count) {
-        tile.brightness = 1.0;
-        return;
-    }
+    const double exact_lat = tile.latitude + 90.0;
+    const double lat_floor = std::floor(exact_lat);
+    int lat_idx_0 = static_cast<int>(lat_floor);
+    int lat_idx_1 = lat_idx_0 + 1;
+    double lat_t = exact_lat - lat_floor;
+
+    const int max_lat_idx = m_lut_lat_count - 1;
+    lat_idx_0 = std::clamp(lat_idx_0, 0, max_lat_idx);
+    lat_idx_1 = std::clamp(lat_idx_1, 0, max_lat_idx);
+    lat_t = std::clamp(lat_t, 0.0, 1.0);
 
     int day_idx = clock.current_day() - 1;
     if (day_idx < 0) {
@@ -264,24 +277,41 @@ void WorldGrid::update_tile_brightness(Tile& tile, const WorldClock& clock) {
     if (m_lut_day_count > 0) {
         day_idx %= m_lut_day_count;
     }
-
-    const int hour_idx = tile.local_hour;
-    if (hour_idx < 0 || hour_idx >= m_lut_hour_count) {
+    if (day_idx < 0 || day_idx >= m_lut_day_count) {
         tile.brightness = 1.0;
         return;
     }
 
-    const std::size_t index = (static_cast<std::size_t>(lat_idx) *
-                               static_cast<std::size_t>(m_lut_day_count) +
-                               static_cast<std::size_t>(day_idx)) *
-                              static_cast<std::size_t>(m_lut_hour_count) +
-                              static_cast<std::size_t>(hour_idx);
-    if (index >= m_brightness_lut.size()) {
+    const int hour_idx_0 = tile.local_hour;
+    if (hour_idx_0 < 0 || hour_idx_0 >= m_lut_hour_count) {
         tile.brightness = 1.0;
         return;
     }
 
-    tile.brightness = m_brightness_lut[index];
+    const int hour_idx_1 = (hour_idx_0 + 1) % m_lut_hour_count;
+    const double hour_t = std::clamp(tile.local_hour_fraction, 0.0, 1.0);
+
+    const auto lut_value = [this](int lat_idx, int day_idx_inner, int hour_idx_inner) {
+        const std::size_t index = (static_cast<std::size_t>(lat_idx) *
+                                   static_cast<std::size_t>(m_lut_day_count) +
+                                   static_cast<std::size_t>(day_idx_inner)) *
+                                  static_cast<std::size_t>(m_lut_hour_count) +
+                                  static_cast<std::size_t>(hour_idx_inner);
+        if (index >= m_brightness_lut.size()) {
+            return 1.0;
+        }
+        return m_brightness_lut[index];
+    };
+
+    const double v00 = lut_value(lat_idx_0, day_idx, hour_idx_0);
+    const double v10 = lut_value(lat_idx_1, day_idx, hour_idx_0);
+    const double v01 = lut_value(lat_idx_0, day_idx, hour_idx_1);
+    const double v11 = lut_value(lat_idx_1, day_idx, hour_idx_1);
+
+    const double b_interp_hour_0 = lerp(v00, v10, lat_t);
+    const double b_interp_hour_1 = lerp(v01, v11, lat_t);
+
+    tile.brightness = lerp(b_interp_hour_0, b_interp_hour_1, hour_t);
 }
 
 void WorldGrid::dispatch_map_update_tasks(ThreadPool& pool, const WorldClock& clock) {
