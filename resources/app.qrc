@@ -1,6 +1,8 @@
 <RCC>
     <qresource prefix="/">
-        <file>images/background.png</file>
+    <!-- 背景改为支持多个可选图片，打包 backgrounds 目录下的图片 -->
+    <file>images/backgrounds/peace_solar_system.png</file>
+    <file>images/backgrounds/war_with_cybernetic.png</file>
         <!-- 草贴图变体 -->
         <file>images/grass_0.png</file>
         <file>images/grass_1.png</file>
