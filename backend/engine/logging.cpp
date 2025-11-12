@@ -17,6 +17,18 @@
 
 namespace Logging {
 
+// --- 把上面定义的宏放在这里 ---
+#define SPDLOG_ONCE(logger, level, ...) \
+    do { \
+        static bool s_logged_once = false; \
+        if (!s_logged_once) { \
+            s_logged_once = true; \
+            logger->log(level, __VA_ARGS__); \
+        } \
+    } while (0)
+
+#define SPDLOG_WARN_ONCE(logger, ...) SPDLOG_ONCE(logger, spdlog::level::warn, __VA_ARGS__)
+
 void init(const std::string& log_file_path, bool log_to_console) {
     if (spdlog::get(MAIN_LOGGER_NAME)) {
         spdlog::set_default_logger(spdlog::get(MAIN_LOGGER_NAME));
