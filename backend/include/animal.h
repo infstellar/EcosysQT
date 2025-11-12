@@ -64,6 +64,7 @@ public:
     void move_towards_target(const Position& target_position, int world_width, int world_height);
     // 路径规划（占位）
     virtual void plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target);
+    void plan_path_to_target(const std::vector<Position>& path);
     // 执行向当前目标点移动
     void move_to_target_point(int world_width, int world_height);
 
@@ -93,6 +94,49 @@ public:
 
     // 将 YAML/编辑器提供的 bt_params 写入行为树黑板
     void apply_bt_params_to_blackboard(const AnimalParams& params);
+
+    // ---- 公共访问接口（供行为树使用，替代对 protected 成员的直接访问） ----
+    // 饥饿状态
+    HungerState get_hunger_state() const;
+    void refresh_hunger_state();
+    // 参数读取
+    double get_mating_range() const;
+    double get_wander_radius() const;
+    double get_mating_desire_probability() const;
+    double get_detection_range() const;
+    double get_threat_detection_range() const;
+    double get_mate_detection_range() const;
+    double get_food_detection_range() const;
+    double get_pregnancy_speed_penalty() const;
+    // 移动控制
+    bool get_skip_movement() const;
+    void set_skip_movement(bool v);
+    // 意图锁定
+    // 感知缓存操作
+    void clear_sensor_caches();
+    void cache_mate(const std::shared_ptr<Animal>& mate);
+    void cache_food_race(const std::shared_ptr<RaceBase>& race);
+    std::vector<std::weak_ptr<Animal>> get_cached_mates_snapshot() const;
+    std::vector<std::weak_ptr<RaceBase>> get_cached_food_races_snapshot() const;
+    // 目标/路径管理
+    void set_current_target(const std::optional<Position>& p);
+    std::optional<Position> get_current_target() const;
+    void clear_current_target();
+    void set_mating_target(const std::optional<Position>& p);
+    std::optional<Position> get_mating_target() const;
+    void clear_mating_target();
+    void set_wander_target(const std::optional<Position>& p);
+    std::optional<Position> get_wander_target() const;
+    void clear_wander_target();
+    void clear_path();
+    bool has_planned_path() const;
+    std::optional<Position> get_planned_path_final_point() const;
+    // 步长
+    double get_current_step_distance() const;
+    double get_step_distance_per_tick() const;
+
+    // 路径快照：返回当前规划路径的副本，供 UI 调试快照使用
+    std::vector<Position> get_planned_path_snapshot() const;
 
 protected:
     // 行为构建函数作为友元，允许访问受保护成员以设置目标与移动模式

@@ -87,30 +87,129 @@ void EcosystemState::initialize_populations() {
         }
     }
 
-    auto thing_names = g_thing_factory.get_all_species_names();
-    if (logger) {
-        logger->info("[Init] Initializing things for {} species", thing_names.size());
-    }
-    if (config.world_width <= 0 || config.world_height <= 0) {
+    // 事物初始化块
+    auto init_things = [&]() {
+        auto thing_names = g_thing_factory.get_all_species_names();
         if (logger) {
-            logger->warn("[Init] World dimensions are non-positive; skipping thing initialization");
+            logger->info("[Init] Initializing things for {} species", thing_names.size());
         }
-        return;
-    }
 
-    std::mt19937& rng = get_thread_local_rng();
-    std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
-    std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
+        std::mt19937& rng = get_thread_local_rng();
+        std::uniform_real_distribution<> prob_dist(0.0, 1.0);
+        std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
+        std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
 
-    for (const auto& name : thing_names) {
-        int initial_count = 0;
-        auto it = config.initial_populations.find(name);
-        if (it != config.initial_populations.end()) {
-            initial_count = it->second;
+        const auto grass_quota_it = config.initial_populations.find("grass");
+        const int configured_grass_quota = (grass_quota_it != config.initial_populations.end())
+            ? std::max(0, grass_quota_it->second)
+            : 0;
+        int grass_remaining_quota = 0;
+
+        bool grass_spawned_by_density = false;
+        if (!config.initial_grass_density_map.empty() && g_thing_factory.is_registered("grass")) {
+            if (logger) logger->info("[Init] Using per-tile density map for 'grass'");
+            grass_spawned_by_density = true;
+            int grass_spawned_count = 0;
+
+            if (configured_grass_quota > 0) {
+                const int desired = configured_grass_quota;
+                const int max_attempts = std::max(desired * config.max_thing_placement_attempts,
+                                                  std::max(desired * 4, desired + 1000));
+                int attempts = 0;
+
+                while (grass_spawned_count < desired && attempts < max_attempts) {
+                    ++attempts;
+                    const int x = dist_tile_x(rng);
+                    const int y = dist_tile_y(rng);
+                    Tile& tile = m_world_grid.get_tile(x, y);
+                    if (!tile.things.empty()) {
+                        continue;
+                    }
+
+                    const std::string terrain_key = getTerrainString(tile.terrain);
+                    auto density_it = config.initial_grass_density_map.find(terrain_key);
+                    const double spawn_prob = (density_it != config.initial_grass_density_map.end()) ? density_it->second : 0.0;
+                    if (spawn_prob <= 0.0) {
+                        continue;
+                    }
+                    if (prob_dist(rng) >= spawn_prob) {
+                        continue;
+                    }
+
+                    Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                    auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
+                    if (!thing_unique) {
+                        continue;
+                    }
+
+                    std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                    thing->position = world_pos;
+                    thing->m_grid_x = x;
+                    thing->m_grid_y = y;
+                    attach_thing_to_world(thing);
+                    ++grass_spawned_count;
+                }
+
+                grass_remaining_quota = std::max(0, desired - grass_spawned_count);
+                if (logger) {
+                    logger->info("[Init] Spawned {} 'grass' individuals using density map weights toward configured quota {}.",
+                        grass_spawned_count, desired);
+                    if (grass_remaining_quota > 0) {
+                        logger->warn("[Init] Unable to place {} 'grass' via density map (quota {}); will fall back to random scatter.",
+                            grass_remaining_quota, desired);
+                    }
+                }
+            } else {
+                for (int y = 0; y < config.world_height; ++y) {
+                    for (int x = 0; x < config.world_width; ++x) {
+                        Tile& tile = m_world_grid.get_tile(x, y);
+                        const std::string terrain_key = getTerrainString(tile.terrain);
+                        auto density_it = config.initial_grass_density_map.find(terrain_key);
+                        const double spawn_prob = (density_it != config.initial_grass_density_map.end()) ? density_it->second : 0.0;
+
+                        if (spawn_prob > 0.0 && prob_dist(rng) < spawn_prob) {
+                            if (tile.things.empty()) {
+                                Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                                auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
+
+                                if (thing_unique) {
+                                    std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                                    thing->position = world_pos;
+                                    thing->m_grid_x = x;
+                                    thing->m_grid_y = y;
+                                    attach_thing_to_world(thing);
+                                    ++grass_spawned_count;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (logger) logger->info("[Init] Spawned {} 'grass' individuals based on density map.", grass_spawned_count);
+            }
+        } else if (logger) {
+            logger->info("[Init] 'grass_density_by_terrain' not found in config or 'grass' not registered. 'grass' will use standard random placement if in initial_populations.");
         }
-        if (logger) {
-            logger->info("[Init] '{}' initial thing count: {}", name, initial_count);
-        }
+
+        for (const auto& name : thing_names) {
+            int initial_count = 0;
+            if (name == "grass" && grass_spawned_by_density) {
+                initial_count = grass_remaining_quota;
+                grass_remaining_quota = 0;
+            } else {
+                auto it = config.initial_populations.find(name);
+                if (it != config.initial_populations.end()) {
+                    initial_count = it->second;
+                }
+            }
+
+            if (initial_count == 0) {
+                continue;
+            }
+
+            if (logger) {
+                logger->info("[Init] '{}' initial thing count (random scatter): {}", name, initial_count);
+            }
 
         int attempts = 0;
         for (int i = 0; i < initial_count; ++i) {

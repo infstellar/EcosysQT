@@ -93,35 +93,64 @@ endif()
 include_directories(
     ${CMAKE_SOURCE_DIR}/backend/include
     ${CMAKE_SOURCE_DIR}/src/ui
-)# --- 添加源文件 ---
-# 定义可执行文件及其源文件
-add_executable(MyQtApp
-  main.cpp
-  backend/engine/simulation.cpp
-  backend/engine/thread_pool.cpp
-  backend/models/ecosystem.cpp
-    backend/models/spatial_grid.cpp
-        backend/models/races_registry.cpp
-    backend/models/species_statistics.cpp
-  backend/models/race_base.cpp
-  backend/models/thing_base.cpp
-  backend/models/producer.cpp
-  backend/models/animal.cpp
-  backend/models/animal_behavior.cpp
-    backend/models/race_factory.cpp
-    backend/models/thing_factory.cpp
-  backend/models/species_config_provider_yaml.cpp
-    backend/engine/logging.cpp
-  # 前端 UI 模块
-  src/ui/Widget.cpp
-  src/ui/Widget.h
-  src/ui/MainWindow.h
-  src/ui/MainWindow.cpp
-  src/ui/StartScreenWidget.h
-  src/ui/StartScreenWidget.cpp
-  # 资源文件（AUTORCC）
-  
-  resources/app.qrc)
+)
+
+# --- 将源文件分为 核心后端 和 GUI ---
+set(BACKEND_CORE_SOURCES 
+    backend/engine/simulation.cpp 
+    backend/engine/thread_pool.cpp 
+    backend/models/ecosystem.cpp 
+    backend/models/population_manager.cpp 
+    backend/models/world_grid.cpp 
+    backend/models/world_clock.cpp 
+    backend/models/interaction_resolver.cpp 
+    backend/models/spatial_grid.cpp 
+    backend/models/races_registry.cpp 
+    backend/models/species_statistics.cpp 
+    backend/models/race_base.cpp 
+    backend/models/thing_base.cpp 
+    backend/models/producer.cpp 
+    backend/models/animal.cpp 
+    backend/models/animal_behavior.cpp 
+    backend/models/bt_actions.cpp 
+    backend/models/race_factory.cpp 
+    backend/models/thing_factory.cpp 
+    backend/models/species_config_provider_yaml.cpp 
+    backend/models/map_config_loader.cpp 
+    backend/models/map_generator.cpp 
+    backend/models/pathfinding.cpp 
+)
+
+set(GUI_SOURCES 
+    main.cpp # <-- GUI 入口 
+    backend/engine/logging.cpp # <-- 日志仅 GUI 需要 
+    # 前端 UI 模块 
+    src/ui/Widget.cpp 
+    src/ui/Widget.h 
+    src/ui/MainWindow.h 
+    src/ui/MainWindow.cpp 
+    src/ui/StartScreenWidget.h 
+    src/ui/StartScreenWidget.cpp 
+    src/ui/CameraController.h 
+    src/ui/CameraController.cpp 
+    src/ui/SimulationRenderer.h 
+    src/ui/SimulationRenderer.cpp 
+)
+# --- 拆分结束 ---
+
+# --- 添加源文件 (条件化) ---
+# 定义可执行文件，首先包含所有模式都需要的核心后端
+add_executable(MyQtApp ${BACKEND_CORE_SOURCES})
+
+# 根据模式，添加 GUI 源文件 或 Headless 源文件
+if(ECOSIM_HEADLESS)
+    target_sources(MyQtApp PRIVATE main_headless.cpp)
+else()
+    target_sources(MyQtApp PRIVATE ${GUI_SOURCES})
+endif()
+
+# 无论模式，始终编入 Qt 资源 (.qrc)
+target_sources(MyQtApp PRIVATE resources/app.qrc)
 
 # --- 链接库 ---
 # 将你的可执行文件与所需库链接起来

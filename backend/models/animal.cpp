@@ -118,6 +118,51 @@ void Animal::update_hunger_state() {
     }
 }
 
+// ---- 新增：公共访问接口实现（供行为树使用） ----
+HungerState Animal::get_hunger_state() const { return hunger_state; }
+void Animal::refresh_hunger_state() { update_hunger_state(); }
+double Animal::get_mating_range() const { return mating_range; }
+double Animal::get_wander_radius() const { return wander_radius; }
+double Animal::get_mating_desire_probability() const { return mating_desire_probability; }
+double Animal::get_detection_range() const { return detection_range; }
+double Animal::get_threat_detection_range() const { return threat_detection_range; }
+double Animal::get_mate_detection_range() const { return mate_detection_range; }
+double Animal::get_food_detection_range() const { return food_detection_range; }
+double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
+bool Animal::get_skip_movement() const { return skip_movement; }
+void Animal::set_skip_movement(bool v) { skip_movement = v; }
+void Animal::clear_sensor_caches() {
+    cached_food_races.clear();
+    cached_mates.clear();
+}
+void Animal::cache_mate(const std::shared_ptr<Animal>& mate) { cached_mates.emplace_back(mate); }
+void Animal::cache_food_race(const std::shared_ptr<RaceBase>& race) { cached_food_races.emplace_back(race); }
+std::vector<std::weak_ptr<Animal>> Animal::get_cached_mates_snapshot() const { return cached_mates; }
+std::vector<std::weak_ptr<RaceBase>> Animal::get_cached_food_races_snapshot() const { return cached_food_races; }
+void Animal::set_current_target(const std::optional<Position>& p) { current_target = p; }
+std::optional<Position> Animal::get_current_target() const { return current_target; }
+void Animal::clear_current_target() { current_target.reset(); }
+void Animal::set_mating_target(const std::optional<Position>& p) { mating_target = p; }
+std::optional<Position> Animal::get_mating_target() const { return mating_target; }
+void Animal::clear_mating_target() { mating_target.reset(); }
+void Animal::set_wander_target(const std::optional<Position>& p) { wander_target = p; }
+std::optional<Position> Animal::get_wander_target() const { return wander_target; }
+void Animal::clear_wander_target() { wander_target.reset(); }
+void Animal::clear_path() { planned_path.clear(); planned_path_index = 0; }
+bool Animal::has_planned_path() const { return !planned_path.empty(); }
+std::optional<Position> Animal::get_planned_path_final_point() const {
+    if (planned_path.empty()) {
+        return std::nullopt;
+    }
+    return planned_path.back();
+}
+double Animal::get_current_step_distance() const { return current_step_distance; }
+double Animal::get_step_distance_per_tick() const { return step_distance_per_tick; }
+
+std::vector<Position> Animal::get_planned_path_snapshot() const {
+    return planned_path;
+}
+
 
 double Animal::get_hunting_desire() const {
     switch (hunger_state) {
@@ -159,8 +204,12 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 
 void Animal::plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target) {
     if (!target.has_value()) return;
-    planned_path.clear();
-    planned_path.push_back(target.value());
+    (void)ecosystem_state;
+    plan_path_to_target(std::vector<Position>{target.value()});
+}
+
+void Animal::plan_path_to_target(const std::vector<Position>& path) {
+    planned_path = path;
     planned_path_index = 0;
 }
 

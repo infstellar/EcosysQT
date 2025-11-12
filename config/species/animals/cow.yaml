@@ -21,11 +21,21 @@ animal:
     doubles:
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
-  min_reproduction_age: 200        # 提高性成熟年龄，降低早期繁殖
-  reproduction_cooldown: 200       # 产后冷却（已在代码中改为分娩后开启）
-  eating_range: 4.0
-  satisfied_threshold_ratio: 0.9
-  starving_threshold_ratio: 0.3
+      flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）
+      wander_speed_multiplier: 0.5
+      wander_energy_multiplier: 0.5
+      chase_speed_multiplier: 1.0
+      chase_energy_multiplier: 1.0
+      pathfinding_budget_multiplier: 3.0
+      # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
+      starving_energy_multiplier: 0.6
+      starving_speed_multiplier: 0.85
+      stop_range_base_range: 1.0  # (等于 eating_range)
+      stop_range_factor: 0.5      # (50%)
+  min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
+  reproduction_cooldown: 9000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
+  eating_range: 1
+
   wandering_duration: 150
   energy_efficiency: 0.5
   pregnancy_duration: 300         # 延长妊娠时间
