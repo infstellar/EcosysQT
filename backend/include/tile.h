@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <cstddef>
 
 class ThingBase;
 
@@ -16,6 +17,12 @@ enum class TerrainType {
     INLAND_SAND,
     HILLS,
     MOUNTAIN
+};
+
+struct TerrainTypeHash {
+    std::size_t operator()(TerrainType t) const noexcept {
+        return static_cast<std::size_t>(t);
+    }
 };
 
 // 生物群系类型（原 ClimateZone）

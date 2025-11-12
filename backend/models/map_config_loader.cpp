@@ -254,6 +254,17 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
             return fallback;
         };
 
+        const auto read_string = [&](const char* key, const std::string& fallback) -> std::string {
+            if (const auto node = map_gen[key]; node) {
+                try {
+                    return node.as<std::string>();
+                } catch (...) {
+                    if (logger) logger->warn("[MapConfig] Invalid string for map_generation.{}, using fallback {}", key, fallback);
+                }
+            }
+            return fallback;
+        };
+
         mg_cfg.elevation_frequency = read_float("elevation_frequency", mg_cfg.elevation_frequency);
         mg_cfg.moisture_frequency = read_float("moisture_frequency", mg_cfg.moisture_frequency);
         mg_cfg.flow_river_threshold = read_float("flow_river_threshold", mg_cfg.flow_river_threshold);
@@ -261,6 +272,19 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         mg_cfg.base_latitude = read_double("base_latitude", mg_cfg.base_latitude);
         mg_cfg.base_longitude = read_double("base_longitude", mg_cfg.base_longitude);
         mg_cfg.axial_tilt_deg = read_double("axial_tilt_deg", mg_cfg.axial_tilt_deg);
+        mg_cfg.sea_level = read_double("sea_level", mg_cfg.sea_level);
+        mg_cfg.deep_sea_level = read_double("deep_sea_level", mg_cfg.deep_sea_level);
+        mg_cfg.wind_direction = read_string("wind_direction", mg_cfg.wind_direction);
+        mg_cfg.wind_strength = read_double("wind_strength", mg_cfg.wind_strength);
+
+        // 仅支持已知方向，其他值回退为 "None"
+        if (mg_cfg.wind_direction != "West" && mg_cfg.wind_direction != "East" && mg_cfg.wind_direction != "None") {
+            if (logger) {
+                logger->warn("[MapConfig] Unsupported wind_direction '{}', falling back to 'None'", mg_cfg.wind_direction);
+            }
+            mg_cfg.wind_direction = "None";
+        }
+        mg_cfg.wind_strength = std::clamp(mg_cfg.wind_strength, 0.0, 5.0);
 
         if (logger) {
             logger->info("[MapConfig]   elev_freq: {}", mg_cfg.elevation_frequency);
@@ -278,6 +302,10 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
                 logger->info("[MapConfig]   base_lon: {}", mg_cfg.base_longitude);
             }
             logger->info("[MapConfig]   axial_tilt_deg: {}", mg_cfg.axial_tilt_deg);
+            logger->info("[MapConfig]   sea_level (shallow): {}", mg_cfg.sea_level);
+            logger->info("[MapConfig]   deep_sea_level (deep): {}", mg_cfg.deep_sea_level);
+            logger->info("[MapConfig]   wind_direction: {}", mg_cfg.wind_direction);
+            logger->info("[MapConfig]   wind_strength: {}", mg_cfg.wind_strength);
         }
     } else if (logger) {
         logger->info("[MapConfig] 'map_generation' node missing. Using default map parameters.");

@@ -17,6 +17,98 @@ YAML 物种配置提供者实现
 #include <boost/describe.hpp>
 #include <boost/mp11.hpp>
 #include <type_traits>
+#include <algorithm>
+#include <cmath>
+#include <cctype>
+#include <optional>
+#include <limits>
+
+namespace {
+
+std::string normalize_terrain_key(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (char ch : raw) {
+        if (ch == '-' || ch == ' ' || ch == '.') {
+            out.push_back('_');
+        } else {
+            out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+        }
+    }
+    return out;
+}
+
+std::optional<TerrainType> terrain_type_from_string(const std::string& raw) {
+    const std::string key = normalize_terrain_key(raw);
+    if (key == "LAND") return TerrainType::LAND;
+    if (key == "WATER") return TerrainType::WATER;
+    if (key == "SHALLOW_RIVER") return TerrainType::SHALLOW_RIVER;
+    if (key == "DEEP_RIVER") return TerrainType::DEEP_RIVER;
+    if (key == "SHALLOW_OCEAN") return TerrainType::SHALLOW_OCEAN;
+    if (key == "DEEP_OCEAN") return TerrainType::DEEP_OCEAN;
+    if (key == "SAND") return TerrainType::SAND;
+    if (key == "INLAND_SAND") return TerrainType::INLAND_SAND;
+    if (key == "HILLS") return TerrainType::HILLS;
+    if (key == "MOUNTAIN") return TerrainType::MOUNTAIN;
+    return std::nullopt;
+}
+
+void parse_pathfinding_params_node(const YAML::Node& node, PathfindingParams& params) {
+    if (!node) return;
+    const YAML::Node cfg = node["pathfinding"];
+    if (!cfg) return;
+
+    if (cfg["replan_interval"]) {
+        try {
+            params.replan_interval = std::max(0, cfg["replan_interval"].as<int>());
+        } catch (...) {
+        }
+    }
+
+    if (cfg["enable_smoothing"]) {
+        try {
+            params.enable_smoothing = cfg["enable_smoothing"].as<bool>();
+        } catch (...) {
+        }
+    }
+
+    if (cfg["budget_multiplier"]) {
+        try {
+            const double v = cfg["budget_multiplier"].as<double>();
+            if (std::isfinite(v) && v >= 0.0) {
+                params.budget_multiplier = v;
+            }
+        } catch (...) {
+        }
+    }
+
+    if (cfg["terrain_costs"] && cfg["terrain_costs"].IsMap()) {
+        for (auto it : cfg["terrain_costs"]) {
+            std::optional<TerrainType> terrain;
+            try {
+                terrain = terrain_type_from_string(it.first.as<std::string>());
+            } catch (...) {
+                terrain.reset();
+            }
+            if (!terrain.has_value()) {
+                continue;
+            }
+
+            try {
+                const double cost = it.second.as<double>();
+                if (!std::isfinite(cost) || cost <= 0.0) {
+                    params.terrain_cost_overrides[*terrain] = std::numeric_limits<double>::infinity();
+                } else {
+                    params.terrain_cost_overrides[*terrain] = cost;
+                }
+            } catch (...) {
+                // 忽略不可转换的值
+            }
+        }
+    }
+}
+
+} // namespace
 
 // 使用简单的字符串拼接来处理路径，避免 GCC 8 对 std::filesystem 的兼容性问题
 
@@ -203,7 +295,9 @@ static void load_params_recursive(const std::string& name, T& params, const std:
     apply_yaml_fields_by_name(node["species"], params);
 
     if constexpr (std::is_base_of_v<AnimalParams, T>) {
+        parse_pathfinding_params_node(node["species"], params.pathfinding);
         apply_yaml_fields_by_name(node["animal"], params);
+        parse_pathfinding_params_node(node["animal"], params.pathfinding);
         // 解析 bt_params（按层覆盖）
         parse_bt_params_node(node["species"], params);
         parse_bt_params_node(node["animal"], params);
@@ -216,6 +310,7 @@ static void load_params_recursive(const std::string& name, T& params, const std:
     apply_yaml_fields_by_name(node[name], params);
     if constexpr (std::is_base_of_v<AnimalParams, T>) {
         parse_bt_params_node(node[name], params);
+        parse_pathfinding_params_node(node[name], params.pathfinding);
     }
     SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[Config] Applied overrides for '{}'", name);
 }
@@ -257,6 +352,19 @@ template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     clamp(params.newborn_energy_ratio, 0.0, 1.0);
     // 孕期能耗倍率
     if (params.pregnant_energy_multiplier < 0.0) params.pregnant_energy_multiplier = 0.0;
+
+    if (params.pathfinding.replan_interval < 0) {
+        params.pathfinding.replan_interval = 0;
+    }
+    if (!std::isfinite(params.pathfinding.budget_multiplier) || params.pathfinding.budget_multiplier < 0.0) {
+        params.pathfinding.budget_multiplier = 0.0;
+    }
+    params.pathfinding.min_traversal_cost = 1.0;
+    for (const auto& kv : params.pathfinding.terrain_cost_overrides) {
+        if (std::isfinite(kv.second) && kv.second > 0.0) {
+            params.pathfinding.min_traversal_cost = std::min(params.pathfinding.min_traversal_cost, kv.second);
+        }
+    }
 }
 
 template <> inline void postprocess_params<PlantParams>(PlantParams& params) {

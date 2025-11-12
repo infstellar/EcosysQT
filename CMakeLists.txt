@@ -145,6 +145,7 @@ set(BACKEND_CORE_SOURCES
     backend/models/species_config_provider_yaml.cpp 
     backend/models/map_config_loader.cpp 
     backend/models/map_generator.cpp 
+    backend/models/pathfinding.cpp 
 )
 
 set(GUI_SOURCES 

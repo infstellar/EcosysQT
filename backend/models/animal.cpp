@@ -51,7 +51,8 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             starving_threshold(params.energy * params.starving_threshold_ratio),
             wander_radius(params.wander_radius),
             mating_desire_probability(params.mating_desire_probability),
-            nutrition_value(params.nutrition_value) {
+            nutrition_value(params.nutrition_value),
+            pathfinding_params(params.pathfinding) {
     // 交配/怀孕相关参数初始化
     mating_duration = params.mating_duration;
     pregnancy_duration = params.pregnancy_duration;
@@ -307,9 +308,15 @@ void Animal::move_towards_target(const Position& target_position, int world_widt
 
 
 void Animal::plan_path_to_target(const EcosystemState& ecosystem_state, const std::optional<Position>& target) {
-    if (!target.has_value()) return;
-    planned_path.clear();
-    planned_path.push_back(target.value());
+    if (!target.has_value()) {
+        clear_path();
+        return;
+    }
+    plan_path_to_target(std::vector<Position>{target.value()});
+}
+
+void Animal::plan_path_to_target(const std::vector<Position>& path) {
+    planned_path = path;
     planned_path_index = 0;
 }
 
@@ -435,6 +442,9 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     if (bb.doubles.find("attack_damage_max") == bb.doubles.end()) {
         bb.doubles["attack_damage_max"] = params.attack_damage_max;
     }
+    if (bb.doubles.find("pathfinding_budget_multiplier") == bb.doubles.end()) {
+        bb.doubles["pathfinding_budget_multiplier"] = params.pathfinding.budget_multiplier;
+    }
     // 注入字符串参数
     for (const auto& kv : params.bt_params_strings) {
         bb.strings[kv.first] = kv.second;
@@ -460,6 +470,10 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     // 追草多步推进的默认值（未在 YAML 指定时），缓解“逐帧小步·放大似瞬移”问题
     if (bb.ints.find("chase_substeps_per_tick") == bb.ints.end()) {
         bb.ints["chase_substeps_per_tick"] = 3; // 默认每 tick 连续推进 3 步
+    }
+
+    if (bb.ints.find(bt::keys::PathReplanInterval) == bb.ints.end()) {
+        bb.ints[bt::keys::PathReplanInterval] = params.pathfinding.replan_interval;
     }
 
     // 打印调试信息：eat_grass_total_ticks 来源与当前黑板值
