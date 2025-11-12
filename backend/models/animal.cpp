@@ -33,6 +33,9 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
             hunting_range(params.hunting_range),
             hunting_success_rate(params.hunting_success_rate),
             detection_range(params.detection_range),
+            threat_detection_range(params.threat_detection_range > 0.0 ? params.threat_detection_range : params.detection_range),
+            mate_detection_range(params.mate_detection_range > 0.0 ? params.mate_detection_range : params.detection_range),
+            food_detection_range(params.food_detection_range > 0.0 ? params.food_detection_range : params.detection_range),
             food_types(params.food_types),
             hunting_cooldown(0),
             hunting_cooldown_duration(params.hunting_cooldown_duration),
@@ -184,6 +187,9 @@ double Animal::get_mating_range() const { return mating_range; }
 double Animal::get_wander_radius() const { return wander_radius; }
 double Animal::get_mating_desire_probability() const { return mating_desire_probability; }
 double Animal::get_detection_range() const { return detection_range; }
+double Animal::get_threat_detection_range() const { return threat_detection_range; }
+double Animal::get_mate_detection_range() const { return mate_detection_range; }
+double Animal::get_food_detection_range() const { return food_detection_range; }
 double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
 bool Animal::get_skip_movement() const { return skip_movement; }
 void Animal::set_skip_movement(bool v) { skip_movement = v; }
@@ -333,7 +339,7 @@ std::optional<std::shared_ptr<Animal>> Animal::find_available_mate(const Ecosyst
     if (sex == Sex::FEMALE) return std::nullopt;
     std::optional<std::shared_ptr<Animal>> nearest_mate;
     double min_distance = std::numeric_limits<double>::max();
-    const auto nearby_entities = ecosystem_state.get_nearby_races_broad(position, detection_range);
+    const auto nearby_entities = ecosystem_state.get_nearby_races_broad(position, mate_detection_range);
     for (const auto& entity_ptr : nearby_entities) {
         if (!entity_ptr || !entity_ptr->alive || entity_ptr.get() == this || entity_ptr->species_name != this->species_name) continue;
         auto potential_mate = std::dynamic_pointer_cast<Animal>(entity_ptr);

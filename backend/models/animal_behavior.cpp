@@ -159,9 +159,7 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             {
                 ZoneScopedN("BT::Update::Threat");
                 // 逃逸阈值：按物种设置。默认=探测范围；牛用较小比例（不影响其他用途的探测范围）
-                const double default_threat_threshold = (self.species_name == std::string("cow"))
-                    ? std::max(0.0, self.get_detection_range() * 0.1)
-                    : self.get_detection_range();
+                const double default_threat_threshold = std::max(0.0, self.get_threat_detection_range());
                 if (bb.doubles.find(bt::keys::ThreatThreshold) == bb.doubles.end()) {
                     bb.doubles[bt::keys::ThreatThreshold] = default_threat_threshold;
                 }
@@ -420,6 +418,9 @@ static double read_double_param(Animal& self, Blackboard* bb, const std::string&
     if (name == "wander_radius") return self.get_wander_radius();
     if (name == std::string(bt::keys::MatingDesireProbability)) return self.get_mating_desire_probability();
     if (name == "detection_range") return self.get_detection_range();
+    if (name == "threat_detection_range") return self.get_threat_detection_range();
+    if (name == "mate_detection_range") return self.get_mate_detection_range();
+    if (name == "food_detection_range") return self.get_food_detection_range();
     return fallback;
 }
 

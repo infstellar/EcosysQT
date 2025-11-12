@@ -17,6 +17,9 @@ animal:
   attack_damage_min: 30.0 #伤害下限，优先于默认伤害
   attack_damage_max: 66.0 #伤害上限，优先于默认伤害
   detection_range: 300.0
+  threat_detection_range: 150.0
+  mate_detection_range: 200.0
+  food_detection_range: 300.0
   wander_radius: 100.0
   food_types:
     - cow
@@ -24,7 +27,6 @@ animal:
   # 行为树黑板默认逃离倍率配置
   bt_params:
     doubles:
-      hunting_range: 10          # <--- 在这里添加这一行
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       flee_destination_radius: 120.0
