@@ -229,49 +229,80 @@ void EcosystemState::initialize_populations() {
         }
 
         std::mt19937& rng = get_thread_local_rng();
-        std::uniform_real_distribution<> prob_dist(0.0, 1.0);
 
-        bool grass_spawned_by_density = false;
-        if (!config.initial_grass_density_map.empty() && g_thing_factory.is_registered("grass")) {
-            if (logger) logger->info("[Init] Using per-tile density map for 'grass'");
-            grass_spawned_by_density = true;
-            int grass_spawned_count = 0;
+        // 专属草生成逻辑：使用概率采样在空地块上生成目标数量的草
+        if (g_thing_factory.is_registered("grass")) {
+            if (logger) logger->info("[Init] 启动 概率采样 模式生成 'grass'...");
 
-            for (int y = 0; y < config.world_height; ++y) {
-                for (int x = 0; x < config.world_width; ++x) {
+            int target_count = 0;
+            auto pop_it = config.initial_populations.find("grass");
+            if (pop_it != config.initial_populations.end()) {
+                target_count = pop_it->second;
+            }
+
+            const auto& density_map = config.initial_grass_density_map;
+
+            if (target_count > 0 && !density_map.empty()) {
+                int spawned_count = 0;
+                int attempts = 0;
+                const int max_attempts = std::max(100000, target_count * 50);
+
+                std::uniform_int_distribution<int> dist_x(0, config.world_width - 1);
+                std::uniform_int_distribution<int> dist_y(0, config.world_height - 1);
+                std::uniform_real_distribution<> prob_dist(0.0, 1.0);
+
+                while (spawned_count < target_count && attempts < max_attempts) {
+                    ++attempts;
+
+                    const int x = dist_x(rng);
+                    const int y = dist_y(rng);
                     Tile& tile = m_world_grid.get_tile(x, y);
+
+                    if (!tile.things.empty()) {
+                        continue;
+                    }
+
                     std::string terrain_key = getTerrainString(tile.terrain);
-                    auto it = config.initial_grass_density_map.find(terrain_key);
-                    double spawn_prob = (it != config.initial_grass_density_map.end()) ? it->second : 0.0;
+                    auto it = density_map.find(terrain_key);
+                    const double spawn_prob = (it != density_map.end()) ? it->second : 0.0;
 
                     if (spawn_prob > 0.0 && prob_dist(rng) < spawn_prob) {
-                        if (tile.things.empty()) {
-                            Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
-                            auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
+                        Position world_pos{static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5};
+                        auto thing_unique = g_thing_factory.create("grass", world_pos, rng);
 
-                            if (thing_unique) {
-                                std::shared_ptr<ThingBase> thing(std::move(thing_unique));
-                                thing->position = world_pos;
-                                thing->m_grid_x = x;
-                                thing->m_grid_y = y;
-                                attach_thing_to_world(thing);
-                                ++grass_spawned_count;
-                            }
+                        if (thing_unique) {
+                            std::shared_ptr<ThingBase> thing(std::move(thing_unique));
+                            thing->position = world_pos;
+                            thing->m_grid_x = x;
+                            thing->m_grid_y = y;
+                            attach_thing_to_world(thing);
+                            ++spawned_count;
                         }
                     }
                 }
-            }
 
-            if (logger) logger->info("[Init] Spawned {} 'grass' individuals based on density map.", grass_spawned_count);
-        } else if (logger) {
-            logger->info("[Init] 'grass_density_by_terrain' not found in config or 'grass' not registered. 'grass' will use standard random placement if in initial_populations.");
+                if (logger) {
+                    logger->info("[Init] 概率采样 完成: 生成 {} / {} 个 'grass' (尝试了 {} 次)", spawned_count, target_count, attempts);
+                    if (attempts >= max_attempts && spawned_count < target_count) {
+                        logger->warn("[Init] 概率采样 达到最大尝试次数。地图可能已满，或地形概率设置过低。");
+                    }
+                }
+            } else if (target_count > 0 && density_map.empty()) {
+                if (logger) {
+                    logger->warn("[Init] 'grass' 在 initial_populations 中已指定，但 'grass_density_by_terrain' 未配置。无法计算概率，跳过草地生成。");
+                }
+            } else {
+                if (logger) {
+                    logger->info("[Init] 'grass' 目标数量为 0 或未配置，跳过生成。");
+                }
+            }
         }
 
         std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
         std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
 
         for (const auto& name : thing_names) {
-            if (name == "grass" && grass_spawned_by_density) {
+            if (name == "grass") {
                 continue;
             }
 
