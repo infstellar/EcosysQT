@@ -82,6 +82,14 @@ void parse_pathfinding_params_node(const YAML::Node& node, PathfindingParams& pa
         }
     }
 
+    if (cfg["max_iterations"]) {
+        try {
+            const int limit = cfg["max_iterations"].as<int>();
+            params.max_iterations = std::max(0, limit);
+        } catch (...) {
+        }
+    }
+
     if (cfg["terrain_costs"] && cfg["terrain_costs"].IsMap()) {
         for (auto it : cfg["terrain_costs"]) {
             std::optional<TerrainType> terrain;

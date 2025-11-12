@@ -8,27 +8,12 @@
 #include <queue>
 #include <unordered_map>
 #include <utility>
+#include <spdlog/spdlog.h>
 
 namespace pathfinding {
 
 namespace {
 constexpr double kDiagonalMultiplier = 1.41421356237; // sqrt(2)
-
-struct GridPoint {
-    int x{0};
-    int y{0};
-    bool operator==(const GridPoint& other) const noexcept {
-        return x == other.x && y == other.y;
-    }
-};
-
-struct GridPointHash {
-    std::size_t operator()(const GridPoint& p) const noexcept {
-        const std::size_t hx = static_cast<std::size_t>(p.x);
-        const std::size_t hy = static_cast<std::size_t>(p.y);
-        return hx ^ (hy << 1);
-    }
-};
 
 struct Node {
     GridPoint pos;
@@ -178,28 +163,91 @@ std::vector<GridPoint> smooth_path(const std::vector<GridPoint>& points,
     return smoothed;
 }
 
-} // namespace
+PathResult build_path_result(const Node& current,
+                             const GridPoint& start,
+                             const WorldGrid& grid,
+                             const PathfindingSettings& settings,
+                             const std::unordered_map<GridPoint, Node, GridPointHash>& node_lookup,
+                             const Position& goal_world_pos) {
+    PathResult result;
+    result.cost = current.g_cost;
 
-std::optional<PathResult> find_path_a_star(const Position& start_pos,
-                                           const Position& goal_pos,
-                                           const WorldGrid& grid,
-                                           double max_cost,
-                                           PathfindingSettings settings) {
+    std::vector<GridPoint> grid_points;
+    grid_points.reserve(128);
+
+    Node trace = current;
+    while (true) {
+        grid_points.push_back(trace.pos);
+        if (trace.pos == start) {
+            break;
+        }
+        const auto parent_it = node_lookup.find(trace.parent);
+        if (parent_it == node_lookup.end()) {
+            break;
+        }
+        trace = parent_it->second;
+    }
+    std::reverse(grid_points.begin(), grid_points.end());
+
+    if (grid_points.empty()) {
+        grid_points.push_back(start);
+        grid_points.push_back(current.pos);
+    } else if (!(grid_points.back() == current.pos)) {
+        grid_points.push_back(current.pos);
+    }
+
+    std::vector<GridPoint> final_points = settings.enable_smoothing
+        ? smooth_path(grid_points, grid, settings)
+        : grid_points;
+
+    std::vector<Position> path_positions;
+    path_positions.reserve(final_points.size());
+    for (std::size_t idx = 1; idx < final_points.size(); ++idx) {
+        const GridPoint& gp = final_points[idx];
+        path_positions.push_back(Position{
+            static_cast<double>(gp.x) + 0.5,
+            static_cast<double>(gp.y) + 0.5
+        });
+    }
+
+    if (path_positions.empty()) {
+        path_positions.push_back(goal_world_pos);
+    } else {
+        Position& last = path_positions.back();
+        const double dx = last.x - goal_world_pos.x;
+        const double dy = last.y - goal_world_pos.y;
+        if ((dx * dx + dy * dy) > 1e-6) {
+            path_positions.push_back(goal_world_pos);
+        } else {
+            last = goal_world_pos;
+        }
+    }
+
+    result.path = std::move(path_positions);
+    return result;
+}
+
+template <typename GoalEvaluator, typename HeuristicEvaluator, typename GoalLogProvider>
+std::optional<PathResult> find_path_a_star_impl(const Position& start_pos,
+                                                const WorldGrid& grid,
+                                                double max_cost,
+                                                PathfindingSettings settings,
+                                                GoalEvaluator&& goal_eval,
+                                                HeuristicEvaluator&& heuristic_eval,
+                                                GoalLogProvider&& goal_log_provider) {
     if (grid.width() <= 0 || grid.height() <= 0) {
         return std::nullopt;
     }
 
     const GridPoint start = clamp_to_grid(start_pos, grid);
-    const GridPoint goal = clamp_to_grid(goal_pos, grid);
-
-    if (!grid.is_valid_coord(start.x, start.y) || !grid.is_valid_coord(goal.x, goal.y)) {
+    if (!grid.is_valid_coord(start.x, start.y)) {
         return std::nullopt;
     }
 
     std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open_set;
     std::unordered_map<GridPoint, Node, GridPointHash> nodes;
 
-    const double heuristic_start = heuristic(start, goal, settings);
+    const double heuristic_start = heuristic_eval(start);
     open_set.push(Node{start, 0.0, heuristic_start, start});
     nodes[start] = Node{start, 0.0, heuristic_start, start};
 
@@ -208,61 +256,30 @@ std::optional<PathResult> find_path_a_star(const Position& start_pos,
         {1, 1}, {1, -1}, {-1, -1}, {-1, 1}
     };
 
+    const bool has_iteration_limit = settings.max_iterations > 0;
+    std::size_t expanded_nodes = 0;
+
     while (!open_set.empty()) {
+        if (has_iteration_limit && expanded_nodes >= settings.max_iterations) {
+            if (auto logger = spdlog::get("ecosim")) {
+                const Position goal_estimate = goal_log_provider();
+                logger->info(
+                    "[Pathfinding] A* aborted after {} expansions (limit={}) start=({:.1f},{:.1f}) goal≈({:.1f},{:.1f}) max_cost={:.2f}",
+                    expanded_nodes,
+                    settings.max_iterations,
+                    start_pos.x, start_pos.y,
+                    goal_estimate.x, goal_estimate.y,
+                    max_cost);
+            }
+            return std::nullopt;
+        }
+
         Node current = open_set.top();
         open_set.pop();
+        ++expanded_nodes;
 
-        if (current.pos == goal) {
-            PathResult result;
-            result.cost = current.g_cost;
-
-            std::vector<GridPoint> grid_points;
-            Node trace = current;
-            while (true) {
-                grid_points.push_back(trace.pos);
-                if (trace.pos == start) {
-                    break;
-                }
-                trace = nodes[trace.parent];
-            }
-            std::reverse(grid_points.begin(), grid_points.end());
-
-            if (grid_points.empty()) {
-                grid_points.push_back(start);
-                grid_points.push_back(goal);
-            } else if (!(grid_points.back() == goal)) {
-                grid_points.push_back(goal);
-            }
-
-            std::vector<GridPoint> final_points = settings.enable_smoothing
-                ? smooth_path(grid_points, grid, settings)
-                : grid_points;
-
-            std::vector<Position> path_positions;
-            path_positions.reserve(final_points.size());
-            for (std::size_t idx = 1; idx < final_points.size(); ++idx) {
-                const GridPoint& gp = final_points[idx];
-                path_positions.push_back(Position{
-                    static_cast<double>(gp.x) + 0.5,
-                    static_cast<double>(gp.y) + 0.5
-                });
-            }
-
-            if (path_positions.empty()) {
-                path_positions.push_back(goal_pos);
-            } else {
-                Position& last = path_positions.back();
-                const double dx = last.x - goal_pos.x;
-                const double dy = last.y - goal_pos.y;
-                if ((dx * dx + dy * dy) > 1e-6) {
-                    path_positions.push_back(goal_pos);
-                } else {
-                    last = goal_pos;
-                }
-            }
-
-            result.path = std::move(path_positions);
-            return result;
+        if (auto goal_world_pos = goal_eval(current.pos)) {
+            return build_path_result(current, start, grid, settings, nodes, *goal_world_pos);
         }
 
         if (current.g_cost > max_cost) {
@@ -300,7 +317,7 @@ std::optional<PathResult> find_path_a_star(const Position& start_pos,
                 neighbor_node.pos = neighbor;
                 neighbor_node.parent = current.pos;
                 neighbor_node.g_cost = tentative_g;
-                neighbor_node.f_cost = tentative_g + heuristic(neighbor, goal, settings);
+                neighbor_node.f_cost = tentative_g + heuristic_eval(neighbor);
 
                 open_set.push(neighbor_node);
                 nodes[neighbor] = neighbor_node;
@@ -309,6 +326,60 @@ std::optional<PathResult> find_path_a_star(const Position& start_pos,
     }
 
     return std::nullopt;
+}
+
+} // namespace
+
+std::optional<PathResult> find_path_a_star(const Position& start_pos,
+                                           const Position& goal_pos,
+                                           const WorldGrid& grid,
+                                           double max_cost,
+                                           PathfindingSettings settings) {
+    const GridPoint goal = clamp_to_grid(goal_pos, grid);
+    if (!grid.is_valid_coord(goal.x, goal.y)) {
+        return std::nullopt;
+    }
+
+    auto goal_lambda = [goal, goal_pos, &grid](const GridPoint& node) -> std::optional<Position> {
+        if (node == goal) {
+            return goal_pos;
+        }
+        return std::nullopt;
+    };
+
+    auto heuristic_lambda = [goal, settings](const GridPoint& node) {
+        return heuristic(node, goal, settings);
+    };
+
+    auto log_provider = [goal_pos]() {
+        return goal_pos;
+    };
+
+    return find_path_a_star_impl(start_pos, grid, max_cost, settings, goal_lambda, heuristic_lambda, log_provider);
+}
+
+std::optional<PathResult> find_path_a_star_to_condition(const Position& start_pos,
+                                                       const GoalCondition& is_goal,
+                                                       const WorldGrid& grid,
+                                                       double max_cost,
+                                                       PathfindingSettings settings) {
+    if (!is_goal) {
+        return std::nullopt;
+    }
+
+    auto goal_lambda = [&grid, &is_goal](const GridPoint& node) -> std::optional<Position> {
+        return is_goal(node, grid);
+    };
+
+    auto heuristic_lambda = [](const GridPoint&) {
+        return 0.0;
+    };
+
+    auto log_provider = [start_pos]() {
+        return start_pos;
+    };
+
+    return find_path_a_star_impl(start_pos, grid, max_cost, settings, goal_lambda, heuristic_lambda, log_provider);
 }
 
 } // namespace pathfinding

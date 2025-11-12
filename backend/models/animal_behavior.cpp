@@ -539,6 +539,15 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         }
     },
     {
+        "seek_thing_with_path",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::SeekThingWithPath(self, ctx, p);
+            });
+        }
+    },
+    {
         "select_flee_destination",
         [](const YAML::Node& params, Animal& self){
             YAML::Node p = params;

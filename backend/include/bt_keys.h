@@ -39,4 +39,8 @@ namespace bt::keys {
     constexpr const char* PathLastGoalX = "path_last_goal_x";
     constexpr const char* PathLastGoalY = "path_last_goal_y";
     constexpr const char* PathReplanInterval = "path_replan_interval";
+
+    // 觅食目标搜索节流
+    constexpr const char* ForageLastSearchTick = "forage_last_search_tick";
+    constexpr const char* ForageSearchInterval = "forage_search_interval";
 }

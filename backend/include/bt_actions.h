@@ -27,6 +27,9 @@ bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
 // 选择最近的可食目标点（race/things），写入当前移动目标
 bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
+// 直接使用路径代价搜索最近的 Thing 并沿路径推进
+bt::Status SeekThingWithPath(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+
 // 选择逃逸目的地：根据威胁反方向与采样偏角，写入长距离目标
 bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 

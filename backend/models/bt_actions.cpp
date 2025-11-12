@@ -407,6 +407,211 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
     return Status::Failure;
 }
 
+bt::Status SeekThingWithPath(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::SeekThingWithPath");
+    auto* world = static_cast<EcosystemState*>(ctx.world);
+    if (!world || !self.alive) {
+        return Status::Failure;
+    }
+    if (self.get_skip_movement()) {
+        return Status::Failure;
+    }
+    if (!ctx.blackboard) {
+        return Status::Failure;
+    }
+
+    auto& bb = *ctx.blackboard;
+
+    const std::string thing = params["thing"] ? params["thing"].as<std::string>()
+                            : (params["kind"] ? params["kind"].as<std::string>() : std::string("grass"));
+    if (thing.empty()) {
+        return Status::Failure;
+    }
+
+    double detection_range = self.get_food_detection_range();
+    if (params["detection_range_param"]) {
+        detection_range = bb_get_double(&bb, params["detection_range_param"].as<std::string>(), detection_range);
+    } else if (params["detection_range"]) {
+        detection_range = std::max(0.0, params["detection_range"].as<double>());
+    }
+
+    double stop_range = bb_get_double(&bb, "eat_hard_stop_range", 0.0);
+    if (stop_range <= 0.0) {
+        const double base_range = bb_get_double(&bb, "stop_range_base_range", 1.0);
+        const double factor = bb_get_double(&bb, "stop_range_factor", 0.5);
+        stop_range = std::max(0.0, base_range * factor);
+    }
+
+    int search_interval = params["search_interval"] ? std::max(1, params["search_interval"].as<int>())
+                        : bb_get_int(&bb, bt::keys::ForageSearchInterval, 300);
+    if (search_interval < 1) {
+        search_interval = 1;
+    }
+    bb.ints[bt::keys::ForageSearchInterval] = search_interval;
+
+    const int last_search_tick = bb_get_int(&bb, bt::keys::ForageLastSearchTick, std::numeric_limits<int>::min());
+    bool need_search = !self.get_current_target().has_value();
+    if (!need_search) {
+        const int ticks_elapsed = world->time_step - last_search_tick;
+        if (ticks_elapsed < 0 || ticks_elapsed >= search_interval) {
+            need_search = true;
+        }
+    }
+
+    const WorldGrid& grid = world->world_grid();
+
+    const auto target_valid = [&]() {
+        if (!self.get_current_target().has_value()) {
+            return false;
+        }
+        const Position target = self.get_current_target().value();
+        const int tile_x = static_cast<int>(std::floor(target.x));
+        const int tile_y = static_cast<int>(std::floor(target.y));
+        if (!grid.is_valid_coord(tile_x, tile_y)) {
+            return false;
+        }
+        const Tile& tile = grid.get_tile(tile_x, tile_y);
+        for (ThingBase* thing_ptr : tile.things) {
+            if (!thing_ptr || !thing_ptr->alive) {
+                continue;
+            }
+            if (thing_ptr->species_name != thing) {
+                continue;
+            }
+            const double dx = thing_ptr->position.x - target.x;
+            const double dy = thing_ptr->position.y - target.y;
+            if ((dx * dx + dy * dy) <= 0.25) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!need_search) {
+        const auto path_snapshot = self.get_planned_path_snapshot();
+        if (path_snapshot.empty() && (!self.get_current_target().has_value() || (stop_range > 0.0 && self.position.distance_to(self.get_current_target().value()) > stop_range))) {
+            need_search = true;
+        } else if (!target_valid()) {
+            need_search = true;
+        }
+    }
+
+    if (need_search) {
+        const auto& path_cfg = self.get_pathfinding_params();
+
+        pathfinding::PathfindingSettings settings;
+        settings.enable_smoothing = path_cfg.enable_smoothing;
+        settings.min_traversal_cost = std::max(path_cfg.min_traversal_cost, 1e-6);
+        if (path_cfg.max_iterations > 0) {
+            settings.max_iterations = static_cast<std::size_t>(path_cfg.max_iterations);
+        }
+        if (!path_cfg.terrain_cost_overrides.empty()) {
+            settings.terrain_cost_overrides = &path_cfg.terrain_cost_overrides;
+        }
+
+        double budget_multiplier = bb_get_double(&bb, "pathfinding_budget_multiplier", path_cfg.budget_multiplier);
+        if (budget_multiplier <= 0.0) {
+            budget_multiplier = path_cfg.budget_multiplier;
+        }
+        if (budget_multiplier <= 0.0) {
+            budget_multiplier = 1.0;
+        }
+
+        double max_cost = std::numeric_limits<double>::infinity();
+        if (detection_range > 0.0) {
+            max_cost = detection_range * budget_multiplier;
+        }
+
+        pathfinding::GoalCondition goal_condition = [&, detection_range, thing](const pathfinding::GridPoint& gp, const WorldGrid& g) -> std::optional<Position> {
+            if (!g.is_valid_coord(gp.x, gp.y)) {
+                return std::nullopt;
+            }
+            const Tile& tile = g.get_tile(gp.x, gp.y);
+            for (ThingBase* thing_ptr : tile.things) {
+                if (!thing_ptr || !thing_ptr->alive) {
+                    continue;
+                }
+                if (thing_ptr->species_name != thing) {
+                    continue;
+                }
+                if (detection_range > 0.0) {
+                    if (self.position.distance_to(thing_ptr->position) > detection_range) {
+                        continue;
+                    }
+                }
+                return thing_ptr->position;
+            }
+            return std::nullopt;
+        };
+
+        auto path_result = pathfinding::find_path_a_star_to_condition(
+            self.position,
+            goal_condition,
+            grid,
+            max_cost,
+            settings);
+
+        bb.ints[bt::keys::ForageLastSearchTick] = world->time_step;
+
+        if (!path_result || path_result->path.empty()) {
+            self.clear_current_target();
+            self.clear_path();
+            bb.doubles.erase(bt::keys::TargetPosX);
+            bb.doubles.erase(bt::keys::TargetPosY);
+            return Status::Failure;
+        }
+
+        const Position target_pos = path_result->path.back();
+        self.set_current_target(target_pos);
+        self.plan_path_to_target(path_result->path);
+
+        bb.doubles[bt::keys::TargetPosX] = target_pos.x;
+        bb.doubles[bt::keys::TargetPosY] = target_pos.y;
+        bb.doubles[bt::keys::PathLastGoalX] = target_pos.x;
+        bb.doubles[bt::keys::PathLastGoalY] = target_pos.y;
+        bb.ints[bt::keys::PathLastPlanTick] = world->time_step;
+    }
+
+    if (!self.get_current_target().has_value()) {
+        return Status::Failure;
+    }
+
+    const Position target_pos = self.get_current_target().value();
+    if (stop_range > 0.0 && self.position.distance_to(target_pos) <= stop_range) {
+        return Status::Success;
+    }
+
+    const double base_mul = bb_get_double(&bb, bt::keys::CurrentSpeedMultiplier, 1.0);
+    const std::string speed_key = params["speed_multiplier_key"] ? params["speed_multiplier_key"].as<std::string>() : std::string("chase_speed_multiplier");
+    const std::string energy_key = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("chase_energy_multiplier");
+    const double speed_mul = bb_get_double(&bb, speed_key, 1.0);
+    const double energy_mul = bb_get_double(&bb, energy_key, 1.0);
+    const double base_energy_mul = bb_get_double(&bb, bt::keys::CurrentEnergyMultiplier, 1.0);
+
+    int substeps = bb_get_int(&bb, "chase_substeps_per_tick", 1);
+    if (substeps < 1) substeps = 1;
+    if (substeps > 8) substeps = 8;
+
+    for (int i = 0; i < substeps; ++i) {
+        self.perform_step_move_path(world->config.world_width, world->config.world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
+        if (!self.get_current_target().has_value()) {
+            break;
+        }
+        if (stop_range > 0.0 && self.position.distance_to(self.get_current_target().value()) <= stop_range) {
+            break;
+        }
+    }
+
+    if (!self.get_current_target().has_value()) {
+        return Status::Success;
+    }
+    if (stop_range > 0.0 && self.position.distance_to(self.get_current_target().value()) <= stop_range) {
+        return Status::Success;
+    }
+
+    return Status::Running;
+}
+
 bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
     ZoneScopedN("BT::Action::SelectFleeDest");
     auto* world = static_cast<EcosystemState*>(ctx.world);
@@ -533,6 +738,10 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
             pathfinding::PathfindingSettings settings;
             settings.enable_smoothing = path_cfg.enable_smoothing;
             settings.min_traversal_cost = std::max(path_cfg.min_traversal_cost, 1e-6);
+            const int max_iterations = std::max(0, bb_get_int(ctx.blackboard, "pathfinding_max_iterations", path_cfg.max_iterations));
+            if (max_iterations > 0) {
+                settings.max_iterations = static_cast<std::size_t>(max_iterations);
+            }
             if (!path_cfg.terrain_cost_overrides.empty()) {
                 settings.terrain_cost_overrides = &path_cfg.terrain_cost_overrides;
             }

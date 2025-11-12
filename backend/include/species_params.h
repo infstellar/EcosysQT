@@ -22,6 +22,7 @@ struct PathfindingParams {
     bool enable_smoothing = true;
     double budget_multiplier = 3.0;
     double min_traversal_cost = 1.0;
+    int max_iterations = 20000;
     std::unordered_map<TerrainType, double, TerrainTypeHash> terrain_cost_overrides;
 };
 
