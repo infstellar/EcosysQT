@@ -10,7 +10,7 @@ RaceBase 通用实现
 #include <optional>
 #include <random>
 
-RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_, double hp_max_)
+RaceBase::RaceBase(Position pos, double energy_, int max_age_, double min_reproduction_energy_, double hp_max_)
     : position(pos),
       energy(energy_),
       max_energy(energy_),
@@ -22,14 +22,14 @@ RaceBase::RaceBase(Position pos, double energy_, int max_age_, double reproducti
       reproduction_cooldown(0),
       death_reason(""),
       species_name("RaceBase"),
-      reproduction_energy_cost(reproduction_energy_cost_),
+      min_reproduction_energy(min_reproduction_energy_),
       pending_spawn_position(std::nullopt) {}
 
 RaceBase::RaceBase(Position pos,
                    const std::string& species_name_,
                    double energy_,
                    int max_age_,
-                   double reproduction_energy_cost_,
+                   double min_reproduction_energy_,
                    double hp_max_)
     : position(pos),
       energy(energy_),
@@ -42,7 +42,7 @@ RaceBase::RaceBase(Position pos,
       reproduction_cooldown(0),
       death_reason(""),
       species_name(species_name_),
-      reproduction_energy_cost(reproduction_energy_cost_),
+      min_reproduction_energy(min_reproduction_energy_),
       pending_spawn_position(std::nullopt) {}
 
 void RaceBase::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
@@ -65,7 +65,7 @@ void RaceBase::apply(const EcosystemState& ecosystem_state) {
 }
 
 bool RaceBase::can_reproduce() const {
-    return alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
+    return alive && energy >= min_reproduction_energy * 2 && reproduction_cooldown <= 0;
 }
 
 std::unique_ptr<RaceBase> RaceBase::reproduce(const EcosystemState& ecosystem_state) {

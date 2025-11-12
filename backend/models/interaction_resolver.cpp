@@ -100,7 +100,10 @@ void InteractionResolver::handle_request(const AttemptToEatThingRequest& req,
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
     const int time = state.clock().time_step();
-    const std::string msg_init = "Ate " + target->species_name + " (+" + format_double(gained) + " E)";
+    // 显示实际增加的能量
+    const double headroom = std::max(0.0, initiator->max_energy - initiator->energy);
+    const double actual_gained_for_display = std::min(gained, headroom);
+    const std::string msg_init = "Ate " + target->species_name + " (+" + format_double(actual_gained_for_display) + " E)";
     log_interaction(initiator.get(), msg_init, true, time);
 #endif
 }
@@ -174,8 +177,10 @@ void InteractionResolver::handle_request(const DamageRaceRequest& req,
     std::string msg_attacker = "Attacked " + target->species_name + " (DMG: " + dmg_str + ")";
     std::string msg_target = "Attacked by " + source + " (DMG: " + dmg_str + ")";
     if (success) {
-        // 展示最终获得能量（与公式一致），并附带基础营养与加成、效率
-        msg_attacker += " [KILLED, +" + format_double(gained) + " E"
+        // 展示实际增加的能量：考虑攻击者能量上限剩余容量（headroom）
+        const double headroom = std::max(0.0, attacker->max_energy - attacker->energy);
+        const double actual_gained_for_display = std::min(gained, headroom);
+        msg_attacker += " [KILLED, +" + format_double(actual_gained_for_display) + " E"
                          + ", base=" + format_double(pre_death_nutrition)
                          + ", bonus=" + format_double(bonus_used)
                          + "]";
@@ -270,8 +275,6 @@ void InteractionResolver::handle_request(const AttemptToMateRequest& req,
         male->begin_mating_with(female);
         female->become_pregnant();
         male->start_reproduction_cooldown();
-        female->energy -= female->reproduction_energy_cost;
-        male->energy -= male->reproduction_energy_cost;
 
         SPDLOG_LOGGER_INFO(spdlog::get("ecosim"),
             "Mating accepted: male(age={},energy={:.1f}) female(age={},energy={:.1f}) dist={:.2f}",

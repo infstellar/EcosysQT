@@ -3,4 +3,5 @@ species:
   species:
     energy: 100.0
     max_age: 100
-    reproduction_energy_cost: 50.0
+    # 最小繁殖能量（门槛基数，实际判定为其 2×）
+    min_reproduction_energy: 50.0

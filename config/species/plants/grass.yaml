@@ -3,7 +3,6 @@ parent: base_plant
 species:
   energy: 50
   max_age: 600000
-  reproduction_energy_cost: 25
 plant:
   base_growth_rate: 0.83 # 基础生长速率，单位是1250tick
   reproduction_chance: 0.33
@@ -14,4 +13,8 @@ plant:
   min_growth_factor: 0.1 # 单位是1250tick
   # 被食用时提供的基础营养值（独立于能量）
   nutrition_value: 200.0
-plant: {}
+  # 基于积累的繁殖参数，在 能量已满 且 繁殖冷却结束 后才开始积累
+  repro_energy_threshold: 25.0 #需要积累多少才能繁殖
+  repro_energy_accumulation_rate: 0.01 # 积攒速率
+  # 子代初始能量比例（0-1）
+  newborn_energy_ratio: 0.25

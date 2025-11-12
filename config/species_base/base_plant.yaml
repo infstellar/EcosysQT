@@ -10,3 +10,8 @@ plant:
   min_growth_factor: 0.0005
   # 被食用时提供的基础营养值（独立于能量）
   nutrition_value: 50.0
+  # 基于积累的繁殖参数（能量满后开始积累）
+  repro_energy_threshold: 25.0
+  repro_energy_accumulation_rate: 0.1
+  # 子代初始能量比例（0-1）
+  newborn_energy_ratio: 0.25

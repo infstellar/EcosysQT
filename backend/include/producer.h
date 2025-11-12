@@ -29,6 +29,10 @@ public:
     double expansion_boost;
     double min_growth_factor;
     double pending_growth{0.0};
+    // 累积式繁殖模型：阈值、速率与当前积累值
+    double repro_energy_threshold{0.0};
+    double repro_energy_accumulation_rate{0.0};
+    double reproduction_energy_accumulated{0.0};
 
     // 构造函数（带 RNG，用于初始化随机 Tick 偏移）
     Producer(Position pos, const PlantParams& params, std::mt19937& rng);

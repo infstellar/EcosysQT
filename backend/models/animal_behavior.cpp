@@ -144,7 +144,7 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 bb.ints[bt::keys::MatingTimerTicks] = std::max(0, self.mating_timer);
 
                 // 繁殖守卫相关键：最低能量、最低年龄、冷却剩余
-                bb.doubles["repro_energy_min"] = self.reproduction_energy_cost * 2.0;
+                bb.doubles["repro_energy_min"] = self.min_reproduction_energy * 2.0;
                 bb.ints["repro_age_min"] = self.min_reproduction_age;
                 bb.ints["repro_cooldown_ticks"] = self.reproduction_cooldown;
 
@@ -338,6 +338,8 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
             snapshot.wander_total_ticks = bb_get_int(&bb, bt::keys::WanderTotalTicks, 50);
             snapshot.hp_current = self.hp_current;
             snapshot.hp_max = self.hp_max;
+            // 记录当前移速（每 tick 步长）
+            snapshot.current_speed = self.get_current_step_distance();
             // 寻路调试：将当前目标与规划路径写入快照
             snapshot.current_target = self.get_current_target();
             snapshot.planned_path = self.get_planned_path_snapshot();

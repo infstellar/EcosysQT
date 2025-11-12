@@ -21,7 +21,7 @@
 // Producer类的构造函数
 Producer::Producer(Position pos, const PlantParams& params, std::mt19937& rng)
     // 初始化基类ThingBase的成员变量
-    : ThingBase(pos, params.energy, params.max_age, params.reproduction_energy_cost),
+    : ThingBase(pos, params.energy, params.max_age, params.min_reproduction_energy),
       // 初始化Producer自身的成员变量
       base_growth_rate(params.base_growth_rate),
       reproduction_chance(params.reproduction_chance),
@@ -30,6 +30,10 @@ Producer::Producer(Position pos, const PlantParams& params, std::mt19937& rng)
       base_reproduction_cooldown(params.reproduction_cooldown),
       expansion_boost(params.expansion_boost),
       min_growth_factor(params.min_growth_factor) {
+    // 累积式繁殖参数初始化
+    repro_energy_threshold = std::max(0.0, params.repro_energy_threshold);
+    repro_energy_accumulation_rate = std::max(0.0, params.repro_energy_accumulation_rate);
+    reproduction_energy_accumulated = 0.0;
     // 初始化随机 Tick 偏移（用于与全局 Tick 解耦）
     std::uniform_int_distribution<> dist(0, MAX_INTERVAL - 1);
     m_tick_offset = dist(rng);
@@ -49,6 +53,11 @@ void Producer::decide(EcosystemState& ecosystem_state, std::mt19937& rng) {
         compute_growth(ecosystem_state);
     }
     
+    // 满能量时按速率累积“繁殖能量”（冷却期间不累积）
+    if (reproduction_cooldown <= 0 && energy >= max_energy - std::numeric_limits<double>::epsilon()) {
+        reproduction_energy_accumulated = std::min(repro_energy_threshold,
+                                                   reproduction_energy_accumulated + repro_energy_accumulation_rate);
+    }
     if ((current_tick + m_tick_offset) % REPRODUCTION_CHECK_INTERVAL == 0) {
         attempt_reproduction(ecosystem_state, rng);
     }
@@ -103,10 +112,11 @@ void Producer::compute_growth(const EcosystemState& ecosystem_state) {
     pending_growth = std::max(min_growth_rate, adjusted_growth_rate);
 }
 
-// 繁殖逻辑：根据条件尝试繁殖
+// 繁殖逻辑：无繁殖冷却+积攒足够能量时尝试繁殖
 void Producer::attempt_reproduction(EcosystemState& ecosystem_state, std::mt19937& rng) {
     const auto neighbor_offsets = Producer::build_neighbor_offsets();
-    const bool ready_for_birth = alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
+    const bool ready_for_birth = alive && reproduction_cooldown <= 0
+        && reproduction_energy_accumulated >= repro_energy_threshold;
     if (ready_for_birth && !pending_spawn_position.has_value()) {
         std::uniform_real_distribution<> chance_dist(0.0, 1.0); // 创建一个均匀分布的随机数生成器
         // 如果随机数小于等于繁殖概率
@@ -143,8 +153,9 @@ void Producer::attempt_reproduction(EcosystemState& ecosystem_state, std::mt1993
                 // 计算出生位置
                 Position spawn_pos{static_cast<double>(spawn_x) + 0.5, static_cast<double>(spawn_y) + 0.5};
                 pending_spawn_position = spawn_pos; // 设置待处理的出生位置
-                energy -= reproduction_energy_cost; // 消耗繁殖能量
+                // 不再扣能量：使用积累模型，繁殖后清零积累与重置冷却
                 reproduction_cooldown = base_reproduction_cooldown; // 重置繁殖冷却时间
+                reproduction_energy_accumulated = 0.0;              // 清零积累值
                 // 提交繁殖请求
                 ecosystem_state.submit_interaction_request(AttemptToReproduceThingRequest{shared_from_this()});
             }
@@ -182,7 +193,9 @@ void Producer::apply(const EcosystemState& ecosystem_state) {
 
 // 检查是否可以繁殖
 bool Producer::can_reproduce() const {
-    return ThingBase::can_reproduce(); // 调用基类的can_reproduce函数
+    // 采用基于积累的判定：冷却结束且积累达到阈值
+    return alive && reproduction_cooldown <= 0
+        && reproduction_energy_accumulated >= repro_energy_threshold;
 }
 
 // 繁殖函数

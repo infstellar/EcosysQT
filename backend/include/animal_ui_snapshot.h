@@ -25,6 +25,8 @@ struct AnimalUiSnapshot {
     // 生命值显示
     double hp_current = 0.0;
     double hp_max = 0.0;
+    // 当前移速（每 tick 步长）
+    double current_speed = 0.0;
 
     // 寻路调试：当前目标与规划路径（仅 UI Debug 模式）
     std::optional<Position> current_target;

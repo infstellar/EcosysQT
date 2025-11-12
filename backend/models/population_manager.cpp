@@ -2,6 +2,7 @@
 
 #include "ecosystem.h"
 #include "race_factory.h"
+#include "species_config_provider.h"
 #include "thing_factory.h"
 #include "thing_base.h"
 #include "race_base.h"
@@ -46,6 +47,16 @@ void PopulationManager::apply_changes(EcosystemState& state) {
         }
 
         std::shared_ptr<RaceBase> offspring = std::move(offspring_unique);
+        // 依据物种配置设置新生个体初始能量比例（仅针对动物）
+        if (auto provider = g_race_factory.get_config_provider()) {
+            try {
+                AnimalParams p = provider->get_animal_params(parent->species_name);
+                const double ratio = std::clamp(p.newborn_energy_ratio, 0.0, 1.0);
+                offspring->energy = std::min(offspring->max_energy, offspring->max_energy * ratio);
+            } catch (...) {
+                // 对于非动物或配置缺失，保持默认能量
+            }
+        }
         offspring->position = spawn_position.value();
         newborns_by_species[parent->species_name].push_back(std::move(offspring));
     }
@@ -163,6 +174,16 @@ void PopulationManager::apply_changes(EcosystemState& state) {
             }
 
             std::shared_ptr<ThingBase> offspring(std::move(offspring_unique));
+            // 依据物种配置设置新生植物的初始能量比例
+            if (auto provider = g_thing_factory.get_config_provider()) {
+                try {
+                    PlantParams p = provider->get_plant_params(parent->species_name);
+                    const double ratio = std::clamp(p.newborn_energy_ratio, 0.0, 1.0);
+                    offspring->energy = std::min(offspring->max_energy, offspring->max_energy * ratio);
+                } catch (...) {
+                    // 配置缺失或非植物：保持默认能量
+                }
+            }
             offspring->position = world_pos;
             offspring->m_grid_x = tile_x;
             offspring->m_grid_y = tile_y;

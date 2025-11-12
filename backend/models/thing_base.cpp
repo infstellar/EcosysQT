@@ -9,7 +9,7 @@ ThingBase 通用实现
 #include <optional>
 #include <random>
 
-ThingBase::ThingBase(Position pos, double energy_, int max_age_, double reproduction_energy_cost_)
+ThingBase::ThingBase(Position pos, double energy_, int max_age_, double min_reproduction_energy_)
     : position(pos),
       energy(energy_),
       max_energy(energy_),
@@ -20,7 +20,7 @@ ThingBase::ThingBase(Position pos, double energy_, int max_age_, double reproduc
       reproduction_cooldown(0),
       death_reason(""),
       species_name("ThingBase"),
-      reproduction_energy_cost(reproduction_energy_cost_),
+      min_reproduction_energy(min_reproduction_energy_),
       m_grid_x(-1),
       m_grid_y(-1),
       pending_spawn_position(std::nullopt) {}
@@ -45,7 +45,7 @@ void ThingBase::apply(const EcosystemState& ecosystem_state) {
 }
 
 bool ThingBase::can_reproduce() const {
-    return alive && energy >= reproduction_energy_cost * 2 && reproduction_cooldown <= 0;
+    return alive && energy >= min_reproduction_energy * 2 && reproduction_cooldown <= 0;
 }
 
 std::unique_ptr<ThingBase> ThingBase::reproduce(const EcosystemState& ecosystem_state) {

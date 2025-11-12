@@ -25,7 +25,7 @@ Animal::Animal(Position pos, const AnimalParams& params, std::mt19937& rng)
 
 // 主构造：在构造时设置物种名，便于立即加载 YAML 行为树
 Animal::Animal(Position pos, const std::string& species_name, const AnimalParams& params, std::mt19937& rng)
-        : RaceBase(pos, species_name, params.energy, params.max_age, params.reproduction_energy_cost, params.hp_max),
+        : RaceBase(pos, species_name, params.energy, params.max_age, params.min_reproduction_energy, params.hp_max),
             base_movement_speed(params.movement_speed),
             movement_speed(params.movement_speed),
             base_energy_consumption(params.energy_consumption),
@@ -54,6 +54,7 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     pregnancy_duration = params.pregnancy_duration;
     mating_range = params.mating_range;
     pregnancy_speed_penalty = params.pregnancy_speed_penalty;
+    pregnant_energy_multiplier = std::max(0.0, params.pregnant_energy_multiplier);
     // 初始化每tick步长为当前移动速度（tick制）
     step_distance_per_tick = movement_speed;
     current_step_distance = step_distance_per_tick; // 首帧近似为1 tick
@@ -425,7 +426,8 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
 // --- 统一能量与一步移动封装（供行为树动作复用） ---
 void Animal::consume_energy(double multiplier) {
     const double m = std::max(0.0, multiplier);
-    energy -= (static_cast<double>(energy_consumption) * m);
+    const double preg_mul = is_pregnant ? std::max(0.0, pregnant_energy_multiplier) : 1.0;
+    energy -= (static_cast<double>(energy_consumption) * m * preg_mul);
     // 统一生命机制：能量耗尽不直接死亡，改由行为树 Update 里的饥饿伤害扣 HP
     if (energy < 0.0) energy = 0.0;
 }
