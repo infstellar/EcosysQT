@@ -13,7 +13,6 @@
 #include <string>
 #include <map>
 
-
 // --- SimulationEngine Class ---
 class SimulationEngine {
 public:
@@ -32,6 +31,7 @@ public:
     void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
+    void loadSnapshot(const std::shared_ptr<EcosystemStateData>& data);
 
 private:
     void simulation_loop();
@@ -79,6 +79,7 @@ public:
     void set_target_fps(int fps);
     bool is_running() const;
     bool is_paused() const;
+    void loadFromSnapshot(const std::shared_ptr<EcosystemStateData>& data);
 
 private:
     std::unique_ptr<SimulationEngine> engine;

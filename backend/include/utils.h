@@ -1,6 +1,6 @@
 #ifndef UTILS_H
 #define UTILS_H
-#define _USE_MATH_DEFINES // 把这行加在 #include <cmath> 之前
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <vector>
 #include <string>
@@ -9,12 +9,11 @@
 #include <optional>
 #include <map>
 #include <Eigen/Dense>
+#include <yaml-cpp/yaml.h>
 
 // 前向声明
 class RaceBase;
 class ThingBase;
-
-// 交互请求类型已迁移至 interaction.h
 
 // 表示2D空间中坐标的位置结构体
 struct Position {
@@ -43,6 +42,8 @@ struct EcosystemStateData {
     std::vector<std::shared_ptr<ThingBase>> alive_grass_objects;
     // 新增：后端模拟TPS（每秒tick数）
     double current_tps;
+    std::string toYaml() const;
+    void fromYaml(const YAML::Node& node);
 };
 
 #endif // UTILS_H
