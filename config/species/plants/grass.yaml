@@ -8,13 +8,13 @@ plant:
   reproduction_chance: 0.33
   competition_radius: 1 # 没用了
   max_competition_effect: 2.0 
-  reproduction_cooldown: 3000 # 2天
+  reproduction_cooldown: 2000 # 2天
   expansion_boost: 1.5
   min_growth_factor: 0.1 # 单位是1250tick
   # 被食用时提供的基础营养值（独立于能量）
   nutrition_value: 200.0
   # 基于积累的繁殖参数，在 能量已满 且 繁殖冷却结束 后才开始积累
   repro_energy_threshold: 25.0 #需要积累多少才能繁殖
-  repro_energy_accumulation_rate: 0.01 # 积攒速率
+  repro_energy_accumulation_rate: 0.02 # 积攒速率
   # 子代初始能量比例（0-1）
   newborn_energy_ratio: 0.25

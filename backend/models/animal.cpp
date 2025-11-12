@@ -160,13 +160,15 @@ void Animal::apply_hp_regen(const EcosystemState& ecosystem_state) {
         return;
     }
     // 批量恢复：保持每日期望不变（按间隔汇总 base_per_tick * ticks）
-    const double regen_amount = base_per_tick * hunger_mul * static_cast<double>(ticks_since_last_regen);
+    double regen_amount = base_per_tick * hunger_mul * static_cast<double>(ticks_since_last_regen);
     ticks_since_last_regen = 0;
     if (regen_amount > 0.0 && hp_current < hp_max) {
+        // Apply global HP regen multiplier (may be lowered by behavior tree when threat nearby)
+        regen_amount *= hp_regen_multiplier;
         hp_current = std::min(hp_max, hp_current + regen_amount);
         SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-            "[HP Regen] '{}' +{:.3f} (tpd={}, interval_ticks={}, base/day={:.2f}, hunger_mul={:.2f})",
-            species_name, regen_amount, tpd, interval_ticks, hp_regen_base_per_day, hunger_mul);
+            "[HP Regen] '{}' +{:.3f} (after mul {:.2f}) (tpd={}, interval_ticks={}, base/day={:.2f}, hunger_mul={:.2f})",
+            species_name, regen_amount, hp_regen_multiplier, tpd, interval_ticks, hp_regen_base_per_day, hunger_mul);
     }
 }
 
@@ -179,6 +181,52 @@ void Animal::update_hunger_state() {
         hunger_state = HungerState::NORMAL;
     }
 }
+
+// 设置全局 HP 恢复倍率（由行为树 Update 节点在检测到威胁时调用）
+void Animal::set_hp_regen_multiplier(double m) {
+    hp_regen_multiplier = std::max(0.0, m);
+}
+
+void Animal::update_flee_ticks(bool is_fleeing, int ticks_per_day, double tired_after_seconds, double tired_speed_multiplier) {
+    // Convert seconds to ticks using ticks_per_day / 86400 (seconds per day)
+    const double ticks_per_sec = (ticks_per_day > 0) ? (static_cast<double>(ticks_per_day) / 86400.0) : 0.0;
+    int threshold_ticks = 1;
+    if (ticks_per_sec > 0.0) {
+        threshold_ticks = std::max(1, static_cast<int>(std::ceil(ticks_per_sec * std::max(0.0, tired_after_seconds))));
+    }
+
+    if (is_fleeing) {
+        consecutive_flee_ticks += 1;
+        if (!tired && consecutive_flee_ticks >= threshold_ticks) {
+            tired = true;
+            current_tired_speed_multiplier = std::max(0.0, tired_speed_multiplier);
+            if (auto logger = spdlog::get("ecosim")) {
+                logger->info("[FleeState] '{}' entered TIRED state after {} ticks (threshold {}), speed mul -> {:.2f}",
+                             species_name, consecutive_flee_ticks, threshold_ticks, current_tired_speed_multiplier);
+            }
+        }
+    } else {
+        if (consecutive_flee_ticks > 0 || tired) {
+            if (tired) {
+                if (auto logger = spdlog::get("ecosim")) {
+                    logger->info("[FleeState] '{}' recovered from TIRED after {} flee ticks", species_name, consecutive_flee_ticks);
+                }
+            }
+        }
+        consecutive_flee_ticks = 0;
+        tired = false;
+        current_tired_speed_multiplier = 1.0;
+    }
+}
+
+bool Animal::is_tired() const {
+    return tired;
+}
+
+double Animal::get_tired_speed_multiplier() const {
+    return current_tired_speed_multiplier;
+}
+
 
 // ---- 新增：公共访问接口实现（供行为树使用） ----
 HungerState Animal::get_hunger_state() const { return hunger_state; }

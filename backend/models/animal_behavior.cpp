@@ -131,6 +131,15 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             auto& bb = *ctx.blackboard;
             {
                 ZoneScopedN("BT::Update::State");
+                // 更新连续逃跑计数 / 疲惫状态：当存在 FleeModeCooldownTicks (>0) 时，视为正在被追击
+                int flee_cd_now = 0;
+                if (auto itf = bb.ints.find(bt::keys::FleeModeCooldownTicks); itf != bb.ints.end()) {
+                    flee_cd_now = std::max(0, itf->second);
+                }
+                const int tpd = world ? world->config.ticks_per_day : 3000;
+                const double tired_after_secs = bb_get_double(&bb, "tired_after_seconds", 5.0);
+                const double tired_speed_mul = bb_get_double(&bb, "tired_speed_multiplier", 0.8);
+                self.update_flee_ticks(flee_cd_now > 0, tpd, tired_after_secs, tired_speed_mul);
                 // 饥饿状态（枚举以 int 存储：0=SATISFIED,1=NORMAL,2=STARVING）
                 int hunger_code = 1;
                 switch (self.get_hunger_state()) {
@@ -191,6 +200,10 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                     }
                     base_speed_multiplier *= std::max(0.0, recovery_mul);
                 }
+                // 如果动物处于疲惫状态，则将速度封顶为疲惫速度倍率（取较小者，保证疲惫时速度下降）
+                if (self.is_tired()) {
+                    base_speed_multiplier = std::min(base_speed_multiplier, self.get_tired_speed_multiplier());
+                }
                 bb.doubles[bt::keys::CurrentSpeedMultiplier] = base_speed_multiplier;
 
                 // 饥饿状态能耗降低：本 tick 的基础能量倍率（供移动 Action 使用）
@@ -250,6 +263,15 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                     bb.ints["ticks_since_last_starvation_damage"] = sd_ticks;
                 }
             }
+
+                    // 根据是否检测到威胁动态调整 HP 恢复倍率（例如被虎威胁时降低恢复速度）
+                    // 默认为 1.0；若黑板表明存在危险（DangerNearby==1），则读取键 "threat_hp_regen_multiplier"（默认 0.3）
+                    double threat_hp_mul = 1.0;
+                    if (bb.ints.find(bt::keys::DangerNearby) != bb.ints.end() && bb.ints[bt::keys::DangerNearby] > 0) {
+                        threat_hp_mul = bb_get_double(&bb, "threat_hp_regen_multiplier", 0.3);
+                    }
+                    // 将倍率写入 Animal，使 apply_hp_regen 生效
+                    self.set_hp_regen_multiplier(threat_hp_mul);
         }
 
         return Status::Success;
