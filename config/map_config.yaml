@@ -88,9 +88,4 @@ animal_spawn_density_by_terrain:
     HILLS: 0.05
     MOUNTAIN: 0.01
 
-# --- 动态种群管理 ---
-population_management:
-  decor_tree:
-    min_count: 1000
-    max_count: 1001 # 这个设置没用
 

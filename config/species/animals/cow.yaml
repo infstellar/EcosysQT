@@ -11,7 +11,7 @@ species:
 animal:
   # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
   movement_speed: 0.08 # 3.5m/s
-  energy_consumption: 2.867 # 每tick能量消耗。86每天，换算为0.02867
+  energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
   detection_range: 60.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
   threat_detection_range: 60.0
   mate_detection_range: 80.0
@@ -59,7 +59,7 @@ animal:
       HILLS: 8.0
       MOUNTAIN: 9.0
       SHALLOW_RIVER: 9.0
-      DEEP_RIVER: 40.0
+      DEEP_RIVER: 9999.0
       WATER: 9999.0
       SHALLOW_OCEAN: 9999.0
       DEEP_OCEAN: 9999.0

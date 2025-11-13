@@ -96,14 +96,10 @@ private:
     double m_tigerFrameIntervalMs = 120.0; // 每帧时长，毫秒
     qint64 m_lastUpdateMs = 0; // 用于计算渲染间隔
     QPixmap m_grassTextures[3];
-    QPixmap m_treeTextures[3];
     // 地形贴图 atlas（用于河流等），如果使用单张 atlas 切片，可按坐标取样
     QPixmap m_riverAtlas;
     int m_riverAtlasCols = 5;
     int m_riverAtlasRows = 5;
-    // 缓存按目标像素大小缩放过的树贴图，按当前渲染像素大小重建
-    std::vector<QPixmap> m_treeScaled;
-    int m_treeScaledSize = 0; // 当前 cached 尺寸（像素），0 表示未缓存
     // UI 层缓存：为每个 ThingBase 指针分配的草贴图变体（确保稳定但随机）
     std::unordered_map<const ThingBase*, int> m_grassVariantMap;
     // 用于在首次遇到时随机分配变体
