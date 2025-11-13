@@ -60,7 +60,6 @@ static inline int bb_get_int(Blackboard* bb, const std::string& key, int def_v =
 // 默认行为参数常量：集中管理以替代魔法数字
 namespace defaults {
     static constexpr int EAT_TICKS = 20;
-    static constexpr int WANDER_TICKS = 50;
 }
 
 // 前向声明：YAML 节点解析器（在后文定义）
@@ -276,7 +275,6 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
         if (self.get_skip_movement()) {
             self.clear_current_target();
             self.clear_path();
-            self.clear_wander_target();
             self.clear_mating_target();
             if (ctx.blackboard) {
                 auto& bb = *ctx.blackboard;
@@ -440,6 +438,38 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         [](const YAML::Node&, Animal& self){
             return std::make_shared<Condition>([&self](TickContext&){
                 return self.get_current_target().has_value();
+            });
+        }
+    },
+    {
+        "is_at_target",
+        [](const YAML::Node& params, Animal& self){
+            const std::string stop_param = params["stop_range_param"] ? params["stop_range_param"].as<std::string>() : std::string();
+            return std::make_shared<Condition>([&self, stop_param](TickContext& ctx){
+                if (!ctx.blackboard) {
+                    return false;
+                }
+
+                auto& bb = *ctx.blackboard;
+                const auto it_x = bb.doubles.find(bt::keys::TargetPosX);
+                const auto it_y = bb.doubles.find(bt::keys::TargetPosY);
+                if (it_x == bb.doubles.end() || it_y == bb.doubles.end()) {
+                    return false;
+                }
+
+                const Position target{it_x->second, it_y->second};
+                double stop_range = 0.0;
+                if (!stop_param.empty()) {
+                    stop_range = read_double_param(self, ctx.blackboard, stop_param, 0.0);
+                }
+                if (stop_range <= 0.0) {
+                    stop_range = std::max(self.get_step_distance_per_tick(), self.get_current_step_distance());
+                }
+                if (stop_range <= 0.0) {
+                    stop_range = 1.0;
+                }
+
+                return self.position.distance_to(target) <= stop_range;
             });
         }
     }
@@ -610,19 +640,22 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
             });
         }
     },
-    // 移除旧版 flee_from_threat，统一采用 "select_flee_destination" + "plan_path_to_target"
     {
-        "wander_anywhere",
-        [](const YAML::Node& params, Animal& self) -> std::shared_ptr<Node> {
+        "select_wander_target",
+        [](const YAML::Node& params, Animal& self){
             YAML::Node p = params;
-            auto act = std::make_shared<Action>([&self, p](TickContext& ctx){
-                return behavior::actions::WanderAnywhere(self, ctx, p);
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::SelectWanderTarget(self, ctx, p);
             });
-            if (p["duration_param"]) {
-                auto decorator = std::make_shared<ProgressLoopDecorator>(act, bt::keys::WanderTotalTicks, bt::keys::WanderCurrentTicks, defaults::WANDER_TICKS);
-                return std::static_pointer_cast<Node>(decorator);
-            }
-            return std::static_pointer_cast<Node>(act);
+        }
+    },
+    {
+        "clear_blackboard_target",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::ClearBlackboardTarget(self, ctx, p);
+            });
         }
     }
 };

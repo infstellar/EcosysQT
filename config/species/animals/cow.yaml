@@ -31,6 +31,7 @@ animal:
       flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）
       wander_speed_multiplier: 0.5
       wander_energy_multiplier: 0.5
+      wander_stop_range: 1.0
       chase_speed_multiplier: 1.0
       chase_energy_multiplier: 1.0
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）

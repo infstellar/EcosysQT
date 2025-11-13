@@ -63,9 +63,22 @@ BehaviorTreeDef:
                     ignore_skip_movement: true
                     force_success: true
                     status_name: "Fleeing"
-              - type: Action
-                action: wander_anywhere
-                status_name: "Fleeing (Panic Move)"
+              - type: Sequence
+                name: FleePanicMove
+                children:
+                  - type: Action
+                    action: select_wander_target
+                    status_name: "Fleeing (Panic Move)"
+                    radius_param: wander_radius
+                    max_wander_cost: 50.0
+                  - type: Action
+                    action: plan_path_to_target
+                    plan_path_move_mode: path
+                    speed_multiplier_key: flee_speed_multiplier
+                    energy_multiplier_key: flee_energy_multiplier
+                    ignore_skip_movement: true
+                    force_success: true
+                    status_name: "Fleeing"
 
       # ========== 交配（雄性） ==========
       - type: Sequence  # 条件满足后：决策节流 + 执行每帧
@@ -124,13 +137,37 @@ BehaviorTreeDef:
                     action: plan_path_to_target  # 每帧追逐至目标
                     status_name: "Chasing Prey"
 
-      # ========== 游荡 ==========
-      - type: TickIntervalDecorator  # 每帧评估游荡；轻量检查
-        name: Wander
-        interval: 0
-        child:
-          type: Action
-          action: wander_anywhere      # 随机游荡；受半径与持续时间参数控制
-          status_name: "Wandering"
-          radius_param: wander_radius
-          duration_param: wandering_duration
+      # ========== 游荡 (修正后) ==========
+      - type: PrioritySelector
+        name: WanderBranch
+        children:
+
+          # 优先级 1: "清理" (如果已抵达)
+          - type: Sequence
+            name: ArrivedAtWanderTarget
+            children:
+              - type: Condition
+                cond: is_at_target
+                stop_range_param: wander_stop_range
+              - type: Action
+                action: clear_blackboard_target
+                status_name: "Idle"
+
+          # 优先级 2: "执行" (如果有目标且未抵达)
+          - type: Action
+            action: plan_path_to_target
+            status_name: "Wandering"
+            speed_multiplier_key: wander_speed_multiplier
+            energy_multiplier_key: wander_energy_multiplier
+            range_param: wander_stop_range
+
+          # 优先级 3: "决策" (如果无目标)
+          - type: TickIntervalDecorator
+            name: SelectWanderTargetThrottled
+            interval: 60
+            child:
+              type: Action
+              action: select_wander_target
+              status_name: "Picking Wander Spot"
+              radius_param: wander_radius
+              max_wander_cost: 50.0

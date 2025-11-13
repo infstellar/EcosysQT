@@ -163,9 +163,6 @@ public:
     void set_mating_target(const std::optional<Position>& p);
     std::optional<Position> get_mating_target() const;
     void clear_mating_target();
-    void set_wander_target(const std::optional<Position>& p);
-    std::optional<Position> get_wander_target() const;
-    void clear_wander_target();
     void clear_path();
     // 步长
     double get_current_step_distance() const;
@@ -243,7 +240,6 @@ protected:
     bool tired{false};
     double current_tired_speed_multiplier{1.0};
     // 旧 FSM 清理：移除 is_wandering / wandering_cooldown / PendingMoveMode 等成员
-    std::optional<Position> wander_target;
     bool skip_movement{false};
 
     // 抽象“一步移动 + 能量结算”的通用内核，供两个对外接口复用

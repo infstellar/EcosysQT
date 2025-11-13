@@ -33,98 +33,105 @@ static inline int bb_get_int(Blackboard* bb, const std::string& key, int def_v =
     return it == bb->ints.end() ? def_v : it->second;
 }
 
-
-bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
-    ZoneScopedN("BT::Action::Wander");
-    (void)params;
+bt::Status SelectWanderTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::SelectWanderTarget");
     auto* world = static_cast<EcosystemState*>(ctx.world);
-    if (!world || !self.alive) return Status::Failure;
-    // 进入游荡的状态日志（降级为 Debug，避免刷屏）
-    SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"),
-        "[WANDER] '{}' entered Wander. IsPregnant={} skip_movement={} pos=({:.1f},{:.1f}) has_target={}",
-        self.species_name, self.is_pregnant, self.get_skip_movement(), self.position.x, self.position.y, self.get_wander_target().has_value());
-    if (self.get_skip_movement()) {
+    if (!world || !self.alive || self.get_skip_movement()) {
+        return Status::Failure;
+    }
+    if (!ctx.blackboard) {
         return Status::Failure;
     }
 
+    auto& bb = *ctx.blackboard;
+
+    double radius = self.get_wander_radius();
+    if (params["radius_param"] && params["radius_param"].IsScalar()) {
+        radius = bb_get_double(&bb, params["radius_param"].as<std::string>(), radius);
+    }
+    if (params["radius"] && params["radius"].IsScalar()) {
+        radius = params["radius"].as<double>();
+    }
+    radius = std::max(radius, self.get_step_distance_per_tick());
+
+    double max_wander_cost = 300.0;
+    if (params["max_wander_cost_param"] && params["max_wander_cost_param"].IsScalar()) {
+        max_wander_cost = bb_get_double(&bb, params["max_wander_cost_param"].as<std::string>(), max_wander_cost);
+    }
+    if (params["max_wander_cost"] && params["max_wander_cost"].IsScalar()) {
+        max_wander_cost = params["max_wander_cost"].as<double>();
+    }
+    if (!(std::isfinite(max_wander_cost) && max_wander_cost > 0.0)) {
+        max_wander_cost = std::numeric_limits<double>::infinity();
+    }
+
+    const auto& path_cfg = self.get_pathfinding_params();
+    pathfinding::PathfindingSettings settings;
+    settings.enable_smoothing = path_cfg.enable_smoothing;
+    settings.min_traversal_cost = std::max(path_cfg.min_traversal_cost, 1e-6);
+    if (path_cfg.max_iterations > 0) {
+        settings.max_iterations = static_cast<std::size_t>(path_cfg.max_iterations);
+    }
+    if (!path_cfg.terrain_cost_overrides.empty()) {
+        settings.terrain_cost_overrides = &path_cfg.terrain_cost_overrides;
+    }
+
+    auto& rng = world->get_thread_local_rng();
+    std::uniform_real_distribution<> angle_dist(0.0, 2.0 * M_PI);
+    std::uniform_real_distribution<> unit_dist(0.0, 1.0);
+
     const int world_width = world->config.world_width;
     const int world_height = world->config.world_height;
+    const int max_attempts = params["attempts"] ? std::max(1, params["attempts"].as<int>()) : 6;
 
-    if (self.get_wander_target().has_value()) {
-        const Position target = self.get_wander_target().value();
-        const double base_mul = bb_get_double(ctx.blackboard, bt::keys::CurrentSpeedMultiplier, 1.0);
-        const double speed_mul = bb_get_double(ctx.blackboard, bt::keys::WanderSpeedMultiplier, 0.8);
-        const double energy_mul = bb_get_double(ctx.blackboard, bt::keys::WanderEnergyMultiplier, 0.6);
-        if (self.is_pregnant) {
-            // 保留孕期速度计算，但不输出 info 日志
-        }
-        const Position prev = self.position;
-        self.perform_step_move_to(target, world_width, world_height, base_mul * speed_mul, energy_mul);
-        const double disp_x = self.position.x - prev.x;
-        const double disp_y = self.position.y - prev.y;
-        const double disp_len = std::sqrt(disp_x*disp_x + disp_y*disp_y);
-        const double arrival_threshold = std::max(0.2, self.get_current_step_distance() * 0.5);
-        if (self.position.distance_to(target) <= arrival_threshold) {
-            self.clear_wander_target();
-            // 到达目标：返回 Success，让外层节点感知完成
-            return Status::Success;
-        }
-        // 未到达：持续推进，返回 Running
-        return Status::Running;
-    }
-
-    auto& rng_local = world->get_thread_local_rng();
-    std::uniform_real_distribution<> angle_dist(0.0, 2 * M_PI);
-    std::uniform_real_distribution<> unit01(0.0, 1.0);
-    for (int tries = 0; tries < 6 && !self.get_wander_target().has_value(); ++tries) {
-        const double angle = angle_dist(rng_local);
-        const double r = std::max(self.movement_speed, std::sqrt(unit01(rng_local)) * self.get_wander_radius());
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        const double angle = angle_dist(rng);
+        const double sample_radius = std::max(self.movement_speed, std::sqrt(unit_dist(rng)) * radius);
         Position candidate{
-            self.position.x + std::cos(angle) * r,
-            self.position.y + std::sin(angle) * r
+            std::clamp(self.position.x + std::cos(angle) * sample_radius, 0.0, static_cast<double>(world_width)),
+            std::clamp(self.position.y + std::sin(angle) * sample_radius, 0.0, static_cast<double>(world_height))
         };
-        candidate.x = std::max(0.0, std::min(static_cast<double>(world_width), candidate.x));
-        candidate.y = std::max(0.0, std::min(static_cast<double>(world_height), candidate.y));
-        if (self.position.distance_to(candidate) < 1e-6) continue;
-        self.set_wander_target(candidate);
-        // 采样到新目标时不再输出 info 日志
+
+        if (self.position.distance_to(candidate) < 1e-6) {
+            continue;
+        }
+
+        auto path_result = pathfinding::find_path_a_star(self.position, candidate, world->world_grid(), max_wander_cost, settings);
+        if (!path_result.has_value() || path_result->path.empty()) {
+            continue;
+        }
+
+        self.set_current_target(candidate);
+        self.plan_path_to_target(path_result->path);
+
+        bb.doubles[bt::keys::TargetPosX] = candidate.x;
+        bb.doubles[bt::keys::TargetPosY] = candidate.y;
+        bb.doubles[bt::keys::PathLastGoalX] = candidate.x;
+        bb.doubles[bt::keys::PathLastGoalY] = candidate.y;
+        bb.ints[bt::keys::PathLastPlanTick] = world->time_step;
+
+        return Status::Success;
     }
-    // 统一移动逻辑：若采样失败执行后备移动；若采样成功则当帧立即移动到新目标
-    const double base_mul = bb_get_double(ctx.blackboard, bt::keys::CurrentSpeedMultiplier, 1.0);
-    const double speed_mul = bb_get_double(ctx.blackboard, bt::keys::WanderSpeedMultiplier, 0.8);
-    const double energy_mul = bb_get_double(ctx.blackboard, bt::keys::WanderEnergyMultiplier, 0.6);
-    const double base_energy_mul = bb_get_double(ctx.blackboard, bt::keys::CurrentEnergyMultiplier, 1.0);
-    if (!self.get_wander_target().has_value()) {
-        std::uniform_real_distribution<> angle2(0.0, 2 * M_PI);
-        const double a2 = angle2(rng_local);
-        Position fallback{
-            std::max(0.0, std::min(static_cast<double>(world_width), self.position.x + std::cos(a2) * self.movement_speed)),
-            std::max(0.0, std::min(static_cast<double>(world_height), self.position.y + std::sin(a2) * self.movement_speed))
-        };
-        if (self.is_pregnant) {
-            // 保留孕期速度计算，但不输出 info 日志
-        }
-        self.perform_step_move_to(fallback, world_width, world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
-        return Status::Running;
-    } else {
-        const Position target2 = self.get_wander_target().value();
-        if (self.is_pregnant) {
-            // 保留孕期速度计算，但不输出 info 日志
-        }
-        const Position prev2 = self.position;
-        self.perform_step_move_to(target2, world_width, world_height, base_mul * speed_mul, energy_mul * base_energy_mul);
-        const double disp_x2 = self.position.x - prev2.x;
-        const double disp_y2 = self.position.y - prev2.y;
-        const double disp_len2 = std::sqrt(disp_x2*disp_x2 + disp_y2*disp_y2);
-        const double arrival_threshold2 = std::max(0.2, self.get_current_step_distance() * 0.5);
-        if (self.position.distance_to(target2) <= arrival_threshold2) {
-            self.clear_wander_target();
-            // 到达新采样目标：返回 Success
-            return Status::Success;
-        }
-        // 未到达：返回 Running
-        return Status::Running;
+
+    return Status::Failure;
+}
+
+bt::Status ClearBlackboardTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::ClearBlackboardTarget");
+    (void)params;
+    if (ctx.blackboard) {
+        auto& bb = *ctx.blackboard;
+        bb.doubles.erase(bt::keys::TargetPosX);
+        bb.doubles.erase(bt::keys::TargetPosY);
+        bb.doubles.erase(bt::keys::PathLastGoalX);
+        bb.doubles.erase(bt::keys::PathLastGoalY);
+        bb.ints.erase(bt::keys::PathLastPlanTick);
     }
+
+    self.clear_current_target();
+    self.clear_path();
+
+    return Status::Success;
 }
 
 bt::Status AttemptToMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
@@ -773,7 +780,16 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
     const PathfindingParams& path_cfg = self.get_pathfinding_params();
     const bool force_success = params["force_success"] ? params["force_success"].as<bool>() : false;
 
-    const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
+    double stop_range = 0.0;
+    std::string stop_range_key;
+    if (params["range_param"] && params["range_param"].IsScalar()) {
+        stop_range_key = params["range_param"].as<std::string>();
+    }
+    if (!stop_range_key.empty()) {
+        stop_range = bb_get_double(ctx.blackboard, stop_range_key, 0.0);
+    } else {
+        stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
+    }
     if (stop_range > 0.0) {
         const double dist = self.position.distance_to(target_pos);
         if (dist <= stop_range) {

@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <utility>
 #include <spdlog/spdlog.h>
+#include "tracy/Tracy.hpp"
 
 namespace pathfinding {
 
@@ -235,6 +236,7 @@ std::optional<PathResult> find_path_a_star_impl(const Position& start_pos,
                                                 GoalEvaluator&& goal_eval,
                                                 HeuristicEvaluator&& heuristic_eval,
                                                 GoalLogProvider&& goal_log_provider) {
+    ZoneScoped;
     if (grid.width() <= 0 || grid.height() <= 0) {
         return std::nullopt;
     }

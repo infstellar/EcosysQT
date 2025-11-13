@@ -256,9 +256,6 @@ void Animal::clear_current_target() { current_target.reset(); }
 void Animal::set_mating_target(const std::optional<Position>& p) { mating_target = p; }
 std::optional<Position> Animal::get_mating_target() const { return mating_target; }
 void Animal::clear_mating_target() { mating_target.reset(); }
-void Animal::set_wander_target(const std::optional<Position>& p) { wander_target = p; }
-std::optional<Position> Animal::get_wander_target() const { return wander_target; }
-void Animal::clear_wander_target() { wander_target.reset(); }
 void Animal::clear_path() { planned_path.clear(); planned_path_index = 0; }
 double Animal::get_current_step_distance() const { return current_step_distance; }
 double Animal::get_step_distance_per_tick() const { return step_distance_per_tick; }

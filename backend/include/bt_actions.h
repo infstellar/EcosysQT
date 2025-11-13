@@ -12,8 +12,8 @@ class Animal;
 
 namespace behavior::actions {
 
-// 游荡：采样/推进游荡目标，按黑板倍率执行一步移动
-bt::Status WanderAnywhere(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+// 游荡目标选择：挑选可达随机点并写入黑板
+bt::Status SelectWanderTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
 // 近距离交配尝试：在交配范围内查找可用雌性并提交交互请求；不包含移动
 bt::Status AttemptToMate(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
@@ -35,5 +35,8 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
 
 // 规划路径到当前目标并执行一步移动（支持黑板速度/能耗倍率）
 bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+
+// 清理黑板上的移动目标
+bt::Status ClearBlackboardTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
 } // namespace behavior::actions
