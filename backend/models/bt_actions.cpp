@@ -13,6 +13,7 @@
 #include <limits>
 #include <random>
 #include <cmath>
+#include <vector>
 #include "tracy/Tracy.hpp"
 #include "bt_keys.h"
 
@@ -616,69 +617,147 @@ bt::Status SeekThingWithPath(Animal& self, bt::TickContext& ctx, const YAML::Nod
 }
 
 bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
-    ZoneScopedN("BT::Action::SelectFleeDest");
+    ZoneScopedN("BT::Action::SelectSmartFleeDest");
     auto* world = static_cast<EcosystemState*>(ctx.world);
-    if (!world || !self.alive) return Status::Failure;
-    if (self.get_skip_movement()) return Status::Failure;
-    if (!ctx.blackboard) return Status::Failure;
+    if (!world || !self.alive || !ctx.blackboard) {
+        return Status::Failure;
+    }
 
     auto& bb = *ctx.blackboard;
     const std::string posx_key = params["pos_x_param"] ? params["pos_x_param"].as<std::string>() : std::string(bt::keys::ThreatPosX);
     const std::string posy_key = params["pos_y_param"] ? params["pos_y_param"].as<std::string>() : std::string(bt::keys::ThreatPosY);
     const std::string radius_key = params["radius_param"] ? params["radius_param"].as<std::string>() : std::string("flee_destination_radius");
 
-    const double tx = bb_get_double(&bb, posx_key, self.position.x);
-    const double ty = bb_get_double(&bb, posy_key, self.position.y);
-    Position threat{tx, ty};
+    const double threat_x = bb_get_double(&bb, posx_key, self.position.x);
+    const double threat_y = bb_get_double(&bb, posy_key, self.position.y);
+    Position threat_pos{threat_x, threat_y};
 
-    // 基础逃跑方向：从威胁指向自身的反方向
-    Position flee_dir{ self.position.x - threat.x, self.position.y - threat.y };
+    Position flee_dir{self.position.x - threat_pos.x, self.position.y - threat_pos.y};
     double len = std::sqrt(flee_dir.x * flee_dir.x + flee_dir.y * flee_dir.y);
     if (len < 1e-6) {
-        // 如果威胁与自身重合，随机一个方向
-        auto& rng0 = world->get_thread_local_rng();
+        auto& rng = world->get_thread_local_rng();
         std::uniform_real_distribution<> angle_dist(0.0, 2.0 * M_PI);
-        const double random_angle = angle_dist(rng0);
-        flee_dir = { std::cos(random_angle), std::sin(random_angle) };
+        const double random_angle = angle_dist(rng);
+        flee_dir = {std::cos(random_angle), std::sin(random_angle)};
     } else {
         flee_dir.x /= len;
         flee_dir.y /= len;
     }
 
-    // 逃逸半径：优先 YAML/黑板；否则使用动态回退（威胁阈值 *1.5 或探测范围）
     double radius = bb_get_double(&bb, radius_key, 0.0);
     if (radius <= 0.0) {
-    const double threat_default = self.get_threat_detection_range();
-    const double th = bb_get_double(&bb, bt::keys::ThreatThreshold, threat_default);
-    radius = std::max(threat_default, th * 1.5);
+        const double threat_default = self.get_threat_detection_range();
+        const double th = bb_get_double(&bb, bt::keys::ThreatThreshold, threat_default);
+        radius = std::max(threat_default, th * 1.5);
         SPDLOG_WARN_ONCE(spdlog::get("ecosim"),
             "Flee radius not configured for '{}' ; using dynamic fallback {:.1f}.",
             self.species_name, radius);
     }
 
-    // 小随机角度偏移（-15° 到 +15°）
+    double min_angle_deg = params["min_angle_deg"] ? params["min_angle_deg"].as<double>() : -45.0;
+    double max_angle_deg = params["max_angle_deg"] ? params["max_angle_deg"].as<double>() : 45.0;
+    if (max_angle_deg < min_angle_deg) {
+        std::swap(max_angle_deg, min_angle_deg);
+    }
+    const double min_angle_rad = min_angle_deg * (M_PI / 180.0);
+    const double max_angle_rad = max_angle_deg * (M_PI / 180.0);
+    const bool flank_mode = (min_angle_deg >= 45.0 && max_angle_deg >= min_angle_deg);
+
     auto& rng = world->get_thread_local_rng();
-    std::uniform_real_distribution<> angle_offset_dist(-M_PI / 12.0, M_PI / 12.0);
-    const double angle_offset = angle_offset_dist(rng);
-    const double ca = std::cos(angle_offset);
-    const double sa = std::sin(angle_offset);
-    Position final_dir{
-        flee_dir.x * ca - flee_dir.y * sa,
-        flee_dir.x * sa + flee_dir.y * ca
+    std::uniform_real_distribution<> dist_radius(radius * 0.7, radius);
+    std::uniform_real_distribution<> dist_angle(min_angle_rad, max_angle_rad);
+    std::uniform_int_distribution<int> side_dist(0, 1);
+
+    std::vector<Position> candidates;
+    candidates.reserve(7);
+    for (int i = 0; i < 7; ++i) {
+        double angle_offset = dist_angle(rng);
+        if (flank_mode) {
+            if (side_dist(rng) == 0) {
+                angle_offset = -angle_offset;
+            }
+        }
+
+        const double sample_radius = dist_radius(rng);
+        const double ca = std::cos(angle_offset);
+        const double sa = std::sin(angle_offset);
+        Position final_dir{
+            flee_dir.x * ca - flee_dir.y * sa,
+            flee_dir.x * sa + flee_dir.y * ca
+        };
+
+        Position candidate{
+            self.position.x + final_dir.x * sample_radius,
+            self.position.y + final_dir.y * sample_radius
+        };
+
+        candidate.x = std::clamp(candidate.x, 0.0, static_cast<double>(world->config.world_width));
+        candidate.y = std::clamp(candidate.y, 0.0, static_cast<double>(world->config.world_height));
+        candidates.push_back(candidate);
+    }
+
+    const auto& path_cfg = self.get_pathfinding_params();
+    const auto estimate_cost = [&](TerrainType terrain) -> double {
+        const auto& overrides = path_cfg.terrain_cost_overrides;
+        const auto it = overrides.find(terrain);
+        if (it != overrides.end()) {
+            return it->second;
+        }
+        switch (terrain) {
+            case TerrainType::LAND:          return 1.0;
+            case TerrainType::SAND:          return 2.5;
+            case TerrainType::INLAND_SAND:   return 3.5;
+            case TerrainType::HILLS:         return 3.5;
+            case TerrainType::SHALLOW_RIVER: return 10.0;
+            case TerrainType::MOUNTAIN:
+            case TerrainType::DEEP_RIVER:
+            case TerrainType::WATER:
+            case TerrainType::SHALLOW_OCEAN:
+            case TerrainType::DEEP_OCEAN:
+            default:
+                return std::numeric_limits<double>::infinity();
+        }
     };
 
-    // 计算目标点并进行边界限制
-    Position destination{
-        self.position.x + final_dir.x * radius,
-        self.position.y + final_dir.y * radius
-    };
+    Position best_target{};
+    double max_dist_sq = -1.0;
+    bool found_target = false;
 
-    destination.x = std::clamp(destination.x, 0.0, static_cast<double>(world->config.world_width));
-    destination.y = std::clamp(destination.y, 0.0, static_cast<double>(world->config.world_height));
+    for (const auto& target : candidates) {
+        const int tile_x = static_cast<int>(std::floor(target.x));
+        const int tile_y = static_cast<int>(std::floor(target.y));
+        if (!world->world_grid().is_valid_coord(tile_x, tile_y)) {
+            continue;
+        }
 
-    bb.doubles[bt::keys::TargetPosX] = destination.x;
-    bb.doubles[bt::keys::TargetPosY] = destination.y;
-    self.set_current_target(destination);
+        const Tile& tile = world->world_grid().get_tile(tile_x, tile_y);
+        const double cost = estimate_cost(tile.terrain);
+        if (!std::isfinite(cost) || cost <= 0.0) {
+            continue;
+        }
+
+        const double dx = target.x - self.position.x;
+        const double dy = target.y - self.position.y;
+        const double dist_sq = dx * dx + dy * dy;
+        if (dist_sq > max_dist_sq) {
+            max_dist_sq = dist_sq;
+            best_target = target;
+            found_target = true;
+        }
+    }
+
+    if (!found_target) {
+        return Status::Failure;
+    }
+
+    bb.doubles[bt::keys::TargetPosX] = best_target.x;
+    bb.doubles[bt::keys::TargetPosY] = best_target.y;
+    self.set_current_target(best_target);
+    self.clear_path();
+    bb.ints[bt::keys::ForageLastSearchTick] = std::numeric_limits<int>::min();
+    bb.ints.erase("mate_target_id");
+    self.clear_mating_target();
+
     return Status::Success;
 }
 
