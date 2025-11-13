@@ -789,9 +789,9 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
             }
 
             if (!ui.planned_path.empty()) {
-                QPen pathPen(QColor(255, 255, 0, 180));
+                QPen pathPen(QColor(0, 255, 0, 200)); // <-- 修改为绿色 (Green)
                 pathPen.setWidth(2);
-                pathPen.setStyle(Qt::DashLine);
+                pathPen.setStyle(Qt::SolidLine); // <-- 修改为实线
                 painter.setPen(pathPen);
                 QPointF prev = camera.toScreenCoords(QPointF(animal_ptr->position.x, animal_ptr->position.y), m_parentWidget->size());
                 for (const auto& p : ui.planned_path) {
