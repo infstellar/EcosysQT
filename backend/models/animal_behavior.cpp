@@ -250,14 +250,20 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
                 }
             }
 
-                    // 根据是否检测到威胁动态调整 HP 恢复倍率（例如被虎威胁时降低恢复速度）
-                    // 默认为 1.0；若黑板表明存在危险（DangerNearby==1），则读取键 "threat_hp_regen_multiplier"（默认 0.3）
-                    double threat_hp_mul = 1.0;
-                    if (bb.ints.find(bt::keys::DangerNearby) != bb.ints.end() && bb.ints[bt::keys::DangerNearby] > 0) {
-                        threat_hp_mul = bb_get_double(&bb, "threat_hp_regen_multiplier", 0.3);
-                    }
-                    // 将倍率写入 Animal，使 apply_hp_regen 生效
-                    self.set_hp_regen_multiplier(threat_hp_mul);
+            // 根据是否检测到威胁动态调整 HP 恢复倍率（例如被虎威胁时降低恢复速度）
+            // 默认为 1.0；若黑板表明存在危险（DangerNearby==1），则读取键 "threat_hp_regen_multiplier"（默认 0.3）
+            double threat_hp_mul = 1.0;
+            if (bb.ints.find(bt::keys::DangerNearby) != bb.ints.end() && bb.ints[bt::keys::DangerNearby] > 0) {
+                threat_hp_mul = bb_get_double(&bb, "threat_hp_regen_multiplier", 0.3);
+            }
+            // 将倍率写入 Animal，使 apply_hp_regen 生效
+            self.set_hp_regen_multiplier(threat_hp_mul);
+        }
+
+        // 基础代谢：无论是否移动，每 tick 都扣除少量能量
+        const double basal_multiplier = bb_get_double(ctx.blackboard, "basal_energy_multiplier", 0.1);
+        if (basal_multiplier > 0.0) {
+            self.consume_energy(basal_multiplier);
         }
 
         return Status::Success;

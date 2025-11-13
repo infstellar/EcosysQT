@@ -35,6 +35,7 @@ animal:
       wander_stop_range: 1.5
       chase_speed_multiplier: 1.8
       chase_energy_multiplier: 1.4
+      basal_energy_multiplier: 0.1 # 基础代谢能耗，占移动消耗的10%
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
