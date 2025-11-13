@@ -67,20 +67,20 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     m_renderer = std::make_unique<SimulationRenderer>(this);
 
     // --- 创建所有控制按钮 ---
-    m_exitButton = new QPushButton("退出模拟", this);
-    m_inspectButton = new QPushButton("查看属性", this);
-    m_restartButton = new QPushButton("重新开始", this);
-    m_customSpeedButton = new QPushButton("自定义速度", this);
-    m_pauseButton = new QPushButton("暂停", this);
-    m_slowDownButton = new QPushButton("减速 (-)", this);
-    m_speedUpButton = new QPushButton("加速 (+)", this);
+    m_exitButton = new QPushButton("Exit Simulation", this);
+    m_inspectButton = new QPushButton("Inspect", this);
+    m_restartButton = new QPushButton("Restart", this);
+    m_customSpeedButton = new QPushButton("Custom Speed", this);
+    m_pauseButton = new QPushButton("Pause", this);
+    m_slowDownButton = new QPushButton("Slow Down (-)", this);
+    m_speedUpButton = new QPushButton("Speed Up (+)", this);
 #ifdef ECOSIM_ENABLE_UI_DEBUG
-    m_historyButton = new QPushButton("显示历史 (OFF)", this);
+    m_historyButton = new QPushButton("Show History (OFF)", this);
 #endif
     // 新增：显示/隐藏网格按钮（右下角）
-    m_toggleGridButton = new QPushButton("显示网格", this);
-    m_toggleHpBarButton = new QPushButton("显示血条", this);
-    m_toggleGridInspectButton = new QPushButton("查看格子", this);
+    m_toggleGridButton = new QPushButton("Show Grid", this);
+    m_toggleHpBarButton = new QPushButton("Show Health Bars", this);
+    m_toggleGridInspectButton = new QPushButton("Inspect Tiles", this);
     
 
     // --- 设置按钮样式 ---
@@ -148,7 +148,7 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
     connect(m_toggleGridInspectButton, &QPushButton::clicked, this, &Widget::onToggleGridInspectClicked);
     connect(m_toggleHpBarButton, &QPushButton::clicked, this, [this]() {
         m_showHpBar = !m_showHpBar;
-        m_toggleHpBarButton->setText(m_showHpBar ? "隐藏血条" : "显示血条");
+        m_toggleHpBarButton->setText(m_showHpBar ? "Hide Health Bars" : "Show Health Bars");
         update();
     });
     
@@ -186,7 +186,7 @@ Widget::~Widget()
 void Widget::updateFrame()
 {
     if (!m_controller) {
-        qDebug() << "错误: 控制器指针为空";
+        qDebug() << "Error: controller pointer is null";
         return;
     }
     
@@ -382,18 +382,18 @@ void Widget::mouseReleaseEvent(QMouseEvent *event)
 void Widget::onRestartClicked()
 {
     if (!m_controller) return;
-    qDebug() << "请求重新开始模拟...";
+    qDebug() << "Requesting simulation restart...";
     EcosystemConfig newConfig = load_map_config_from_yaml("config/map_config.yaml");
-    qDebug() << "创建新配置: 世界尺寸 " << newConfig.world_width << "x" << newConfig.world_height;
+    qDebug() << "Creating new config: world size " << newConfig.world_width << "x" << newConfig.world_height;
     for (const auto& pair : newConfig.initial_populations) {
-        qDebug() << " - 初始种群: " << QString::fromStdString(pair.first) << ", 数量: " << pair.second;
+        qDebug() << " - Initial population: " << QString::fromStdString(pair.first) << ", count: " << pair.second;
     }
     m_controller->reset(newConfig);
     // 重置相机
     m_cameraController->setZoomFactor(1.0);
     m_cameraController->setViewCenter(QPointF(newConfig.world_width / 2.0, newConfig.world_height / 2.0));
     m_currentSpeedLevel = 4;
-    m_pauseButton->setText(m_controller->is_paused() ? "继续" : "暂停");
+    m_pauseButton->setText(m_controller->is_paused() ? "Resume" : "Pause");
     updateFrame();
 }
 
@@ -402,10 +402,10 @@ void Widget::onPauseResumeClicked()
     if (!m_controller) return;
     if (m_controller->is_paused()) {
         m_controller->resume();
-        m_pauseButton->setText("暂停");
+        m_pauseButton->setText("Pause");
     } else {
         m_controller->pause();
-        m_pauseButton->setText("继续");
+        m_pauseButton->setText("Resume");
     }
 }
 
@@ -421,7 +421,7 @@ void Widget::onSpeedUpClicked()
     auto it = speedMap.find(m_currentSpeedLevel);
     if (it != speedMap.end()) {
         m_controller->set_target_fps(it->second);
-        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+        qDebug() << "Speed level:" << m_currentSpeedLevel << ", FPS:" << it->second;
     }
 }
 
@@ -437,7 +437,7 @@ void Widget::onSlowDownClicked()
     auto it = speedMap.find(m_currentSpeedLevel);
     if (it != speedMap.end()) {
         m_controller->set_target_fps(it->second);
-        qDebug() << "速度等级:" << m_currentSpeedLevel << ", FPS:" << it->second;
+        qDebug() << "Speed level:" << m_currentSpeedLevel << ", FPS:" << it->second;
     }
 }
 
@@ -446,7 +446,7 @@ void Widget::onToggleGridClicked()
 {
     m_showGrid = !m_showGrid;
     if (m_toggleGridButton) {
-        m_toggleGridButton->setText(m_showGrid ? "隐藏网格" : "显示网格");
+        m_toggleGridButton->setText(m_showGrid ? "Hide Grid" : "Show Grid");
     }
     update();
 }
@@ -455,10 +455,10 @@ void Widget::onCustomSpeedClicked()
 {
     if (!m_controller) return;
     bool ok;
-    int newFps = QInputDialog::getInt(this, "设置模拟速度", "请输入目标 FPS (1-2000):", 30, 1, 2000, 1, &ok);
+    int newFps = QInputDialog::getInt(this, "Set Simulation Speed", "Enter target FPS (1-2000):", 30, 1, 2000, 1, &ok);
     if (ok) {
         m_controller->set_target_fps(newFps);
-        qDebug() << "自定义速度已设置为:" << newFps << "FPS";
+        qDebug() << "Custom speed set to:" << newFps << "FPS";
     }
 }
 
@@ -469,21 +469,21 @@ void Widget::onInspectButtonClicked()
     m_historyButton->setVisible(m_isInspectMode);
     if (!m_isInspectMode) {
         m_showHistory = false;
-        m_historyButton->setText("显示历史 (OFF)");
+        m_historyButton->setText("Show History (OFF)");
     }
 #endif
     if (m_isInspectMode) {
         if (m_isGridInspectMode) {
             m_isGridInspectMode = false;
             if (m_toggleGridInspectButton) {
-                m_toggleGridInspectButton->setText("查看格子");
+                m_toggleGridInspectButton->setText("Inspect Tiles");
             }
             m_hoveredGridCoords.reset();
         }
-        m_inspectButton->setText("退出查看");
+        m_inspectButton->setText("Exit Inspect");
         m_inspectButton->setStyleSheet("QPushButton { background-color: #007ACC; color: white; border: 1px solid #005A9E; padding: 5px; border-radius: 3px; min-width: 80px; }");
     } else {
-        m_inspectButton->setText("查看属性");
+        m_inspectButton->setText("Inspect");
         QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
         m_inspectButton->setStyleSheet(buttonStyle);
         m_hoveredEntity.reset();
@@ -499,7 +499,7 @@ void Widget::onToggleGridInspectClicked()
     if (m_isGridInspectMode) {
         if (m_isInspectMode) {
             m_isInspectMode = false;
-            m_inspectButton->setText("查看属性");
+            m_inspectButton->setText("Inspect");
             QString buttonStyle = "QPushButton { background-color: rgba(0, 0, 0, 180); color: white; border: 1px solid white; padding: 5px; border-radius: 3px; min-width: 80px; } QPushButton:hover { background-color: rgba(255, 255, 255, 50); } QPushButton:pressed { background-color: rgba(0, 0, 0, 220); }";
             m_inspectButton->setStyleSheet(buttonStyle);
             m_hoveredEntity.reset();
@@ -508,17 +508,17 @@ void Widget::onToggleGridInspectClicked()
             if (m_historyButton) {
                 m_historyButton->setVisible(false);
                 m_showHistory = false;
-                m_historyButton->setText("显示历史 (OFF)");
+                m_historyButton->setText("Show History (OFF)");
             }
 #endif
         }
         m_hoveredGridCoords.reset();
         if (m_toggleGridInspectButton) {
-            m_toggleGridInspectButton->setText("退出查看");
+            m_toggleGridInspectButton->setText("Exit Tile Inspect");
         }
     } else {
         if (m_toggleGridInspectButton) {
-            m_toggleGridInspectButton->setText("查看格子");
+            m_toggleGridInspectButton->setText("Inspect Tiles");
         }
         m_hoveredGridCoords.reset();
     }
@@ -530,7 +530,7 @@ void Widget::onToggleGridInspectClicked()
 void Widget::onToggleHistoryClicked()
 {
     m_showHistory = !m_showHistory;
-    m_historyButton->setText(m_showHistory ? "显示历史 (ON)" : "显示历史 (OFF)");
+    m_historyButton->setText(m_showHistory ? "Show History (ON)" : "Show History (OFF)");
     update();
 }
 #endif

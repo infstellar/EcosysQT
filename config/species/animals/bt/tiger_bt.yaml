@@ -8,7 +8,7 @@ BehaviorTreeDef:
       - type: TickIntervalDecorator
         name: SleepCheckThrottled
         key_prefix: sleep_check
-        interval: 125
+        interval: 1250
         interval_param: sleep_check_interval_ticks
         child:
           type: Sequence

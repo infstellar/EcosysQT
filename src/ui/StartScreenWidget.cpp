@@ -13,20 +13,20 @@ StartScreenWidget::StartScreenWidget(QWidget *parent)
 
     m_backgroundImage.load(":/images/background_start.png");
     if (m_backgroundImage.isNull()) {
-        qDebug() << "警告: 开始界面背景图 background_start.png 加载失败!";
+        qDebug() << "Warning: start screen background image background_start.png failed to load!";
     }
 
     // 标题
-    QLabel* titleLabel = new QLabel("生态系统模拟", this);
+    QLabel* titleLabel = new QLabel("Ecosystem Simulation", this);
     QFont titleFont("Arial", 40, QFont::Bold);
     titleLabel->setFont(titleFont);
     titleLabel->setStyleSheet("color: black;");
     titleLabel->setAlignment(Qt::AlignCenter);
 
     // 创建按钮
-    m_startButton = new QPushButton("开始模拟", this);
-    m_exitButton = new QPushButton("退出程序", this);
-    m_musicButton = new QPushButton("开启音乐", this); // <-- 新增：创建音乐按钮
+    m_startButton = new QPushButton("Start Simulation", this);
+    m_exitButton = new QPushButton("Exit", this);
+    m_musicButton = new QPushButton("Enable Music", this); // <-- 新增：创建音乐按钮
 
     // 设置按钮样式
     QString buttonStyle = "QPushButton { background-color: #007ACC; color: white; border: none; padding: 15px; font-size: 18px; border-radius: 5px; min-width: 200px; } QPushButton:hover { background-color: #005A9E; }";
@@ -63,9 +63,9 @@ void StartScreenWidget::onMusicButtonClicked()
 {
     m_isMusicOn = !m_isMusicOn; // 切换状态
     if (m_isMusicOn) {
-        m_musicButton->setText("关闭音乐");
+        m_musicButton->setText("Disable Music");
     } else {
-        m_musicButton->setText("开启音乐");
+        m_musicButton->setText("Enable Music");
     }
     emit toggleMusicClicked(m_isMusicOn); // 发射信号，通知主窗口
 }

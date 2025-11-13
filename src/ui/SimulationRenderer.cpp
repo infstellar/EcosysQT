@@ -60,7 +60,7 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
             std::uniform_int_distribution<std::size_t> dist(0, m_backgroundImages.size() - 1);
             std::size_t idx = dist(m_rng);
             m_backgroundImage = m_backgroundImages[idx];
-            qDebug() << "信息: 选择背景图片 index=" << static_cast<int>(idx) << " (total=" << static_cast<int>(m_backgroundImages.size()) << ")";
+            qDebug() << "Info: selected background image index=" << static_cast<int>(idx) << " (total=" << static_cast<int>(m_backgroundImages.size()) << ")";
         } catch (...) {
             // 保险回退：选择第一张
             m_backgroundImage = m_backgroundImages.front();
@@ -69,7 +69,7 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
         // 老逻辑回退：尝试旧的单张资源路径
         m_backgroundImage.load(":/images/background.png");
         if (m_backgroundImage.isNull()) {
-            qDebug() << "警告: 背景图加载失败，使用纯色背景";
+            qDebug() << "Warning: background image failed to load; falling back to solid color";
         }
     }
     
@@ -81,16 +81,16 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
             pixmap.load(filePath);
         }
         if (pixmap.isNull()) {
-            qDebug() << "警告:" << label << "贴图加载失败";
+            qDebug() << "Warning:" << label << "texture failed to load";
         }
     };
 
-    tryLoadTexture(m_cowTexture, ":/images/cow.png", "resources/images/cow.png", "牛");
-    tryLoadTexture(m_bullTexture, ":/images/bull.png", "resources/images/bull.png", "牛(公)");
-    tryLoadTexture(m_dawanjiTexture, ":/images/dawanji.png", "resources/images/dawanji.png", "大碗鸡");
-    tryLoadTexture(m_dawanjiManTexture, ":/images/dawanji_man.png", "resources/images/dawanji_man.png", "大碗鸡(公)");
-    tryLoadTexture(m_tigerTexture, ":/images/tiger.png", "resources/images/tiger.png", "雌性老虎");
-    tryLoadTexture(m_tigerManTexture, ":/images/tiger_man.png", "resources/images/tiger_man.png", "雄性老虎");
+    tryLoadTexture(m_cowTexture, ":/images/cow.png", "resources/images/cow.png", "Cow");
+    tryLoadTexture(m_bullTexture, ":/images/bull.png", "resources/images/bull.png", "Bull");
+    tryLoadTexture(m_dawanjiTexture, ":/images/dawanji.png", "resources/images/dawanji.png", "Dawanji");
+    tryLoadTexture(m_dawanjiManTexture, ":/images/dawanji_man.png", "resources/images/dawanji_man.png", "Dawanji (Male)");
+    tryLoadTexture(m_tigerTexture, ":/images/tiger.png", "resources/images/tiger.png", "Female Tiger");
+    tryLoadTexture(m_tigerManTexture, ":/images/tiger_man.png", "resources/images/tiger_man.png", "Male Tiger");
     // 尝试加载新提供的老虎精灵表（4行 × 7帧）并切片
     QPixmap tigerSheet;
     tigerSheet.load(":/images/grass_variants_backup/tiger_new.png");
@@ -109,21 +109,21 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
                     m_tigerFrames[r][c] = QPixmap::fromImage(sub);
                 }
             }
-            qDebug() << "信息: 成功加载并切片 tiger_new.png 为" << rows << "x" << cols << "帧";
+            qDebug() << "Info: successfully loaded tiger_new.png and sliced into" << rows << "x" << cols << "frames";
         } else {
-            qDebug() << "警告: tiger_new.png 大小异常，跳过切片";
+            qDebug() << "Warning: tiger_new.png has unexpected dimensions; skipping slicing";
         }
     } else {
-        qDebug() << "信息: 未找到 tiger_new.png，继续使用旧的 tiger.png/tiger_man.png 作为回退";
+        qDebug() << "Info: tiger_new.png not found; continuing to use tiger.png/tiger_man.png as fallback";
     }
     // 加载三张草贴图
     m_grassTextures[0].load(":/images/grass_0.png");
     if (m_grassTextures[0].isNull()) {
-        qDebug() << "警告: 草贴图 grass_0.png 加载失败";
+        qDebug() << "Warning: grass texture grass_0.png failed to load";
     }
     m_grassTextures[1].load(":/images/grass_1.png");
     if (m_grassTextures[1].isNull()) {
-        qDebug() << "警告: 草贴图 grass_1.png 加载失败";
+        qDebug() << "Warning: grass texture grass_1.png failed to load";
     }
 
     // 兼容旧的资源配置：如果三张变体都没被打包到资源中，尝试加载旧的单张草贴图作为回退
@@ -134,12 +134,12 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (!anyValid) {
         m_grassTextures[0].load(":/images/grass.png");
         if (!m_grassTextures[0].isNull()) {
-            qDebug() << "信息: 使用回退草贴图 :/images/grass.png";
+            qDebug() << "Info: using fallback grass texture :/images/grass.png";
         }
     }
     m_grassTextures[2].load(":/images/grass_2.png");
     if (m_grassTextures[2].isNull()) {
-        qDebug() << "警告: 草贴图 grass_2.png 加载失败";
+        qDebug() << "Warning: grass texture grass_2.png failed to load";
     }
     // 尝试加载用户提供的地形 atlas（优先资源路径，然后回退到文件系统）
     m_riverAtlas.load(":/images/terrain/river.jpg");
@@ -149,7 +149,7 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
         m_riverAtlas.load(fsPath);
     }
     if (m_riverAtlas.isNull()) {
-        qDebug() << "信息: 未找到 river atlas (: /resources/images/terrain/river.jpg)，河流将以纯色渲染";
+        qDebug() << "Info: river atlas (:/resources/images/terrain/river.jpg) not found; rivers will render as solid color";
     }
 
     // --- 新增：尝试加载用户提供的生物群系配色图（resources/images/color/<name>.png） ---
@@ -198,11 +198,11 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
             loaded = tryLoadCandidate(cand);
             if (!loaded.isNull()) {
                 m_biomePixmaps[biomeInt] = loaded;
-                qDebug() << "信息: 为生物群系加载贴图:" << cand << "(biome=" << biomeInt << ")";
+                qDebug() << "Info: loaded biome texture" << cand << "(biome=" << biomeInt << ")";
                 return;
             }
         }
-        qDebug() << "信息: 未找到生物群系贴图 (biome=" << biomeInt << ")，将使用颜色回退";
+        qDebug() << "Info: no biome texture found (biome=" << biomeInt << "); using color fallback";
     };
 
     // 枚举所有 BiomeType（手动列举以避免依赖反射）
@@ -221,41 +221,41 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
 namespace {
     QString terrainToString(TerrainType t) {
         switch (t) {
-            case TerrainType::LAND: return "土地";
-            case TerrainType::WATER: return "水";
-            case TerrainType::SHALLOW_RIVER: return "浅河";
-            case TerrainType::DEEP_RIVER: return "深河";
-            case TerrainType::SHALLOW_OCEAN: return "浅海";
-            case TerrainType::DEEP_OCEAN: return "深海";
-            case TerrainType::SAND: return "沙地";
-            case TerrainType::INLAND_SAND: return "内陆沙地";
-            case TerrainType::HILLS: return "丘陵";
-            case TerrainType::MOUNTAIN: return "山脉";
-            default: return "未知";
+            case TerrainType::LAND: return "Land";
+            case TerrainType::WATER: return "Water";
+            case TerrainType::SHALLOW_RIVER: return "Shallow River";
+            case TerrainType::DEEP_RIVER: return "Deep River";
+            case TerrainType::SHALLOW_OCEAN: return "Shallow Ocean";
+            case TerrainType::DEEP_OCEAN: return "Deep Ocean";
+            case TerrainType::SAND: return "Sand";
+            case TerrainType::INLAND_SAND: return "Inland Sand";
+            case TerrainType::HILLS: return "Hills";
+            case TerrainType::MOUNTAIN: return "Mountain";
+            default: return "Unknown";
         }
     }
 
     QString biomeToString(BiomeType b) {
         switch (b) {
-            case BiomeType::PolarIce: return "极地冰盖";
-            case BiomeType::Tundra: return "苔原";
-            case BiomeType::BorealForest: return "寒温带针叶林";
-            case BiomeType::TemperateForest: return "温带森林";
-            case BiomeType::TemperateRainforest: return "温带雨林";
-            case BiomeType::Grassland: return "草原";
-            case BiomeType::Savanna: return "稀树草原";
-            case BiomeType::TropicalForest: return "热带雨林";
-            case BiomeType::Desert: return "沙漠";
-            case BiomeType::Ocean: return "海洋";
-            default: return "未知";
+            case BiomeType::PolarIce: return "Polar Ice Cap";
+            case BiomeType::Tundra: return "Tundra";
+            case BiomeType::BorealForest: return "Boreal Forest";
+            case BiomeType::TemperateForest: return "Temperate Forest";
+            case BiomeType::TemperateRainforest: return "Temperate Rainforest";
+            case BiomeType::Grassland: return "Grassland";
+            case BiomeType::Savanna: return "Savanna";
+            case BiomeType::TropicalForest: return "Tropical Rainforest";
+            case BiomeType::Desert: return "Desert";
+            case BiomeType::Ocean: return "Ocean";
+            default: return "Unknown";
         }
     }
 
     QString speciesDisplayName(const std::string& name) {
-        if (name == "grass") return "草";
-        if (name == "cow") return "牛";
-        if (name == "tiger") return "老虎";
-        if (name == "dawanji") return "大湾鸡";
+        if (name == "grass") return "Grass";
+        if (name == "cow") return "Cow";
+        if (name == "tiger") return "Tiger";
+        if (name == "dawanji") return "Dawanji";
         return QString::fromStdString(name);
     }
 }
@@ -624,23 +624,23 @@ void SimulationRenderer::drawHud(QPainter& painter)
     
     int textY = 30;
     
-    painter.drawText(20, textY, QString("年: %1   天: %2").arg(m_parentWidget->m_currentYear).arg(m_parentWidget->m_currentDay));
+    painter.drawText(20, textY, QString("Year: %1   Day: %2").arg(m_parentWidget->m_currentYear).arg(m_parentWidget->m_currentDay));
     textY += lineHeight;
     
-    painter.drawText(20, textY, QString("季: %1").arg(QString::fromStdString(m_parentWidget->m_currentQuadrumName)));
+    painter.drawText(20, textY, QString("Quadrum: %1").arg(QString::fromStdString(m_parentWidget->m_currentQuadrumName)));
     textY += lineHeight;
     
-    painter.drawText(20, textY, QString("时间步: %1").arg(m_parentWidget->m_timeStep));
+    painter.drawText(20, textY, QString("Time Step: %1").arg(m_parentWidget->m_timeStep));
     textY += lineHeight;
     
-    painter.drawText(20, textY, QString("模拟 TPS: %1").arg(QString::number(m_parentWidget->m_current_tps, 'f', 1)));
+    painter.drawText(20, textY, QString("Simulation TPS: %1").arg(QString::number(m_parentWidget->m_current_tps, 'f', 1)));
     textY += lineHeight;
     
     int totalCount = 0;
     for (const auto& [_, count] : counts) {
         totalCount += count;
     }
-    painter.drawText(20, textY, QString("总数量: %1").arg(totalCount));
+    painter.drawText(20, textY, QString("Total Count: %1").arg(totalCount));
     textY += lineHeight;
     
     for (const auto& [name, count] : counts) {
@@ -684,57 +684,57 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
         screenPos = camera.toScreenCoords(QPointF(arg->position.x, arg->position.y), m_parentWidget->size());
 
         // 基础信息（所有实体共有）
-        infoText += QString("物种: %1\n").arg(QString::fromStdString(arg->species_name));
-        infoText += QString("年龄: %1\n").arg(arg->age);
-        infoText += QString("能量: %1 / %2").arg(QString::number(arg->energy, 'f', 1)).arg(arg->max_energy);
+        infoText += QString("Species: %1\n").arg(QString::fromStdString(arg->species_name));
+        infoText += QString("Age: %1\n").arg(arg->age);
+        infoText += QString("Energy: %1 / %2").arg(QString::number(arg->energy, 'f', 1)).arg(arg->max_energy);
 
         // 运行时类型检查：尝试将 RaceBase/ThingBase 转为 Animal
         auto animal_ptr = std::dynamic_pointer_cast<Animal>(arg);
         if (animal_ptr) {
-            infoText += QString("\n性别: %1").arg(animal_ptr->sex == Sex::MALE ? "雄性" : "雌性");
+            infoText += QString("\nSex: %1").arg(animal_ptr->sex == Sex::MALE ? "Male" : "Female");
 #ifdef ECOSIM_ENABLE_UI_DEBUG
             AnimalUiSnapshot ui = animal_ptr->get_ui_snapshot();
             std::string status = ui.current_bt_action;
             if (ui.is_pregnant) {
                 status += " (Pregnant)";
             }
-            infoText += QString("\n状态: %1").arg(QString::fromStdString(status));
+            infoText += QString("\nState: %1").arg(QString::fromStdString(status));
 
             // 显示当前移速（每 tick 步长）
-            infoText += QString("\n移速: %1").arg(QString::number(ui.current_speed, 'f', 2));
+            infoText += QString("\nMove Speed: %1").arg(QString::number(ui.current_speed, 'f', 2));
 
             // 显示生命值（HP）
-            infoText += QString("\n生命: %1 / %2")
+            infoText += QString("\nHealth: %1 / %2")
                 .arg(QString::number(ui.hp_current, 'f', 0))
                 .arg(QString::number(ui.hp_max, 'f', 0));
 
-            QString hungerStr = "普通";
+            QString hungerStr = "Normal";
             if (ui.hunger_state == 0) {
-                hungerStr = "饱足";
+                hungerStr = "Satisfied";
             } else if (ui.hunger_state == 2) {
-                hungerStr = "饥饿";
+                hungerStr = "Starving";
             }
-            infoText += QString("\n饥饿: %1").arg(hungerStr);
+            infoText += QString("\nHunger: %1").arg(hungerStr);
 
-            infoText += QString("\n感知: %1食物, %2配偶")
+            infoText += QString("\nPerception: %1 food, %2 mates")
                 .arg(ui.perceived_food)
                 .arg(ui.perceived_mates);
             if (ui.danger_nearby > 0) {
-                infoText += " (有威胁!)";
+                infoText += " (Threat nearby!)";
             }
 
             if (ui.current_bt_action == "Wandering" && ui.wander_total_ticks > 0) {
-                infoText += QString("\n游荡: %1 / %2")
+                infoText += QString("\nWandering: %1 / %2")
                     .arg(ui.wander_current_ticks)
                     .arg(ui.wander_total_ticks);
-            }else{
-                infoText += QString("\n游荡: Unknown");
+            } else {
+                infoText += QString("\nWandering: Unknown");
             }
 
             if (m_parentWidget->getShowHistory()) {
-                infoText += "\n--- 历史记录 (最近5条) ---";
+                infoText += "\n--- History (last 5) ---";
                 if (ui.interaction_history.empty()) {
-                    infoText += "\n(无)";
+                    infoText += "\n(None)";
                 } else {
                     int count = 0;
                     for (auto it = ui.interaction_history.rbegin();
@@ -784,7 +784,7 @@ void SimulationRenderer::drawSelectionInfo(QPainter& painter, const CameraContro
         // 为植物显示繁殖积累能量
         auto producer_ptr = std::dynamic_pointer_cast<Producer>(arg);
         if (producer_ptr) {
-            infoText += QString("\n繁殖积累: %1 / %2")
+            infoText += QString("\nReproduction Energy: %1 / %2")
                 .arg(QString::number(producer_ptr->reproduction_energy_accumulated, 'f', 1))
                 .arg(QString::number(producer_ptr->repro_energy_threshold, 'f', 1));
         }
@@ -896,20 +896,20 @@ void SimulationRenderer::drawGridInspect(QPainter& painter,
     const Tile& tile = grid->get_tile(gridCoords.x(), gridCoords.y());
 
     QString infoText;
-    infoText += QString("格子坐标: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
+    infoText += QString("Tile: (%1, %2)\n").arg(gridCoords.x()).arg(gridCoords.y());
     // 显示经纬度
-    infoText += QString("纬度: %1°\n").arg(QString::number(tile.latitude, 'f', 2));
-    infoText += QString("经度: %1°\n").arg(QString::number(tile.longitude, 'f', 2));
-    infoText += QString("地形: %1\n").arg(terrainToString(tile.terrain));
-    infoText += QString("生物群系: %1\n").arg(biomeToString(tile.biome));
+    infoText += QString("Latitude: %1°\n").arg(QString::number(tile.latitude, 'f', 2));
+    infoText += QString("Longitude: %1°\n").arg(QString::number(tile.longitude, 'f', 2));
+    infoText += QString("Terrain: %1\n").arg(terrainToString(tile.terrain));
+    infoText += QString("Biome: %1\n").arg(biomeToString(tile.biome));
     infoText += QString("----------\n");
-    infoText += QString("温度: %1 °C\n").arg(QString::number(tile.temperature, 'f', 1));
-    infoText += QString("本地时间: %1:00\n").arg(tile.local_hour);
-    infoText += QString("湿度: %1\n").arg(QString::number(tile.moisture, 'f', 2));
-    infoText += QString("海拔: %1\n").arg(QString::number(tile.elevation, 'f', 2));
-    infoText += QString("肥沃度: %1\n").arg(tile.fertility);
-    infoText += QString("亮度: %1\n").arg(tile.brightness);
-    infoText += QString("物体数量: %1").arg(tile.things.size());
+    infoText += QString("Temperature: %1 °C\n").arg(QString::number(tile.temperature, 'f', 1));
+    infoText += QString("Local Time: %1:00\n").arg(tile.local_hour);
+    infoText += QString("Humidity: %1\n").arg(QString::number(tile.moisture, 'f', 2));
+    infoText += QString("Elevation: %1\n").arg(QString::number(tile.elevation, 'f', 2));
+    infoText += QString("Fertility: %1\n").arg(tile.fertility);
+    infoText += QString("Brightness: %1\n").arg(tile.brightness);
+    infoText += QString("Objects: %1").arg(tile.things.size());
 
     QFont font("Arial", 10);
     QFontMetrics fm(font);

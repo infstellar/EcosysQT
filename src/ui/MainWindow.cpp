@@ -42,7 +42,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 4. 将 QStackedWidget 设置为中央控件
     setCentralWidget(m_stackedWidget);
     resize(config.world_width, config.world_height); // 根据配置设置窗口大小
-    setWindowTitle("生态系统模拟");
+    setWindowTitle("Ecosystem Simulation");
 
     // 5. 连接信号和槽，实现界面切换（仅把 startClicked 连接到 loadOrNewSimulation）
     connect(m_startScreen, &StartScreenWidget::startClicked, this, &MainWindow::loadOrNewSimulation);
@@ -62,7 +62,7 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     if (m_controller) {
-        qDebug() << "正在停止模拟线程...";
+        qDebug() << "Stopping simulation thread...";
         m_controller->stop();
     }
 }
@@ -78,11 +78,11 @@ void MainWindow::onToggleMusic(bool play)
     if (play && !m_isMusicPlaying) {
         m_backgroundMusic->play();
         m_isMusicPlaying = true;
-        qDebug() << "音乐已开启";
+        qDebug() << "Music enabled";
     } else if (!play && m_isMusicPlaying) {
         m_backgroundMusic->stop();
         m_isMusicPlaying = false;
-        qDebug() << "音乐已关闭";
+        qDebug() << "Music disabled";
     }
 }
 
@@ -93,7 +93,7 @@ QString MainWindow::selectSaveSlot()
     const QString savesDir = exeQDir.filePath(QStringLiteral("saves"));
     if (!QDir(savesDir).exists()) {
         bool ok = QDir().mkpath(savesDir);
-        qDebug() << "创建 saves 目录:" << savesDir << " 结果:" << ok;
+        qDebug() << "Creating saves directory:" << savesDir << " result:" << ok;
     }
 
     // 固定三个存档槽
@@ -106,7 +106,7 @@ QString MainWindow::selectSaveSlot()
     QStringList displayList;
     for (int i = 0; i < fileNames.size(); ++i) {
         QFileInfo fi(fileNames[i]);
-        QString label = QStringLiteral("存档%1").arg(i + 1);
+        QString label = QStringLiteral("Save Slot %1").arg(i + 1);
         if (fi.exists()) {
             QString mod = fi.lastModified().toString("yyyy-MM-dd HH:mm:ss");
             label += QStringLiteral(" - 修改: %1").arg(mod);
@@ -117,14 +117,14 @@ QString MainWindow::selectSaveSlot()
     }
 
     // 在列表末尾加入 新建 存档 选项
-    const QString kNewSaveLabel = QStringLiteral("新建存档...");
+    const QString kNewSaveLabel = QStringLiteral("Create New Save...");
     displayList << kNewSaveLabel;
 
     bool ok = false;
     QString selected = QInputDialog::getItem(
         this,
-        QStringLiteral("选择存档"),
-        QStringLiteral("请选择一个存档或新建："),
+        QStringLiteral("Select Save"),
+        QStringLiteral("Please select a save slot or create a new one:"),
         displayList,
         0,
         false,
@@ -138,7 +138,7 @@ QString MainWindow::selectSaveSlot()
         QStringList slotLabels;
         for (int i = 0; i < fileNames.size(); ++i) {
             QFileInfo fi(fileNames[i]);
-            QString lab = QStringLiteral("存档%1").arg(i + 1);
+            QString lab = QStringLiteral("Save Slot %1").arg(i + 1);
             if (fi.exists()) lab += QStringLiteral(" (已存在)");
             slotLabels << lab;
         }
@@ -146,8 +146,8 @@ QString MainWindow::selectSaveSlot()
         bool ok2 = false;
         QString chosenSlot = QInputDialog::getItem(
             this,
-            QStringLiteral("选择目标槽"),
-            QStringLiteral("请选择要占用的存档槽（会覆盖该槽文件）："),
+            QStringLiteral("Choose Target Slot"),
+            QStringLiteral("Select a save slot to overwrite:"),
             slotLabels,
             0,
             false,
@@ -165,8 +165,8 @@ QString MainWindow::selectSaveSlot()
         if (targetFi.exists()) {
             auto rb = QMessageBox::question(
                 this,
-                QStringLiteral("确认覆盖"),
-                QStringLiteral("选定的存档槽已存在，是否覆盖？"),
+                QStringLiteral("Confirm Overwrite"),
+                QStringLiteral("The selected save slot already exists. Overwrite?"),
                 QMessageBox::Yes | QMessageBox::No
             );
             if (rb != QMessageBox::Yes) {
@@ -198,7 +198,7 @@ void MainWindow::loadOrNewSimulation()
 {
     QString saveFile = selectSaveSlot();
     if (saveFile.isEmpty()) {
-        qDebug() << "未选择存档，取消启动模拟";
+        qDebug() << "No save selected; cancelling simulation start";
         return;
     }
 
@@ -251,12 +251,12 @@ void MainWindow::loadOrNewSimulation()
             if (initData) {
                 bool saved = SaveManager::saveToYaml(initData, saveFile);
                 if (!saved) {
-                    qWarning() << "新建存档后写入文件失败:" << saveFile;
+                    qWarning() << "Failed to write save file after creation:" << saveFile;
                 } else {
-                    qDebug() << "已将按 map_config 创建的初始存档写入:" << saveFile;
+                    qDebug() << "Initial save generated from map_config written to:" << saveFile;
                 }
             } else {
-                qWarning() << "新建后无法获取初始数据以写入存档";
+                qWarning() << "Unable to obtain initial data for save after creation";
             }
         }
     }
@@ -282,7 +282,7 @@ void MainWindow::loadOrNewSimulation()
 
 bool MainWindow::trySaveOnExit() {
     // 弹出三选一：是/否/取消。取消会中止返回开始界面（并恢复模拟）
-    QMessageBox::StandardButton reply = QMessageBox::question(this, "保存存档", "是否保存当前进度？", QMessageBox::Yes|QMessageBox::No|QMessageBox::Cancel);
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "Save Game", "Save current progress?", QMessageBox::Yes|QMessageBox::No|QMessageBox::Cancel);
     if (reply == QMessageBox::Cancel) {
         return false; // 取消：不要切换回开始界面
     }
@@ -297,13 +297,13 @@ bool MainWindow::trySaveOnExit() {
     }
     auto data = m_controller ? m_controller->get_data() : nullptr;
     if (!data) {
-        qWarning() << "没有可保存的数据（get_data 返回空）";
-        QMessageBox::warning(this, "保存失败", "没有可保存的数据。");
+        qWarning() << "No data to save (get_data returned null)";
+        QMessageBox::warning(this, "Save Failed", "No data available to save.");
         return false;
     }
     bool ok = SaveManager::saveToYaml(data, saveFile);
     if (!ok) {
-        QMessageBox::warning(this, "保存失败", "保存到文件失败，请检查磁盘权限。");
+        QMessageBox::warning(this, "Save Failed", "Failed to write save file. Check disk permissions.");
         return false;
     }
     return true;
@@ -311,7 +311,7 @@ bool MainWindow::trySaveOnExit() {
 
 void MainWindow::showSimulationScreen()
 {
-    qDebug() << "切换到模拟界面并启动模拟...";
+    qDebug() << "Switching to simulation view and starting simulation...";
     if (m_controller) {
         // 确保 widget 已加入 stacked，再启动后端
         if (!m_simulationWidget) {
@@ -327,7 +327,7 @@ void MainWindow::showSimulationScreen()
 
 void MainWindow::showStartScreen()
 {
-    qDebug() << "返回开始界面，停止模拟...";
+    qDebug() << "Returning to start screen; stopping simulation...";
 
     if (!m_controller) {
         m_stackedWidget->setCurrentWidget(m_startScreen);
@@ -340,7 +340,7 @@ void MainWindow::showStartScreen()
     // 弹出保存对话；如果用户取消（返回 false），则重启后端并留在模拟界面
     bool proceed = trySaveOnExit();
     if (!proceed) {
-        qDebug() << "用户取消返回，重新启动模拟线程...";
+        qDebug() << "User cancelled return; restarting simulation thread...";
         m_controller->start(); // 恢复运行
         return; // 保持在模拟界面
     }
@@ -351,6 +351,6 @@ void MainWindow::showStartScreen()
 
 void MainWindow::exitApplication() {
     // 从开始界面直接退出程序时不保存
-    qDebug() << "退出程序...";
+    qDebug() << "Exiting application...";
     close();
 }
