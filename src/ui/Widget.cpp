@@ -42,9 +42,6 @@ Widget::Widget(SimulationController* controller, QWidget *parent)
 #endif
     , m_currentSpeedLevel(2)
     // --- 初始化统计数据缓存 ---
-    , m_grassCount(0)
-    , m_cowCount(0)
-    , m_tigerCount(0)
     , m_timeStep(0)
     , m_currentYear(1)
     , m_currentDay(1)
@@ -213,9 +210,7 @@ void Widget::updateStatistics()
     const auto data = m_currentData;
     if (!data) return;
     
-    m_grassCount = 0;
-    m_cowCount = 0;
-    m_tigerCount = 0;
+    m_speciesCounts.clear();
     
     m_timeStep = data->time_step;
     m_currentYear = data->current_year;
@@ -225,9 +220,12 @@ void Widget::updateStatistics()
     m_currentMinute = data->current_minute;
     m_current_tps = data->current_tps;
 
-    if(data->race_lists.count("cow")) m_cowCount = data->race_lists.at("cow").size();
-    if(data->race_lists.count("tiger")) m_tigerCount = data->race_lists.at("tiger").size();
-    if(data->thing_lists.count("grass")) m_grassCount = data->thing_lists.at("grass").size();
+    for (const auto& [name, individuals] : data->race_lists) {
+        m_speciesCounts[name] = static_cast<int>(individuals.size());
+    }
+    for (const auto& [name, individuals] : data->thing_lists) {
+        m_speciesCounts[name] = static_cast<int>(individuals.size());
+    }
 }
 
 /**

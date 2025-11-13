@@ -8,6 +8,8 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <map>
+#include <string>
 #include "ecosystem.h"  // 用于 EcosystemStateData
 #include "utils.h"      // 用于 Position
 #include <QPushButton>
@@ -110,9 +112,7 @@ private:
     std::optional<QPoint> m_hoveredGridCoords;
 
     // ========== 统计数据缓存 ==========
-    int m_grassCount;
-    int m_cowCount;
-    int m_tigerCount;
+    std::map<std::string, int> m_speciesCounts;
     uint64_t m_timeStep;
     int m_currentYear;
     int m_currentDay;

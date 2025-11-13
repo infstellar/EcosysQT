@@ -72,6 +72,8 @@ private:
     QPixmap m_backgroundImage;
     // 可选的多个背景图（从 resources/images/backgrounds 加载），在构造时随机选择一张赋给 m_backgroundImage
     std::vector<QPixmap> m_backgroundImages;
+    QPixmap m_dawanjiTexture;
+    QPixmap m_dawanjiManTexture;
     QPixmap m_cowTexture;
     QPixmap m_bullTexture;
     // 静态回退贴图（若未切片则使用）

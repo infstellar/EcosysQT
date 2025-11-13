@@ -4,13 +4,13 @@ species:
   # 营养需求,即一个单位一次最多储存营养值的数量。这个数值与种族体型、体型系数和摄食系数相关。
   # 计算函数为种族体型*体型系数*摄食系数成年单位的体型系数和摄食系数均为1。
   # 牛的体型为2.4，ecosys转换倍率为100，综上，牛的能量为240.
-  energy: 240
-  max_age: 120000 # 1年=40*3000
+  energy: 150
+  max_age: 240000 # 1年=40*3000
   # 最小繁殖能量（门槛基数，实际判定为其 2×）
-  min_reproduction_energy: 120
+  min_reproduction_energy: 100
 animal:
   # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
-  movement_speed: 0.08 # 3.5m/s
+  movement_speed: 0.20
   energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
   detection_range: 60.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
   threat_detection_range: 60.0
@@ -25,9 +25,7 @@ animal:
     ints:
       eat_grass_total_ticks: 10
       flee_total_duration_ticks: 150   # 逃逸冷却总时长（tick）
-      sleep_check_interval_ticks: 125   # 睡眠判定间隔（tick）
     doubles:
-      sleeping_energy_multiplier: 0.1
       flee_speed_multiplier: 1.8
       flee_energy_multiplier: 1.5
       flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）
@@ -56,22 +54,22 @@ animal:
     enable_smoothing: false
     budget_multiplier: 2.5
     terrain_costs:
-      LAND: 1.0
-      SAND: 4.0
-      INLAND_SAND: 6.0
-      HILLS: 8.0
-      MOUNTAIN: 9.0
-      SHALLOW_RIVER: 9.0
-      DEEP_RIVER: 9999.0
-      WATER: 9999.0
-      SHALLOW_OCEAN: 9999.0
-      DEEP_OCEAN: 9999.0
+      LAND: 2.0
+      SAND: 2.0
+      INLAND_SAND: 999.0
+      HILLS: 88.0
+      MOUNTAIN: 99.0
+      SHALLOW_RIVER: 1.0
+      DEEP_RIVER: 1.0
+      WATER: 1.0
+      SHALLOW_OCEAN: 1.0
+      DEEP_OCEAN: 3.0
   min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
-  reproduction_cooldown: 6000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
+  reproduction_cooldown: 60000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
   eating_range: 1
   wandering_duration: 150
   # 繁殖相关
-  pregnancy_duration: 6000         # 妊娠时间为3天
+  pregnancy_duration: 60000         # 妊娠时间为3天
   mating_range: 2.0        
   pregnancy_speed_penalty: 0.8 
   pregnant_energy_multiplier: 1.2 # 怀孕期间能量消耗倍率（>1 更费能；=1 无额外消耗）
@@ -81,7 +79,7 @@ animal:
   # 基础营养值
   nutrition_value: 500.0
   # 饥饿相关
-  starvation_damage: 0.5
+  starvation_damage: 0.2
   starvation_damage_interval_ratio: 0.003
   satisfied_threshold_ratio: 0.75
   starving_threshold_ratio: 0.2
