@@ -82,7 +82,7 @@ bt::Status SelectWanderTarget(Animal& self, bt::TickContext& ctx, const YAML::No
 
     const int world_width = world->config.world_width;
     const int world_height = world->config.world_height;
-    const int max_attempts = params["attempts"] ? std::max(1, params["attempts"].as<int>()) : 6;
+    const int max_attempts = params["attempts"] ? std::max(1, params["attempts"].as<int>()) : 1;
 
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
         const double angle = angle_dist(rng);

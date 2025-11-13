@@ -161,7 +161,7 @@ BehaviorTreeDef:
           # 优先级 3: "决策" (如果无目标)
           - type: TickIntervalDecorator
             name: SelectWanderTargetThrottled
-            interval: 600
+            interval: 300
             child:
               type: Action
               action: select_wander_target
