@@ -931,53 +931,6 @@ void EcosystemState::apply_registry_changes() {
         staged_requests.clear();
         current_phase = UpdatePhase::Idle;
     }
-    
-    {
-        ZoneScopedN("Deco Tree");
-        const int minTrees = std::max(0, config.decor_tree_min_count);
-        const int maxTrees = std::max(minTrees, config.decor_tree_max_count);
-
-        if (config.world_width > 0 && config.world_height > 0 && minTrees > 0) {
-            std::size_t currentTrees = 0;
-            if (const auto itc = m_thing_counts.find("decor_tree"); itc != m_thing_counts.end()) {
-                currentTrees = itc->second;
-            }
-
-            const int spawnTarget = std::min(minTrees, maxTrees);
-            if (currentTrees < static_cast<std::size_t>(spawnTarget)) {
-                std::mt19937& rng = get_thread_local_rng();
-                std::uniform_int_distribution<int> dist_tile_x(0, config.world_width - 1);
-                std::uniform_int_distribution<int> dist_tile_y(0, config.world_height - 1);
-                int attempts = 0;
-                const int maxAttempts = 1000;
-                while (currentTrees < static_cast<std::size_t>(spawnTarget) && attempts < maxAttempts) {
-                    ++attempts;
-                    const int tx = dist_tile_x(rng);
-                    const int ty = dist_tile_y(rng);
-                    Tile& tile = m_world_grid.get_tile(tx, ty);
-                    if (tile.terrain != TerrainType::LAND) continue;
-                    if (!tile.things.empty()) continue;
-
-                    Position pos{static_cast<double>(tx) + 0.5, static_cast<double>(ty) + 0.5};
-                    try {
-                        auto thing_unique = g_thing_factory.create("decor_tree", pos, rng);
-                        if (!thing_unique) continue;
-                        std::shared_ptr<ThingBase> thing(std::move(thing_unique));
-                        thing->position = pos;
-                        thing->m_grid_x = tx;
-                        thing->m_grid_y = ty;
-                        attach_thing_to_world(thing);
-                        ++currentTrees;
-                    } catch (const std::exception& e) {
-                        if (auto logger = spdlog::get("ecosim")) {
-                            logger->warn("[DecorTreeSpawn] failed to create decor_tree: {}", e.what());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
 }
 
 /**

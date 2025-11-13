@@ -139,16 +139,6 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
     if (m_grassTextures[2].isNull()) {
         qDebug() << "警告: 草贴图 grass_2.png 加载失败";
     }
-    // 加载树的三种装饰贴图
-    m_treeTextures[0].load(":/images/tree1.png");
-    m_treeTextures[1].load(":/images/tree2.png");
-    m_treeTextures[2].load(":/images/tree3.png");
-    bool anyTree = false;
-    for (int i = 0; i < 3; ++i) if (!m_treeTextures[i].isNull()) anyTree = true;
-    if (!anyTree) {
-        qDebug() << "信息: 未找到 tree images, 装饰树将不可见";
-    }
-
     // 尝试加载用户提供的地形 atlas（优先资源路径，然后回退到文件系统）
     m_riverAtlas.load(":/images/terrain/river.jpg");
     if (m_riverAtlas.isNull()) {
@@ -540,50 +530,6 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
 
                 QPointF screenPos = camera.toScreenCoords(QPointF(individual->position.x, individual->position.y), m_parentWidget->size());
                 QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size / 2, size, size);
-                entitiesToDraw.push_back({tex, targetRectF.toRect(), individual->position.y});
-            }
-        }
-        else if (name == "decor_tree") {
-            // 装饰树渲染：使用三张贴图的变体索引
-            const double treeWorldSize = 10.0; // 世界单位尺寸（已缩小）
-            const double size = treeWorldSize * pixelsPerWorldUnit;
-
-            // 预缩放缓存：按目标像素大小生成 m_treeScaled
-            int desiredPixels = static_cast<int>(std::round(size));
-            if (desiredPixels > 0) {
-                if (m_treeScaledSize != desiredPixels || m_treeScaled.size() != 3) {
-                    m_treeScaled.clear();
-                    m_treeScaled.resize(3);
-                    for (int ti = 0; ti < 3; ++ti) {
-                        if (!m_treeTextures[ti].isNull()) {
-                            m_treeScaled[ti] = m_treeTextures[ti].scaled(desiredPixels, desiredPixels, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                        }
-                    }
-                    m_treeScaledSize = desiredPixels;
-                }
-            }
-
-            for (const auto& individual : individuals) {
-                if (!individual || !individual->alive) continue;
-                if (!visibleWorldRect.contains(individual->position.x, individual->position.y)) continue;
-
-                int variant = 0;
-                if (individual->variant_index >= 0 && individual->variant_index < 3) variant = individual->variant_index;
-                else {
-                    int posHash = static_cast<int>(individual->position.x * 73856093) ^ static_cast<int>(individual->position.y * 19349663);
-                    variant = std::abs(posHash) % 3;
-                }
-                const QPixmap* tex = nullptr;
-                if (desiredPixels > 0 && m_treeScaled.size() == 3 && !m_treeScaled[variant].isNull()) {
-                    tex = &m_treeScaled[variant];
-                } else {
-                    tex = &m_treeTextures[variant];
-                }
-                if (tex->isNull()) continue;
-
-                QPointF screenPos = camera.toScreenCoords(QPointF(individual->position.x, individual->position.y), m_parentWidget->size());
-                // 树底对齐：将图片底部对准 position
-                QRectF targetRectF(screenPos.x() - size / 2, screenPos.y() - size, size, size);
                 entitiesToDraw.push_back({tex, targetRectF.toRect(), individual->position.y});
             }
         }

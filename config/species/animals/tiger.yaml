@@ -30,16 +30,17 @@ animal:
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       flee_destination_radius: 120.0
-      wander_speed_multiplier: 0.9
-      wander_energy_multiplier: 0.8
+      wander_speed_multiplier: 0.5
+      wander_energy_multiplier: 1
       wander_stop_range: 1.5
-      chase_speed_multiplier: 1.4
-      chase_energy_multiplier: 1.3
+      chase_speed_multiplier: 1.8
+      chase_energy_multiplier: 1.4
+      basal_energy_multiplier: 0.1 # 基础代谢能耗，占移动消耗的10%
       # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
       starving_energy_multiplier: 0.75
       starving_speed_multiplier: 0.9
       # 攻击后摇减速倍率：处于攻击冷却时的全局速度乘数
-      attack_recovery_speed_multiplier: 0.6
+      attack_recovery_speed_multiplier: 0.2
       stop_range_base_range: 2.0  # (等于 hunting_range)
       stop_range_factor: 1.0      # (100%)
       pathfinding_absolute_budget: 6000.0

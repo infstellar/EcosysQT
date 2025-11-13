@@ -107,6 +107,9 @@ BehaviorTreeDef:
                       action: find_available_mate
                       status_name: "Seeking Mate"
                   - type: Action
+                    action: update_mate_target_position
+                    status_name: "Tracking Mate"
+                  - type: Action
                     action: plan_path_to_target
                     status_name: "Chasing Mate"
 
@@ -133,6 +136,9 @@ BehaviorTreeDef:
                       type: Action
                       action: select_target_point
                       status_name: "Scanning Prey"
+                  - type: Action
+                    action: update_hunt_target_position
+                    status_name: "Tracking Prey"
                   - type: Action
                     action: plan_path_to_target  # 每帧追逐至目标
                     status_name: "Chasing Prey"
@@ -164,10 +170,10 @@ BehaviorTreeDef:
           # 优先级 3: "决策" (如果无目标)
           - type: TickIntervalDecorator
             name: SelectWanderTargetThrottled
-            interval: 60
+            interval: 300
             child:
               type: Action
               action: select_wander_target
               status_name: "Picking Wander Spot"
               radius_param: wander_radius
-              max_wander_cost: 50.0
+              max_wander_cost: 150.0
