@@ -131,15 +131,14 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             auto& bb = *ctx.blackboard;
             {
                 ZoneScopedN("BT::Update::State");
-                // 更新连续逃跑计数 / 疲惫状态：当存在 FleeModeCooldownTicks (>0) 时，视为正在被追击
-                int flee_cd_now = 0;
-                if (auto itf = bb.ints.find(bt::keys::FleeModeCooldownTicks); itf != bb.ints.end()) {
-                    flee_cd_now = std::max(0, itf->second);
-                }
+                // 更新连续逃跑计数 / 疲惫状态：当黑板记录存在威胁时视为正在被追击
+                const bool is_fleeing = (bb.ints.find(bt::keys::DangerNearby) != bb.ints.end())
+                    ? (bb.ints[bt::keys::DangerNearby] > 0)
+                    : false;
                 const int tpd = world ? world->config.ticks_per_day : 3000;
                 const double tired_after_secs = bb_get_double(&bb, "tired_after_seconds", 5.0);
                 const double tired_speed_mul = bb_get_double(&bb, "tired_speed_multiplier", 0.8);
-                self.update_flee_ticks(flee_cd_now > 0, tpd, tired_after_secs, tired_speed_mul);
+                self.update_flee_ticks(is_fleeing, tpd, tired_after_secs, tired_speed_mul);
                 // 饥饿状态（枚举以 int 存储：0=SATISFIED,1=NORMAL,2=STARVING）
                 int hunger_code = 1;
                 switch (self.get_hunger_state()) {
@@ -163,19 +162,6 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
 
                 // 攻击后摇剩余tick（调试可视化用，可选）
                 bb.ints["attack_recovery_ticks_remaining"] = std::max(0, self.hunting_cooldown);
-            }
-
-            {
-                ZoneScopedN("BT::Update::Threat");
-                // 冷却计时在通用 update 中递减，昂贵的探测与触发逻辑由专门 Action 负责
-                int flee_cd = 0;
-                if (auto it_cd = bb.ints.find(bt::keys::FleeModeCooldownTicks); it_cd != bb.ints.end()) {
-                    flee_cd = std::max(0, it_cd->second);
-                }
-                if (flee_cd > 0) {
-                    flee_cd -= 1;
-                }
-                bb.ints[bt::keys::FleeModeCooldownTicks] = flee_cd;
             }
 
             {
@@ -450,18 +436,6 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         }
     },
     {
-        "should_flee",
-        [](const YAML::Node& params, Animal&){
-            const std::string cd_key = params["cooldown_param"] ? params["cooldown_param"].as<std::string>() : std::string(bt::keys::FleeModeCooldownTicks);
-            return std::make_shared<Condition>([cd_key](TickContext& ctx){
-                if (!ctx.blackboard) return false;
-                auto& bb = *ctx.blackboard;
-                const int cooldown_ticks = (bb.ints.find(cd_key) != bb.ints.end()) ? bb.ints[cd_key] : 0;
-                return cooldown_ticks > 0;
-            });
-        }
-    },
-    {
         "has_current_target",
         [](const YAML::Node&, Animal& self){
             return std::make_shared<Condition>([&self](TickContext&){
@@ -623,16 +597,7 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
                 bb.doubles[bt::keys::ThreatPosY] = threat_pos.y;
 
                 const bool edge_trigger = danger || (std::isfinite(threat_dist) && (threat_dist <= effective_threshold));
-                if (edge_trigger) {
-                    int flee_total = 20;
-                    if (auto it_total = bb.ints.find("flee_total_duration_ticks"); it_total != bb.ints.end()) {
-                        flee_total = std::max(0, it_total->second);
-                    }
-                    bb.ints[bt::keys::FleeModeCooldownTicks] = flee_total;
-                    return Status::Success;
-                }
-
-                return Status::Failure;
+                return edge_trigger ? Status::Success : Status::Failure;
             });
         }
     },

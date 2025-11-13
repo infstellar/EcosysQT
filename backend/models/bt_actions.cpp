@@ -771,6 +771,7 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
 
     const Position target_pos = self.get_current_target().value();
     const PathfindingParams& path_cfg = self.get_pathfinding_params();
+    const bool force_success = params["force_success"] ? params["force_success"].as<bool>() : false;
 
     const double stop_range = bb_get_double(ctx.blackboard, "eat_hard_stop_range", 0.0);
     if (stop_range > 0.0) {
@@ -893,7 +894,7 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
         // 若已到达并清空目标，提前结束本 tick 的后续子步
         if (!self.get_current_target().has_value()) break;
     }
-    return Status::Running;
+    return force_success ? Status::Success : Status::Running;
 }
 
 } // namespace behavior::actions

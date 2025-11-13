@@ -5,84 +5,67 @@ BehaviorTreeDef:
     type: PrioritySelector
     children:
       # ========== 逃跑（高优先级） ==========
-      - type: PrioritySelector
+      - type: Sequence
         name: FleeBranch
         children:
-          - type: Sequence
-            name: ContinueFleeing
+          - type: TickIntervalDecorator
+            name: CheckForThreatsThrottled
+            interval: 10
+            child:
+              type: Action
+              action: check_for_threats
+              status_name: "Scanning for Threats"
+          - type: PrioritySelector
+            name: FleeStrategySelector
             children:
-              - type: Condition
-                cond: should_flee
-              - type: PrioritySelector
-                name: FleeStrategySelector
+              - type: Sequence
+                name: FollowExistingFleePath
                 children:
-                  - type: Sequence
-                    name: FollowExistingFleePath
-                    children:
-                      - type: Condition
-                        cond: has_current_target
-                      - type: Action
-                        action: plan_path_to_target
-                        plan_path_move_mode: path
-                        speed_multiplier_key: flee_speed_multiplier
-                        energy_multiplier_key: flee_energy_multiplier
-                        ignore_skip_movement: true
-                        status_name: "Fleeing"
-                  - type: Sequence
-                    name: FleePlanA
-                    children:
-                      - type: Action
-                        action: select_flee_destination
-                        min_angle_deg: -45.0
-                        max_angle_deg: 45.0
-                        status_name: "Fleeing (Plan A)"
-                      - type: Action
-                        action: plan_path_to_target
-                        plan_path_move_mode: path
-                        speed_multiplier_key: flee_speed_multiplier
-                        energy_multiplier_key: flee_energy_multiplier
-                        ignore_skip_movement: true
-                        status_name: "Fleeing"
-                  - type: Sequence
-                    name: FleePlanB
-                    children:
-                      - type: Action
-                        action: select_flee_destination
-                        min_angle_deg: 60.0
-                        max_angle_deg: 135.0
-                        status_name: "Fleeing (Plan B - Flanking)"
-                      - type: Action
-                        action: plan_path_to_target
-                        plan_path_move_mode: path
-                        speed_multiplier_key: flee_speed_multiplier
-                        energy_multiplier_key: flee_energy_multiplier
-                        ignore_skip_movement: true
-                        status_name: "Fleeing"
+                  - type: Condition
+                    cond: has_current_target
                   - type: Action
-                    action: wander_anywhere
-                    status_name: "Fleeing (Panic Move)"
-          - type: Sequence
-            name: StartFleeing
-            children:
-              - type: TickIntervalDecorator
-                name: CheckForThreatsThrottled
-                interval: 15
-                child:
-                  type: Action
-                  action: check_for_threats
-                  status_name: "Scanning for Threats"
+                    action: plan_path_to_target
+                    plan_path_move_mode: path
+                    speed_multiplier_key: flee_speed_multiplier
+                    energy_multiplier_key: flee_energy_multiplier
+                    ignore_skip_movement: true
+                    force_success: true
+                    status_name: "Fleeing"
+              - type: Sequence
+                name: FleePlanA
+                children:
+                  - type: Action
+                    action: select_flee_destination
+                    min_angle_deg: -45.0
+                    max_angle_deg: 45.0
+                    status_name: "Fleeing (Plan A)"
+                  - type: Action
+                    action: plan_path_to_target
+                    plan_path_move_mode: path
+                    speed_multiplier_key: flee_speed_multiplier
+                    energy_multiplier_key: flee_energy_multiplier
+                    ignore_skip_movement: true
+                    force_success: true
+                    status_name: "Fleeing"
+              - type: Sequence
+                name: FleePlanB
+                children:
+                  - type: Action
+                    action: select_flee_destination
+                    min_angle_deg: 60.0
+                    max_angle_deg: 135.0
+                    status_name: "Fleeing (Plan B - Flanking)"
+                  - type: Action
+                    action: plan_path_to_target
+                    plan_path_move_mode: path
+                    speed_multiplier_key: flee_speed_multiplier
+                    energy_multiplier_key: flee_energy_multiplier
+                    ignore_skip_movement: true
+                    force_success: true
+                    status_name: "Fleeing"
               - type: Action
-                action: select_flee_destination
-                min_angle_deg: -45.0
-                max_angle_deg: 45.0
-                status_name: "Selecting Flee Destination"
-              - type: Action
-                action: plan_path_to_target
-                plan_path_move_mode: path
-                speed_multiplier_key: flee_speed_multiplier
-                energy_multiplier_key: flee_energy_multiplier
-                ignore_skip_movement: true
-                status_name: "Fleeing"
+                action: wander_anywhere
+                status_name: "Fleeing (Panic Move)"
 
       # ========== 交配（雄性） ==========
       - type: Sequence  # 条件满足后：决策节流 + 执行每帧
