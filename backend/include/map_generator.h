@@ -35,5 +35,6 @@ private:
     void CalculateFlowAccumulation(
         WorldGrid& grid,
         const std::vector<std::pair<int, int>>& flow_directions,
-        std::vector<float>& flow_map) const;
+        std::vector<float>& flow_map,
+        const std::vector<float>& evaporation_map) const;
 };

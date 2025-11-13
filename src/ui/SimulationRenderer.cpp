@@ -212,6 +212,7 @@ namespace {
             case BiomeType::Savanna: return "稀树草原";
             case BiomeType::TropicalForest: return "热带雨林";
             case BiomeType::Desert: return "沙漠";
+            case BiomeType::Ocean: return "海洋";
             default: return "未知";
         }
     }
