@@ -81,4 +81,4 @@ BehaviorTreeDef:
               action: select_wander_target
               status_name: "Picking Wander Spot"
               radius_param: wander_radius
-              max_wander_cost: 50.0
+              max_wander_cost: 150.0

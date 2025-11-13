@@ -1,58 +1,99 @@
 schema_version: 1
 parent: base_animal
 species:
-  energy: 250
-  max_age: 150000
-  min_reproduction_energy: 125
+  # 营养需求,即一个单位一次最多储存营养值的数量。这个数值与种族体型、体型系数和摄食系数相关。
+  # 计算函数为种族体型*体型系数*摄食系数成年单位的体型系数和摄食系数均为1。
+  # 牛的体型为2.4，ecosys转换倍率为100，综上，牛的能量为240.
+  energy: 150
+  max_age: 240000 # 1年=40*3000
+  # 最小繁殖能量（门槛基数，实际判定为其 2×）
+  min_reproduction_energy: 100
 animal:
-  movement_speed: 0.06
-  energy_consumption: 2.0
-  detection_range: 70.0
+  # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
+  movement_speed: 0.20
+  energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
+  detection_range: 60.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
+  threat_detection_range: 60.0
   mate_detection_range: 80.0
-  food_detection_range: 70.0
-  wander_radius: 60.0
+  food_detection_range: 60.0
+  wander_radius: 50.0 # 游荡目标采样半径，选择随机目标点时的最大范围。采样公式： r = max(movement_speed, sqrt(U) * wander_radius) （ U∈[0,1] ），因此目标点在圆盘内近似面积均匀分布。
   food_types:
     - grass
   use_bt: true
+  # 行为树黑板参数：吃草的总持续tick数，可被 ProgressDecorator 读取
   bt_params:
     ints:
-      eat_grass_total_ticks: 15
+      eat_grass_total_ticks: 10
+      flee_total_duration_ticks: 150   # 逃逸冷却总时长（tick）
     doubles:
-      wander_speed_multiplier: 0.4
-      wander_energy_multiplier: 0.4
+      flee_speed_multiplier: 1.8
+      flee_energy_multiplier: 1.5
+      flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）
+      wander_speed_multiplier: 0.5
+      wander_energy_multiplier: 0.5
       wander_stop_range: 1.0
       chase_speed_multiplier: 1.0
       chase_energy_multiplier: 1.0
-      stop_range_base_range: 1.0
-      stop_range_factor: 0.5
+      basal_energy_multiplier: 0.1 # 基础代谢能耗，占移动消耗的10%
+      # 饥饿状态速度惩罚：饥饿时全局基础速度倍率（用于所有移动动作）
+      starving_energy_multiplier: 0.6
+      starving_speed_multiplier: 0.85
+      stop_range_base_range: 1.0  # (等于 eating_range)
+      stop_range_factor: 0.5      # (50%)
+      pathfinding_absolute_budget: 6000.0
+  # 在检测到威胁（例如虎）时的 HP 恢复倍率（默认 0.3 -> 恢复为原来的 30%）
+  threat_hp_regen_multiplier: 0.3
+  # 连续被追击多少秒后进入疲惫状态（秒）
+  tired_after_seconds: 4.0
+  # 疲惫时速度倍率（取较小值作为封顶，例如 0.8）
+  tired_speed_multiplier: 0.8
   pathfinding:
+    
     max_iterations: 300
     replan_interval: 600
     enable_smoothing: false
-    budget_multiplier: 3.0
+    budget_multiplier: 2.5
     terrain_costs:
+      LAND: 2.0
+      SAND: 2.0
+      INLAND_SAND: 999.0
+      HILLS: 88.0
+      MOUNTAIN: 99.0
       SHALLOW_RIVER: 1.0
-      DEEP_RIVER: 1.1
-      WATER: 1.1
-      SHALLOW_OCEAN: 1.2
-      DEEP_OCEAN: 5.0
-      SAND: 1.0
-      LAND: 3.0
-      INLAND_SAND: 200.0
-      HILLS: 250.0
-      MOUNTAIN: 9999.0
-  min_reproduction_age: 12000
-  reproduction_cooldown: 10000
-  eating_range: 1.0
+      DEEP_RIVER: 1.0
+      WATER: 1.0
+      SHALLOW_OCEAN: 1.0
+      DEEP_OCEAN: 3.0
+  min_reproduction_age: 100        # 提高性成熟年龄，降低早期繁殖，应该为1年，懒得改了。
+  reproduction_cooldown: 60000       # 产后冷却（已在代码中改为分娩后开启） 3天，2*3000=
+  eating_range: 1
   wandering_duration: 150
-  pregnancy_duration: 30000
-  mating_range: 2.0
-  pregnancy_speed_penalty: 0.7
-  pregnant_energy_multiplier: 1.3
-  mating_desire_probability: 0.2
-  newborn_energy_ratio: 0.5
-  nutrition_value: 450.0
-  satisfied_threshold_ratio: 0.8
+  # 繁殖相关
+  pregnancy_duration: 60000         # 妊娠时间为3天
+  mating_range: 2.0        
+  pregnancy_speed_penalty: 0.8 
+  pregnant_energy_multiplier: 1.2 # 怀孕期间能量消耗倍率（>1 更费能；=1 无额外消耗）
+  mating_desire_probability: 0.4  # 进一步降低交配意愿，避免频繁扣能量
+  newborn_energy_ratio: 0.5 # 新生个体初始能量比例（0-1，按 max_energy 比例赋值）
+
+  # 基础营养值
+  nutrition_value: 500.0
+  # 饥饿相关
+  starvation_damage: 0.2
+  starvation_damage_interval_ratio: 0.003
+  satisfied_threshold_ratio: 0.75
   starving_threshold_ratio: 0.2
-  energy_efficiency: 0.75
-  hp_regen_base_per_day: 300.0
+  energy_efficiency: 0.7
+  # energy加成 ~ https://doi.org/10.1093/conphys/coac083
+  # 加成公式 = nutrition_bonus_max * pow(prey.energy / prey.max_energy, nutrition_bonus_curve_alpha)
+  # 最终获得能量 gained_energy = (prey.nutrition_value + bonus) * predator.energy_efficiency
+  nutrition_bonus_max: 0.5 # 相当于最多额外获得猎物当前的power0.5倍
+  nutrition_bonus_curve_alpha: 1.0 # 1.0就相当于线性获得猎物当前的power
+  # HP恢复基础速率
+  hp_regen_base_per_day: 400.0
+  # HP恢复的状态加成：
+  hp_regen_mul_satisfied: 4.0
+  hp_regen_mul_normal: 2.0
+  hp_regen_mul_starving: 0.05
+  # HP恢复周期（0-1天）
+  regan_interval_ratio: 0.001

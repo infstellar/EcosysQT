@@ -78,9 +78,6 @@ animal:
 
   # 基础营养值
   nutrition_value: 500.0
-  # energy加成
-  nutrition_bonus_max: 5.0
-  nutrition_bonus_curve_alpha: 2.0
   # 饥饿相关
   starvation_damage: 0.5
   starvation_damage_interval_ratio: 0.003
