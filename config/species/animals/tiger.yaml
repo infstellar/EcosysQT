@@ -11,7 +11,7 @@ species:
 animal:
   movement_speed: 0.16
   energy_consumption: 0.017 # 每tick能量消耗。51每天，换算为0.017
-  hunting_range: 2
+  hunting_range: 3
   hunting_success_rate: 0.7 # 建议增加hitting ratio
   attack_damage: 66.0 # 默认伤害
   attack_damage_min: 30.0 #伤害下限，优先于默认伤害

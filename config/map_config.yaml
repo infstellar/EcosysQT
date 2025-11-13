@@ -4,9 +4,9 @@ world:
 
 # 兼容两种结构，推荐使用 initial_populations。两者合并；同名以最后出现为准。
 initial_populations:
-  grass: 7000
-  cow: 100
-  tiger: 10
+  grass: 20000
+  cow: 0
+  tiger: 0
 
 # 模拟参数（可选覆盖，缺省使用默认值）
 simulation:
@@ -87,4 +87,10 @@ animal_spawn_density_by_terrain:
     LAND: 0.02
     HILLS: 0.05
     MOUNTAIN: 0.01
+
+# --- 动态种群管理 ---
+population_management:
+  decor_tree:
+    min_count: 1000
+    max_count: 1001 # 这个设置没用
 

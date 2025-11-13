@@ -368,5 +368,32 @@ EcosystemConfig load_map_config_from_yaml(const std::string& yaml_path) {
         logger->info("[MapConfig] 'animal_spawn_density_by_terrain' not found. Animals will use standard random placement.");
     }
 
+    if (const auto pop_mgmt = root["population_management"]; pop_mgmt && pop_mgmt.IsMap()) {
+        if (logger) logger->info("[MapConfig] Loading 'population_management' parameters...");
+        if (const auto decor_tree_cfg = pop_mgmt["decor_tree"]; decor_tree_cfg && decor_tree_cfg.IsMap()) {
+            try {
+                if (const auto min_node = decor_tree_cfg["min_count"]) {
+                    cfg.decor_tree_min_count = std::max(0, min_node.as<int>());
+                }
+                if (const auto max_node = decor_tree_cfg["max_count"]) {
+                    cfg.decor_tree_max_count = std::max(0, max_node.as<int>());
+                }
+                if (cfg.decor_tree_min_count > cfg.decor_tree_max_count) {
+                    std::swap(cfg.decor_tree_min_count, cfg.decor_tree_max_count);
+                }
+                if (logger) {
+                    logger->info("[MapConfig]   decor_tree range: [{}, {}]",
+                                 cfg.decor_tree_min_count, cfg.decor_tree_max_count);
+                }
+            } catch (const std::exception& e) {
+                if (logger) {
+                    logger->warn("[MapConfig]   Failed to parse population_management.decor_tree: {}", e.what());
+                }
+            }
+        }
+    } else if (logger) {
+        logger->info("[MapConfig] 'population_management' not found. Using default decor_tree range.");
+    }
+
     return cfg;
 }
