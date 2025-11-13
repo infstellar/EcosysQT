@@ -258,6 +258,14 @@ namespace {
             default: return "未知";
         }
     }
+
+    QString speciesDisplayName(const std::string& name) {
+        if (name == "grass") return "草";
+        if (name == "cow") return "牛";
+        if (name == "tiger") return "老虎";
+        if (name == "dawanji") return "大湾鸡";
+        return QString::fromStdString(name);
+    }
 }
 
 void SimulationRenderer::render(QPainter& painter,
@@ -366,7 +374,14 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
     // --- 优化结束 ---
 
     std::vector<DrawableEntity> entitiesToDraw;
-    entitiesToDraw.reserve(m_parentWidget->m_grassCount + m_parentWidget->m_cowCount + m_parentWidget->m_tigerCount); // 预分配内存以提高效率
+    size_t estimatedTotal = 0;
+    for (const auto& pair : data->race_lists) {
+        estimatedTotal += pair.second.size();
+    }
+    for (const auto& pair : data->thing_lists) {
+        estimatedTotal += pair.second.size();
+    }
+    entitiesToDraw.reserve(estimatedTotal);
 
     const double pixelsPerWorldUnit = m_parentWidget->width() / visibleWorldWidth;
     const double animalWorldSize = 3.0; 
@@ -380,7 +395,7 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
 
             const QPixmap* texture = nullptr;
             
-            if (name == "cow") {
+            if (name == "cow" || name == "dawanji") {
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
                 texture = (animal_ptr && animal_ptr->sex == Sex::MALE) ? &m_bullTexture : &m_cowTexture;
             } else if (name == "tiger") {
@@ -639,7 +654,11 @@ void SimulationRenderer::drawSelection(QPainter& painter, const CameraController
 void SimulationRenderer::drawHud(QPainter& painter)
 {
     // ========== 步骤3: 绘制信息面板 ==========
-    QRectF infoRect(10, 10, 280, 208);
+    const auto& counts = m_parentWidget->m_speciesCounts;
+    int lineHeight = 24;
+    int baseHeight = 140;
+    int speciesLineCount = static_cast<int>(counts.size());
+    QRectF infoRect(10, 10, 280, baseHeight + speciesLineCount * lineHeight);
     painter.setBrush(QColor(0, 0, 0, 180));
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(infoRect, 5, 5);
@@ -649,7 +668,6 @@ void SimulationRenderer::drawHud(QPainter& painter)
     painter.setFont(font);
     
     int textY = 30;
-    int lineHeight = 24;
     
     painter.drawText(20, textY, QString("年: %1   天: %2").arg(m_parentWidget->m_currentYear).arg(m_parentWidget->m_currentDay));
     textY += lineHeight;
@@ -663,23 +681,20 @@ void SimulationRenderer::drawHud(QPainter& painter)
     painter.drawText(20, textY, QString("模拟 TPS: %1").arg(QString::number(m_parentWidget->m_current_tps, 'f', 1)));
     textY += lineHeight;
     
-    int totalCount = m_parentWidget->m_grassCount + m_parentWidget->m_cowCount + m_parentWidget->m_tigerCount;
+    int totalCount = 0;
+    for (const auto& [_, count] : counts) {
+        totalCount += count;
+    }
     painter.drawText(20, textY, QString("总数量: %1").arg(totalCount));
     textY += lineHeight;
     
-    painter.drawText(20, textY, "草: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForName("grass"));
-    painter.drawText(95, textY, QString::number(m_parentWidget->m_grassCount));
-    textY += lineHeight;
-    
-    painter.drawText(20, textY, "牛: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForName("cow"));
-    painter.drawText(95, textY, QString::number(m_parentWidget->m_cowCount));
-    textY += lineHeight;
-    
-    painter.drawText(20, textY, "老虎: ");
-    painter.fillRect(70, textY - 14, 18, 18, getColorForName("tiger"));
-    painter.drawText(95, textY, QString::number(m_parentWidget->m_tigerCount));
+    for (const auto& [name, count] : counts) {
+        QString label = speciesDisplayName(name);
+        painter.drawText(20, textY, label + ": ");
+        painter.fillRect(70, textY - 14, 18, 18, getColorForName(name));
+        painter.drawText(95, textY, QString::number(count));
+        textY += lineHeight;
+    }
 
     // ========== 步骤4: 绘制右上角时间 ==========
     {
@@ -850,6 +865,9 @@ QColor SimulationRenderer::getColorForName(const std::string& name) const
     }
     if (name == "cow") {
         return QColor(135, 206, 250);
+    }
+    if (name == "dawanji") {
+        return QColor(255, 165, 0);
     }
     if (name == "tiger") {
         return QColor(220, 20, 60);

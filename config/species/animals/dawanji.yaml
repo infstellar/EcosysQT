@@ -1,0 +1,58 @@
+schema_version: 1
+parent: base_animal
+species:
+  energy: 250
+  max_age: 150000
+  min_reproduction_energy: 125
+animal:
+  movement_speed: 0.06
+  energy_consumption: 2.0
+  detection_range: 70.0
+  mate_detection_range: 80.0
+  food_detection_range: 70.0
+  wander_radius: 60.0
+  food_types:
+    - grass
+  use_bt: true
+  bt_params:
+    ints:
+      eat_grass_total_ticks: 15
+    doubles:
+      wander_speed_multiplier: 0.4
+      wander_energy_multiplier: 0.4
+      wander_stop_range: 1.0
+      chase_speed_multiplier: 1.0
+      chase_energy_multiplier: 1.0
+      stop_range_base_range: 1.0
+      stop_range_factor: 0.5
+  pathfinding:
+    max_iterations: 300
+    replan_interval: 600
+    enable_smoothing: false
+    budget_multiplier: 3.0
+    terrain_costs:
+      SHALLOW_RIVER: 1.0
+      DEEP_RIVER: 1.1
+      WATER: 1.1
+      SHALLOW_OCEAN: 1.2
+      DEEP_OCEAN: 5.0
+      SAND: 1.0
+      LAND: 3.0
+      INLAND_SAND: 200.0
+      HILLS: 250.0
+      MOUNTAIN: 9999.0
+  min_reproduction_age: 12000
+  reproduction_cooldown: 10000
+  eating_range: 1.0
+  wandering_duration: 150
+  pregnancy_duration: 30000
+  mating_range: 2.0
+  pregnancy_speed_penalty: 0.7
+  pregnant_energy_multiplier: 1.3
+  mating_desire_probability: 0.2
+  newborn_energy_ratio: 0.5
+  nutrition_value: 450.0
+  satisfied_threshold_ratio: 0.8
+  starving_threshold_ratio: 0.2
+  energy_efficiency: 0.75
+  hp_regen_base_per_day: 300.0

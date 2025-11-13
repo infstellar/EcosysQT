@@ -1,0 +1,84 @@
+schema_version: 1
+BehaviorTreeDef:
+  defName: Dawanji
+  root:
+    type: PrioritySelector
+    children:
+      - type: Sequence
+        name: Mate
+        children:
+          - type: Condition
+            cond: sex_is_male
+          - type: Condition
+            cond: can_reproduce
+          - type: Condition
+            cond: desire_below_param
+            probability_param: mating_desire_probability
+          - type: PrioritySelector
+            children:
+              - type: Action
+                action: attempt_to_mate
+                mating_range_param: mating_range
+                status_name: "Mating"
+              - type: Sequence
+                children:
+                  - type: TickIntervalDecorator
+                    name: FindMate
+                    interval: 300
+                    child:
+                      type: Action
+                      action: find_available_mate
+                      status_name: "Seeking Mate"
+                  - type: Action
+                    action: plan_path_to_target
+                    status_name: "Chasing Mate"
+      - type: Sequence
+        name: Forage
+        children:
+          - type: Condition
+            cond: is_hungry
+          - type: Condition
+            cond: has_food_types
+          - type: PrioritySelector
+            children:
+              - type: Action
+                action: eat_target_thing
+                kind: grass
+                range_param: eating_range
+                status_name: "Eating"
+              - type: Sequence
+                children:
+                  - type: Action
+                    action: seek_thing_with_path
+                    kind: grass
+                    search_interval: 300
+                    status_name: "Seeking Food"
+                    speed_multiplier_key: chase_speed_multiplier
+                    energy_multiplier_key: chase_energy_multiplier
+      - type: PrioritySelector
+        name: WanderBranch
+        children:
+          - type: Sequence
+            name: ArrivedAtWanderTarget
+            children:
+              - type: Condition
+                cond: is_at_target
+                stop_range_param: wander_stop_range
+              - type: Action
+                action: clear_blackboard_target
+                status_name: "Idle"
+          - type: Action
+            action: plan_path_to_target
+            status_name: "Wandering"
+            speed_multiplier_key: wander_speed_multiplier
+            energy_multiplier_key: wander_energy_multiplier
+            range_param: wander_stop_range
+          - type: TickIntervalDecorator
+            name: SelectWanderTargetThrottled
+            interval: 600
+            child:
+              type: Action
+              action: select_wander_target
+              status_name: "Picking Wander Spot"
+              radius_param: wander_radius
+              max_wander_cost: 50.0

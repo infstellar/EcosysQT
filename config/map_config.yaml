@@ -7,6 +7,7 @@ initial_populations:
   grass: 10000
   cow: 200
   tiger: 5
+  dawanji: 50
 
 # 模拟参数（可选覆盖，缺省使用默认值）
 simulation:
@@ -87,6 +88,11 @@ animal_spawn_density_by_terrain:
     LAND: 0.02
     HILLS: 0.05
     MOUNTAIN: 0.01
+  dawanji:
+    SHALLOW_RIVER: 0.3
+    DEEP_RIVER: 0.1
+    SAND: 0.15
+    LAND: 0.02
 
 # --- 动态种群管理 ---
 population_management:
