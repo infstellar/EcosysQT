@@ -460,6 +460,14 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
                 return cooldown_ticks > 0;
             });
         }
+    },
+    {
+        "has_current_target",
+        [](const YAML::Node&, Animal& self){
+            return std::make_shared<Condition>([&self](TickContext&){
+                return self.get_current_target().has_value();
+            });
+        }
     }
 };
 
