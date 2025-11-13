@@ -73,22 +73,24 @@ SimulationRenderer::SimulationRenderer(Widget* parentWidget) : m_parentWidget(pa
         }
     }
     
-    m_cowTexture.load(":/images/cow.png");
-    if (m_cowTexture.isNull()) {
-        qDebug() << "警告: 牛贴图加载失败";
-    }
-    m_bullTexture.load(":/images/bull.png");
-    if (m_bullTexture.isNull()) {
-        qDebug() << "警告: 牛(公)贴图加载失败";
-    }
-    m_tigerTexture.load(":/images/tiger.png");
-    if (m_tigerTexture.isNull()) {
-        qDebug() << "警告: 雌性老虎贴图加载失败";
-    }
-    m_tigerManTexture.load(":/images/tiger_man.png");
-    if (m_tigerManTexture.isNull()) {
-        qDebug() << "警告: 雄性老虎贴图加载失败";
-    }
+    auto tryLoadTexture = [](QPixmap& pixmap, const QString& resourcePath, const QString& filePath, const QString& label) {
+        if (!resourcePath.isEmpty()) {
+            pixmap.load(resourcePath);
+        }
+        if (pixmap.isNull() && !filePath.isEmpty()) {
+            pixmap.load(filePath);
+        }
+        if (pixmap.isNull()) {
+            qDebug() << "警告:" << label << "贴图加载失败";
+        }
+    };
+
+    tryLoadTexture(m_cowTexture, ":/images/cow.png", "resources/images/cow.png", "牛");
+    tryLoadTexture(m_bullTexture, ":/images/bull.png", "resources/images/bull.png", "牛(公)");
+    tryLoadTexture(m_dawanjiTexture, ":/images/dawanji.png", "resources/images/dawanji.png", "大碗鸡");
+    tryLoadTexture(m_dawanjiManTexture, ":/images/dawanji_man.png", "resources/images/dawanji_man.png", "大碗鸡(公)");
+    tryLoadTexture(m_tigerTexture, ":/images/tiger.png", "resources/images/tiger.png", "雌性老虎");
+    tryLoadTexture(m_tigerManTexture, ":/images/tiger_man.png", "resources/images/tiger_man.png", "雄性老虎");
     // 尝试加载新提供的老虎精灵表（4行 × 7帧）并切片
     QPixmap tigerSheet;
     tigerSheet.load(":/images/grass_variants_backup/tiger_new.png");
@@ -385,9 +387,16 @@ void SimulationRenderer::drawEntities(QPainter& painter, const std::shared_ptr<E
 
             const QPixmap* texture = nullptr;
             
-            if (name == "cow" || name == "dawanji") {
+            if (name == "cow") {
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
                 texture = (animal_ptr && animal_ptr->sex == Sex::MALE) ? &m_bullTexture : &m_cowTexture;
+            } else if (name == "dawanji") {
+                auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);
+                if (animal_ptr && animal_ptr->sex == Sex::MALE) {
+                    texture = m_dawanjiManTexture.isNull() ? &m_bullTexture : &m_dawanjiManTexture;
+                } else {
+                    texture = m_dawanjiTexture.isNull() ? &m_cowTexture : &m_dawanjiTexture;
+                }
             } else if (name == "tiger") {
                 // 如果加载了切片，则使用动画帧，否则回退到静态纹理
                 auto animal_ptr = std::dynamic_pointer_cast<Animal>(individual_base);

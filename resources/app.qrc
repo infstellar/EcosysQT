@@ -11,6 +11,8 @@
         <file>images/grass.png</file>
         <file>images/cow.png</file>
         <file>images/bull.png</file>
+    <file>images/dawanji.png</file>
+    <file>images/dawanji_man.png</file>
         <file>images/tiger.png</file>
         <file>images/tiger_man.png</file>
     <!-- 新的老虎精灵表（4 行 × 7 帧），按用户提供路径存放在子目录中 -->
