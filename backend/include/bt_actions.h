@@ -39,4 +39,10 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
 // 清理黑板上的移动目标
 bt::Status ClearBlackboardTarget(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
 
+// 更新已锁定配偶的最新位置
+bt::Status UpdateMateTargetPosition(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+
+// 更新已锁定猎物的最新位置
+bt::Status UpdateHuntTargetPosition(Animal& self, bt::TickContext& ctx, const YAML::Node& params);
+
 } // namespace behavior::actions

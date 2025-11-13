@@ -46,6 +46,9 @@ public:
     int mating_timer;
     std::weak_ptr<Animal> mating_partner;
 
+    // 当前锁定的捕食目标（弱引用避免持有生命周期）
+    std::weak_ptr<RaceBase> hunt_target;
+
     double movement_speed;
     double energy_consumption;
     double hunting_range;

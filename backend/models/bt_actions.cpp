@@ -14,6 +14,7 @@
 #include <random>
 #include <cmath>
 #include <vector>
+#include <cstdint>
 #include "tracy/Tracy.hpp"
 #include "bt_keys.h"
 
@@ -126,10 +127,12 @@ bt::Status ClearBlackboardTarget(Animal& self, bt::TickContext& ctx, const YAML:
         bb.doubles.erase(bt::keys::PathLastGoalX);
         bb.doubles.erase(bt::keys::PathLastGoalY);
         bb.ints.erase(bt::keys::PathLastPlanTick);
+        bb.strings.erase("mate_target_id");
     }
 
     self.clear_current_target();
     self.clear_path();
+    self.hunt_target.reset();
 
     return Status::Success;
 }
@@ -338,6 +341,7 @@ bt::Status HuntTargetRace(Animal& self, bt::TickContext& ctx, const YAML::Node& 
         bb.doubles.erase(bt::keys::TargetPosX);
         bb.doubles.erase(bt::keys::TargetPosY);
         self.clear_current_target();
+        self.hunt_target.reset();
 
         return Status::Success;
     }
@@ -390,27 +394,33 @@ bt::Status SelectTargetPoint(Animal& self, bt::TickContext& ctx, const YAML::Nod
 
     if (nearest_race_target) {
         self.set_current_target(nearest_race_target->position);
+        self.hunt_target = nearest_race_target;
         if (ctx.blackboard) {
-            ctx.blackboard->doubles[bt::keys::TargetPosX] = nearest_race_target->position.x;
-            ctx.blackboard->doubles[bt::keys::TargetPosY] = nearest_race_target->position.y;
+            auto& bb = *ctx.blackboard;
+            bb.doubles[bt::keys::TargetPosX] = nearest_race_target->position.x;
+            bb.doubles[bt::keys::TargetPosY] = nearest_race_target->position.y;
         }
         return Status::Success;
     }
 
     if (nearest_thing_target) {
         self.set_current_target(nearest_thing_target->position);
+        self.hunt_target.reset();
         if (ctx.blackboard) {
-            ctx.blackboard->doubles[bt::keys::TargetPosX] = nearest_thing_target->position.x;
-            ctx.blackboard->doubles[bt::keys::TargetPosY] = nearest_thing_target->position.y;
+            auto& bb = *ctx.blackboard;
+            bb.doubles[bt::keys::TargetPosX] = nearest_thing_target->position.x;
+            bb.doubles[bt::keys::TargetPosY] = nearest_thing_target->position.y;
         }
         return Status::Success;
     }
 
     self.clear_current_target();
     self.clear_path();
+    self.hunt_target.reset();
     if (ctx.blackboard) {
-        ctx.blackboard->doubles.erase(bt::keys::TargetPosX);
-        ctx.blackboard->doubles.erase(bt::keys::TargetPosY);
+        auto& bb = *ctx.blackboard;
+        bb.doubles.erase(bt::keys::TargetPosX);
+        bb.doubles.erase(bt::keys::TargetPosY);
     }
     return Status::Failure;
 }
@@ -763,6 +773,7 @@ bt::Status SelectFleeDestination(Animal& self, bt::TickContext& ctx, const YAML:
     self.clear_path();
     bb.ints[bt::keys::ForageLastSearchTick] = std::numeric_limits<int>::min();
     bb.ints.erase("mate_target_id");
+    bb.strings.erase("mate_target_id");
     self.clear_mating_target();
 
     return Status::Success;
@@ -913,6 +924,62 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
         if (!self.get_current_target().has_value()) break;
     }
     return force_success ? Status::Success : Status::Running;
+}
+
+bt::Status UpdateMateTargetPosition(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::UpdateMateTargetPosition");
+    (void)params;
+    if (!ctx.blackboard) {
+        return Status::Failure;
+    }
+
+    auto partner_sp = self.mating_partner.lock();
+    auto& bb = *ctx.blackboard;
+    if (partner_sp && partner_sp->alive && partner_sp->can_reproduce()) {
+        const Position target_pos = partner_sp->position;
+        self.set_mating_target(target_pos);
+        self.set_current_target(target_pos);
+        bb.doubles[bt::keys::TargetPosX] = target_pos.x;
+        bb.doubles[bt::keys::TargetPosY] = target_pos.y;
+        const auto ptr_value = reinterpret_cast<std::uintptr_t>(partner_sp.get());
+        bb.strings["mate_target_id"] = std::to_string(static_cast<unsigned long long>(ptr_value));
+        return Status::Success;
+    }
+
+    self.mating_partner.reset();
+    self.clear_mating_target();
+    self.clear_current_target();
+    self.clear_path();
+    bb.doubles.erase(bt::keys::TargetPosX);
+    bb.doubles.erase(bt::keys::TargetPosY);
+    bb.strings.erase("mate_target_id");
+    return Status::Failure;
+}
+
+bt::Status UpdateHuntTargetPosition(Animal& self, bt::TickContext& ctx, const YAML::Node& params) {
+    ZoneScopedN("BT::Action::UpdateHuntTargetPosition");
+    (void)params;
+    if (!ctx.blackboard) {
+        return Status::Failure;
+    }
+
+    auto& bb = *ctx.blackboard;
+    if (auto target_sptr = self.hunt_target.lock()) {
+        if (target_sptr->alive) {
+            const Position current_pos = target_sptr->position;
+            self.set_current_target(current_pos);
+            bb.doubles[bt::keys::TargetPosX] = current_pos.x;
+            bb.doubles[bt::keys::TargetPosY] = current_pos.y;
+            return Status::Success;
+        }
+    }
+
+    self.hunt_target.reset();
+    self.clear_current_target();
+    self.clear_path();
+    bb.doubles.erase(bt::keys::TargetPosX);
+    bb.doubles.erase(bt::keys::TargetPosY);
+    return Status::Failure;
 }
 
 } // namespace behavior::actions

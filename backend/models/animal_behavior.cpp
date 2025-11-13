@@ -33,6 +33,7 @@
 #include <functional>
 #include <utility>
 #include <stdexcept>
+#include <cstdint>
 #include "tracy/Tracy.hpp"
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
@@ -279,6 +280,7 @@ static std::shared_ptr<Node> create_finalize_node(Animal& self, const char* sour
             if (ctx.blackboard) {
                 auto& bb = *ctx.blackboard;
                 bb.ints.erase("mate_target_id");
+                bb.strings.erase("mate_target_id");
                 bb.ints.erase(bt::keys::MatingTimerTicks);
                 bb.doubles.erase(bt::keys::TargetPosX);
                 bb.doubles.erase(bt::keys::TargetPosY);
@@ -484,18 +486,41 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
                 auto* world = static_cast<EcosystemState*>(ctx.world);
                 if (!world || !self.alive) return Status::Failure;
                 auto mate = self.find_available_mate(*world);
-                if (mate.has_value()) {
-                    self.set_mating_target(mate.value()->position);
-                    // 同步通用当前移动目标，便于后续复用通用追逐动作
-                    self.set_current_target(self.get_mating_target());
+                if (mate.has_value() && mate.value()) {
+                    auto mate_ptr = mate.value();
+                    self.mating_partner = mate_ptr;
+                    const Position target_pos = mate_ptr->position;
+                    self.set_mating_target(target_pos);
+                    self.set_current_target(target_pos);
                     if (ctx.blackboard) {
-                        // 写入通用黑板目标，供 plan_path_to_target 读取
-                        ctx.blackboard->doubles[bt::keys::TargetPosX] = self.get_mating_target()->x;
-                        ctx.blackboard->doubles[bt::keys::TargetPosY] = self.get_mating_target()->y;
+                        auto& bb = *ctx.blackboard;
+                        bb.doubles[bt::keys::TargetPosX] = target_pos.x;
+                        bb.doubles[bt::keys::TargetPosY] = target_pos.y;
+                        const auto ptr_value = reinterpret_cast<std::uintptr_t>(mate_ptr.get());
+                        bb.strings["mate_target_id"] = std::to_string(static_cast<unsigned long long>(ptr_value));
                     }
                     return Status::Success;
                 }
+                self.mating_partner.reset();
+                self.clear_mating_target();
+                self.clear_current_target();
+                self.clear_path();
+                if (ctx.blackboard) {
+                    auto& bb = *ctx.blackboard;
+                    bb.doubles.erase(bt::keys::TargetPosX);
+                    bb.doubles.erase(bt::keys::TargetPosY);
+                    bb.strings.erase("mate_target_id");
+                }
                 return Status::Failure;
+            });
+        }
+    },
+    {
+        "update_mate_target_position",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::UpdateMateTargetPosition(self, ctx, p);
             });
         }
     },
@@ -547,6 +572,15 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
             YAML::Node p = params;
             return std::make_shared<Action>([&self, p](TickContext& ctx){
                 return behavior::actions::SelectTargetPoint(self, ctx, p);
+            });
+        }
+    },
+    {
+        "update_hunt_target_position",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return behavior::actions::UpdateHuntTargetPosition(self, ctx, p);
             });
         }
     },

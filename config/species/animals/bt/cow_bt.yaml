@@ -106,6 +106,9 @@ BehaviorTreeDef:
                       action: find_available_mate
                       status_name: "Seeking Mate"
                   - type: Action
+                    action: update_mate_target_position
+                    status_name: "Tracking Mate"
+                  - type: Action
                     action: plan_path_to_target  # 每帧追逐到配偶
                     status_name: "Chasing Mate"
 
