@@ -37,8 +37,8 @@ map_generation:
   axial_tilt_deg: 23.44
 
   # 海平面配置：可根据需要调整海洋面积
-  sea_level: -0.5
-  deep_sea_level: -0.8
+  sea_level: -0.2
+  deep_sea_level: -0.5
 
   # 盛行风配置
   wind_direction: "West"   # 可选: "West", "East", "None"

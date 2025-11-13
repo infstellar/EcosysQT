@@ -249,6 +249,7 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
     }
     std::vector<std::pair<int, int>> flow_directions(map_size, {0, 0});
     std::vector<float> flow_map(map_size, 0.0f);
+    std::vector<float> evaporation_map(map_size, 0.0f);
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             const Tile& tile = grid.get_tile(x, y);
@@ -259,12 +260,21 @@ void MapGenerator::generate_map(WorldGrid& grid, std::mt19937& rng) {
                 precipitation = static_cast<float>((scaled_moisture - 0.2) / 0.8);
             }
 
-            flow_map[static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x)] = precipitation;
+            const std::size_t idx = static_cast<std::size_t>(y) * width_sz + static_cast<std::size_t>(x);
+            flow_map[idx] = precipitation;
+
+            if (scaled_moisture < 0.15) {
+                evaporation_map[idx] = 0.05f;
+            } else if (scaled_moisture < 0.3) {
+                evaporation_map[idx] = 0.01f;
+            } else {
+                evaporation_map[idx] = 0.0f;
+            }
         }
     }
 
     CalculateFlowDirections(grid, flow_directions);
-    CalculateFlowAccumulation(grid, flow_directions, flow_map);
+    CalculateFlowAccumulation(grid, flow_directions, flow_map, evaporation_map);
 
     // Phase 5 -----------------------------------------------------------------
     if (logger) {
@@ -464,7 +474,8 @@ void MapGenerator::CalculateFlowDirections(WorldGrid& grid, std::vector<std::pai
 void MapGenerator::CalculateFlowAccumulation(
     WorldGrid& grid,
     const std::vector<std::pair<int, int>>& flow_directions,
-    std::vector<float>& flow_map) const {
+    std::vector<float>& flow_map,
+    const std::vector<float>& evaporation_map) const {
     const std::size_t map_size = flow_map.size();
     std::vector<std::size_t> indices(map_size);
     std::iota(indices.begin(), indices.end(), 0);
@@ -497,7 +508,20 @@ void MapGenerator::CalculateFlowAccumulation(
         }
 
         const std::size_t next_idx = static_cast<std::size_t>(next_y) * width_sz + static_cast<std::size_t>(next_x);
-        flow_map[next_idx] += flow_map[idx];
+
+        float flow_to_transfer = flow_map[idx];
+        if (flow_to_transfer <= 0.0f) {
+            continue;
+        }
+
+        const float evaporation_rate = (idx < evaporation_map.size()) ? evaporation_map[idx] : 0.0f;
+        if (evaporation_rate > 0.0f) {
+            flow_to_transfer -= flow_to_transfer * evaporation_rate;
+        }
+
+        if (flow_to_transfer > 0.0f) {
+            flow_map[next_idx] += flow_to_transfer;
+        }
     }
 }
 
@@ -576,18 +600,18 @@ TerrainType MapGenerator::assign_terrain(double elevation, float flow_accumulati
         return TerrainType::SHALLOW_OCEAN;
     }
 
-    if (elevation > 0.85) {
-        return TerrainType::MOUNTAIN;
-    }
-    if (elevation > 0.7) {
-        return TerrainType::HILLS;
-    }
-
     if (flow_accumulation >= m_config.flow_river_threshold) {
         if (flow_accumulation >= m_config.flow_river_threshold * 5.0f) {
             return TerrainType::DEEP_RIVER;
         }
         return TerrainType::SHALLOW_RIVER;
+    }
+
+    if (elevation > 0.85) {
+        return TerrainType::MOUNTAIN;
+    }
+    if (elevation > 0.7) {
+        return TerrainType::HILLS;
     }
 
     return TerrainType::LAND;
