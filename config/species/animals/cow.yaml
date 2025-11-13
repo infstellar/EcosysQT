@@ -11,7 +11,7 @@ species:
 animal:
   # 每 tick 的基础位移步长。世界坐标单位（与 Position.x/y 同单位，等同于“像素/格”）。每步实际位移 = movement_speed * speed_multiplier ；代码中初始化 step_distance_per_tick = movement_speed ，到达判定按当前步长的 50% 做收敛。
   movement_speed: 0.08 # 3.5m/s
-  energy_consumption: 0.02867 # 每tick能量消耗。86每天，换算为0.02867
+  energy_consumption: 2.867 # 每tick能量消耗。86每天，换算为0.02867
   detection_range: 60.0 # 感知（搜索）半径，用于在该半径内检索其他实体（同类、食物等）。世界坐标单位（与位置/距离一致）。
   threat_detection_range: 60.0
   mate_detection_range: 80.0
@@ -39,7 +39,7 @@ animal:
       starving_speed_multiplier: 0.85
       stop_range_base_range: 1.0  # (等于 eating_range)
       stop_range_factor: 0.5      # (50%)
-      pathfinding_absolute_budget: 1500.0
+      pathfinding_absolute_budget: 6000.0
   # 在检测到威胁（例如虎）时的 HP 恢复倍率（默认 0.3 -> 恢复为原来的 30%）
   threat_hp_regen_multiplier: 0.3
   # 连续被追击多少秒后进入疲惫状态（秒）
@@ -48,7 +48,7 @@ animal:
   tired_speed_multiplier: 0.8
   pathfinding:
     
-    max_iterations: 500
+    max_iterations: 300
     replan_interval: 600
     enable_smoothing: false
     budget_multiplier: 2.5

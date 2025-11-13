@@ -862,6 +862,8 @@ bt::Status PlanPathToTarget(Animal& self, bt::TickContext& ctx, const YAML::Node
                     ctx.blackboard->ints[bt::keys::PathLastPlanTick] = world->time_step;
                     ctx.blackboard->doubles[bt::keys::PathLastGoalX] = target_pos.x;
                     ctx.blackboard->doubles[bt::keys::PathLastGoalY] = target_pos.y;
+                    ctx.blackboard->doubles.erase(bt::keys::TargetPosX);
+                    ctx.blackboard->doubles.erase(bt::keys::TargetPosY);
                 }
                 return Status::Failure;
             }

@@ -84,6 +84,8 @@ struct EcosystemConfig {
     MapGenConfig map_gen_config;
     std::map<std::string, double> initial_grass_density_map;
     std::map<std::string, std::map<std::string, double>> animal_spawn_density_map;
+    int decor_tree_min_count = 250;
+    int decor_tree_max_count = 300;
     EcosystemConfig() = default;
     EcosystemConfig(int w, int h) : world_width(w), world_height(h) {}
 };
