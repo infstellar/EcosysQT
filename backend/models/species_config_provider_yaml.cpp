@@ -360,6 +360,7 @@ template <> inline void postprocess_params<AnimalParams>(AnimalParams& params) {
     clamp(params.newborn_energy_ratio, 0.0, 1.0);
     // 孕期能耗倍率
     if (params.pregnant_energy_multiplier < 0.0) params.pregnant_energy_multiplier = 0.0;
+    if (params.sleeping_energy_multiplier < 0.0) params.sleeping_energy_multiplier = 0.0;
 
     if (params.pathfinding.replan_interval < 0) {
         params.pathfinding.replan_interval = 0;

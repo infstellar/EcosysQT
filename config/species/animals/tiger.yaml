@@ -27,6 +27,7 @@ animal:
   # 行为树黑板默认逃离倍率配置
   bt_params:
     doubles:
+      sleeping_energy_multiplier: 0.1
       flee_speed_multiplier: 1.5
       flee_energy_multiplier: 1.5
       flee_destination_radius: 120.0
@@ -46,6 +47,7 @@ animal:
       pathfinding_absolute_budget: 6000.0
     ints:
       flee_total_duration_ticks: 150
+      sleep_check_interval_ticks: 125   # 睡眠判定间隔（tick）
   pathfinding:
     max_iterations: 500
     replan_interval: 600

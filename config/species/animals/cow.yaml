@@ -25,7 +25,9 @@ animal:
     ints:
       eat_grass_total_ticks: 10
       flee_total_duration_ticks: 150   # 逃逸冷却总时长（tick）
+      sleep_check_interval_ticks: 125   # 睡眠判定间隔（tick）
     doubles:
+      sleeping_energy_multiplier: 0.1
       flee_speed_multiplier: 1.8
       flee_energy_multiplier: 1.5
       flee_destination_radius: 30.0    # 逃逸目的地目标半径（可选）

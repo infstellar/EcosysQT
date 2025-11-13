@@ -54,7 +54,7 @@ protected:
     void attempt_reproduction(EcosystemState& ecosystem_state, std::mt19937& rng);
     // 邻居偏移构建（Moore 邻域，8方向）
     static std::vector<std::pair<int, int>> build_neighbor_offsets();
-    static constexpr int GROWTH_CHECK_INTERVAL = 1800;
-    static constexpr int REPRODUCTION_CHECK_INTERVAL = 3600;
-    static constexpr int MAX_INTERVAL = 3600;
+    static constexpr int GROWTH_CHECK_INTERVAL = 180;
+    static constexpr int REPRODUCTION_CHECK_INTERVAL = 360;
+    static constexpr int MAX_INTERVAL = 360;
 };

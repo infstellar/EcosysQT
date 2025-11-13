@@ -13,6 +13,7 @@
 #include "ecosystem.h"
 #include "interaction_requests.h"
 #include "thing_base.h"
+#include "tile.h"
 #include <random>
 #include <cmath>
 // YAML 解析与路径访问
@@ -34,6 +35,7 @@
 #include <utility>
 #include <stdexcept>
 #include <cstdint>
+#include <algorithm>
 #include "tracy/Tracy.hpp"
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
@@ -48,6 +50,53 @@ static inline double bb_get_double(Blackboard* bb, const std::string& key, doubl
     if (!bb) return def_v;
     auto it = bb->doubles.find(key);
     return it == bb->doubles.end() ? def_v : it->second;
+}
+
+static bool IsInSleepWindow(Animal& self, TickContext& ctx, const YAML::Node&) {
+    auto* world = static_cast<EcosystemState*>(ctx.world);
+    if (!world || !self.alive) {
+        return false;
+    }
+
+    const int tile_x = static_cast<int>(std::floor(self.position.x));
+    const int tile_y = static_cast<int>(std::floor(self.position.y));
+    auto& grid = world->world_grid();
+    if (!grid.is_valid_coord(tile_x, tile_y)) {
+        return false;
+    }
+
+    const Tile& tile = grid.get_tile(tile_x, tile_y);
+    const int hour = tile.local_hour;
+    return (hour >= 6 && hour <= 8) || (hour >= 20 && hour <= 22);
+}
+
+static Status SleepAction(Animal& self, TickContext& ctx, const YAML::Node& params) {
+    if (!self.alive) {
+        return Status::Failure;
+    }
+
+    self.is_sleeping = true;
+    self.set_skip_movement(true);
+
+    Blackboard* bb = ctx.blackboard;
+    const std::string energy_key = params["energy_multiplier_key"] ? params["energy_multiplier_key"].as<std::string>() : std::string("sleeping_energy_multiplier");
+    const double sleep_mul = std::max(0.0, bb_get_double(bb, energy_key, self.get_sleeping_energy_multiplier()));
+    if (bb) {
+        bb->doubles["active_sleep_energy_multiplier"] = sleep_mul;
+        bb->ints["sleep_branch_active"] = 1;
+        bb->ints.erase("sleep_check_interval_status");
+    }
+
+    if (auto* world = static_cast<EcosystemState*>(ctx.world)) {
+        const int tx = static_cast<int>(std::floor(self.position.x));
+        const int ty = static_cast<int>(std::floor(self.position.y));
+        auto& grid = world->world_grid();
+        if (grid.is_valid_coord(tx, ty) && bb) {
+            bb->ints["sleep_local_hour"] = grid.get_tile(tx, ty).local_hour;
+        }
+    }
+
+    return Status::Success;
 }
 
 #ifdef ECOSIM_ENABLE_UI_DEBUG
@@ -83,6 +132,7 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             ZoneScopedN("BT::Update::State");
             // 本 tick 开始先清除跨 tick 残留的移动跳过标记，避免卡住
             self.set_skip_movement(false);
+            self.is_sleeping = false;
             SPDLOG_LOGGER_DEBUG(spdlog::get("ecosim"), "[BT {}] Update: reset skip_movement=false for '{}'", source_tag, self.species_name);
             // 饱食状态更新（速度/能耗不再全局调整，改由具体 Action 的倍率控制）
             self.refresh_hunger_state();
@@ -258,11 +308,36 @@ static std::shared_ptr<Node> create_update_node(Animal& self, const char* source
             }
             // 将倍率写入 Animal，使 apply_hp_regen 生效
             self.set_hp_regen_multiplier(threat_hp_mul);
+
+            bool sleeping_now = false;
+            if (auto it_status = bb.ints.find("sleep_check_interval_status"); it_status != bb.ints.end()) {
+                const Status cached_status = static_cast<Status>(it_status->second);
+                sleeping_now = (cached_status == Status::Success);
+            }
+
+            if (sleeping_now && !IsInSleepWindow(self, ctx, YAML::Node())) {
+                sleeping_now = false;
+                bb.ints["sleep_check_interval_status"] = static_cast<int>(Status::Failure);
+                bb.ints["sleep_check_interval_counter"] = 0;
+            }
+
+            if (sleeping_now) {
+                self.is_sleeping = true;
+                self.set_skip_movement(true);
+                const double sleep_mul = std::max(0.0, bb_get_double(&bb, "sleeping_energy_multiplier", self.get_sleeping_energy_multiplier()));
+                bb.doubles["active_sleep_energy_multiplier"] = sleep_mul;
+                bb.ints["sleep_branch_active"] = 1;
+                self.consume_energy(sleep_mul);
+            } else {
+                self.is_sleeping = false;
+                bb.doubles.erase("active_sleep_energy_multiplier");
+                bb.ints.erase("sleep_branch_active");
+            }
         }
 
         // 基础代谢：无论是否移动，每 tick 都扣除少量能量
         const double basal_multiplier = bb_get_double(ctx.blackboard, "basal_energy_multiplier", 0.1);
-        if (basal_multiplier > 0.0) {
+        if (!self.is_sleeping && basal_multiplier > 0.0) {
             self.consume_energy(basal_multiplier);
         }
 
@@ -433,6 +508,15 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
         "is_hungry",
         [](const YAML::Node&, Animal& self){
             return std::make_shared<Condition>([&self](TickContext&){ return self.get_hunger_state() != HungerState::SATISFIED; });
+        }
+    },
+    {
+        "is_in_sleep_window",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Condition>([&self, p](TickContext& ctx){
+                return IsInSleepWindow(self, ctx, p);
+            });
         }
     },
     {
@@ -697,6 +781,15 @@ static const std::unordered_map<std::string, std::function<std::shared_ptr<Node>
                 return behavior::actions::ClearBlackboardTarget(self, ctx, p);
             });
         }
+    },
+    {
+        "sleep",
+        [](const YAML::Node& params, Animal& self){
+            YAML::Node p = params;
+            return std::make_shared<Action>([&self, p](TickContext& ctx){
+                return SleepAction(self, ctx, p);
+            });
+        }
     }
 };
 
@@ -800,7 +893,11 @@ static std::shared_ptr<Node> parse_bt_yaml_node(const YAML::Node& n, Animal& sel
             SPDLOG_LOGGER_ERROR(spdlog::get("ecosim"), "[BT YAML] TickIntervalDecorator '{}' child failed to parse", prefix);
             return nullptr;
         }
-        return std::make_shared<TickIntervalDecorator>(child, interval, prefix);
+        std::string interval_param_key;
+        if (n["interval_param"]) {
+            interval_param_key = n["interval_param"].as<std::string>();
+        }
+        return std::make_shared<TickIntervalDecorator>(child, interval, prefix, interval_param_key);
     }
     if (type == "Condition") {
         const std::string cond_name = n["cond"] ? n["cond"].as<std::string>() : std::string();

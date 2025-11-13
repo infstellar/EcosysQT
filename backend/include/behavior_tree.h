@@ -10,6 +10,7 @@
 #include <vector>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <unordered_map>
 // 诊断日志（可选）：用于装饰器的轻量级运行时观测
 #include <spdlog/spdlog.h>
@@ -333,13 +334,15 @@ class TickIntervalDecorator : public Decorator {
     int interval;
     std::string counter_key;
     std::string status_key;
+    std::string interval_param_key;
     bool force_evaluate{false};
 public:
-    TickIntervalDecorator(std::shared_ptr<Node> c, int eval_interval, std::string key_prefix)
+    TickIntervalDecorator(std::shared_ptr<Node> c, int eval_interval, std::string key_prefix, std::string interval_param = {})
                 : Decorator(std::move(c)),
                     interval(std::max(0, eval_interval)),
                     counter_key(key_prefix + "_interval_counter"),
-                    status_key(key_prefix + "_interval_status") {}
+                    status_key(key_prefix + "_interval_status"),
+                    interval_param_key(std::move(interval_param)) {}
 
     Status tick(TickContext& ctx) override {
         if (!child) {
@@ -367,7 +370,15 @@ public:
             return static_cast<Status>(cached_raw);
         }
 
-        bb.ints[counter_key] = interval;
+        int effective_interval = interval;
+        if (!interval_param_key.empty()) {
+            const auto it_param = bb.ints.find(interval_param_key);
+            if (it_param != bb.ints.end()) {
+                effective_interval = std::max(0, it_param->second);
+            }
+        }
+
+        bb.ints[counter_key] = effective_interval;
         const Status result = child->tick(ctx);
         bb.ints[status_key] = static_cast<int>(result);
         force_evaluate = false;

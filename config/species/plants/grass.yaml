@@ -2,15 +2,15 @@ schema_version: 1
 parent: base_plant
 species:
   energy: 50
-  max_age: 600000
+  max_age: 12000
 plant:
-  base_growth_rate: 0.83 # 基础生长速率，单位是1250tick
+  base_growth_rate: 1.04 # 基础生长速率，单位是125tick
   reproduction_chance: 0.33
   competition_radius: 1 # 没用了
   max_competition_effect: 2.0 
   reproduction_cooldown: 2000 # 2天
   expansion_boost: 1.5
-  min_growth_factor: 0.1 # 单位是1250tick
+  min_growth_factor: 0.1 # 单位是125tick
   # 被食用时提供的基础营养值（独立于能量）
   nutrition_value: 200.0
   # 基于积累的繁殖参数，在 能量已满 且 繁殖冷却结束 后才开始积累

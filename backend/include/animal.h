@@ -42,6 +42,7 @@ public:
     // 交配属性
     Sex sex;
     bool is_pregnant;
+    bool is_sleeping;
     int pregnancy_timer;
     int mating_timer;
     std::weak_ptr<Animal> mating_partner;
@@ -137,6 +138,7 @@ public:
     double get_mate_detection_range() const;
     double get_food_detection_range() const;
     double get_pregnancy_speed_penalty() const;
+    double get_sleeping_energy_multiplier() const;
     // 移动控制
     bool get_skip_movement() const;
     void set_skip_movement(bool v);
@@ -229,6 +231,8 @@ protected:
     double mating_desire_probability;
     // 怀孕期间能量消耗倍率
     double pregnant_energy_multiplier{1.0};
+    // 睡眠能耗倍率
+    double sleeping_energy_multiplier{0.1};
 
     // 交配意图锁定，防止与捕食来回切换
 

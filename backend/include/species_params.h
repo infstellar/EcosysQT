@@ -85,6 +85,9 @@ struct AnimalParams : SpeciesBaseParams {
     // 每 tick 有多少概率会主动寻找配偶
     double mating_desire_probability = 0.5; // 默认 50%
 
+    // 睡眠时能耗倍率（相对基础能耗）
+    double sleeping_energy_multiplier = 0.1;
+
     // --- 行为树黑板参数：来自 YAML / 编辑器的键值，直接影响装饰器等 ---
     std::unordered_map<std::string, int> bt_params_ints;      // 例如：eat_grass_total_ticks: 300
     std::unordered_map<std::string, double> bt_params_doubles; // 例如：mate_total_ticks: 150.0
@@ -116,6 +119,6 @@ BOOST_DESCRIBE_STRUCT(SpeciesBaseParams, (),
     (energy, max_age, min_reproduction_energy, hp_max))
 BOOST_DESCRIBE_STRUCT(AnimalParams, (SpeciesBaseParams),
     (use_bt, movement_speed, energy_consumption, hunting_range, hunting_success_rate, detection_range, threat_detection_range, mate_detection_range, food_detection_range, food_types, hunting_cooldown_duration, min_reproduction_age, reproduction_cooldown, eating_range, energy_efficiency, satisfied_threshold_ratio, starving_threshold_ratio, wandering_duration, wander_radius, attack_damage, attack_damage_min, attack_damage_max, nutrition_value, nutrition_bonus_max, nutrition_bonus_curve_alpha, starvation_damage, starvation_damage_interval_ratio, hp_regen_base_per_day, hp_regen_mul_satisfied, hp_regen_mul_normal, hp_regen_mul_starving, regan_interval_ratio, mating_duration, pregnancy_duration, mating_range, pregnancy_speed_penalty, pregnant_energy_multiplier, newborn_energy_ratio,
-    mating_desire_probability, bt_params_ints, bt_params_doubles, bt_params_strings, pathfinding))
+    mating_desire_probability, sleeping_energy_multiplier, bt_params_ints, bt_params_doubles, bt_params_strings, pathfinding))
 BOOST_DESCRIBE_STRUCT(PlantParams, (SpeciesBaseParams),
     (base_growth_rate, reproduction_chance, competition_radius, max_competition_effect, reproduction_cooldown, expansion_boost, min_growth_factor, nutrition_value, repro_energy_threshold, repro_energy_accumulation_rate, newborn_energy_ratio))

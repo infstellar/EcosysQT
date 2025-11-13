@@ -4,6 +4,23 @@ BehaviorTreeDef:
   root:
     type: PrioritySelector
     children:
+      # ========== 睡觉（最高优先级） ==========
+      - type: TickIntervalDecorator
+        name: SleepCheckThrottled
+        key_prefix: sleep_check
+        interval: 125
+        interval_param: sleep_check_interval_ticks
+        child:
+          type: Sequence
+          name: SleepBranch
+          children:
+            - type: Condition
+              cond: is_in_sleep_window
+            - type: Action
+              action: sleep
+              status_name: "Sleeping"
+              energy_multiplier_key: sleeping_energy_multiplier
+
       # ========== 逃跑（高优先级） ==========
       - type: Sequence
         name: FleeBranch

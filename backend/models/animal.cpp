@@ -59,6 +59,7 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     mating_range = params.mating_range;
     pregnancy_speed_penalty = params.pregnancy_speed_penalty;
     pregnant_energy_multiplier = std::max(0.0, params.pregnant_energy_multiplier);
+    sleeping_energy_multiplier = std::max(0.0, params.sleeping_energy_multiplier);
     // 初始化每tick步长为当前移动速度（tick制）
     step_distance_per_tick = movement_speed;
     current_step_distance = step_distance_per_tick; // 首帧近似为1 tick
@@ -88,6 +89,7 @@ Animal::Animal(Position pos, const std::string& species_name, const AnimalParams
     sex = (dist(rng) == 0) ? Sex::MALE : Sex::FEMALE;
 
     is_pregnant = false;
+    is_sleeping = false;
     pregnancy_timer = 0;
     mating_timer = 0;
     // 初始化交配意图锁定时长（可按需调整或从参数映射）
@@ -240,6 +242,7 @@ double Animal::get_threat_detection_range() const { return threat_detection_rang
 double Animal::get_mate_detection_range() const { return mate_detection_range; }
 double Animal::get_food_detection_range() const { return food_detection_range; }
 double Animal::get_pregnancy_speed_penalty() const { return pregnancy_speed_penalty; }
+double Animal::get_sleeping_energy_multiplier() const { return sleeping_energy_multiplier; }
 bool Animal::get_skip_movement() const { return skip_movement; }
 void Animal::set_skip_movement(bool v) { skip_movement = v; }
 void Animal::clear_sensor_caches() {
@@ -424,9 +427,15 @@ void Animal::apply_bt_params_to_blackboard(const AnimalParams& params) {
     for (const auto& kv : params.bt_params_ints) {
         bb.ints[kv.first] = kv.second;
     }
+    if (bb.ints.find("sleep_check_interval_ticks") == bb.ints.end()) {
+        bb.ints["sleep_check_interval_ticks"] = 125;
+    }
     // 注入浮点参数
     for (const auto& kv : params.bt_params_doubles) {
         bb.doubles[kv.first] = kv.second;
+    }
+    if (bb.doubles.find("sleeping_energy_multiplier") == bb.doubles.end()) {
+        bb.doubles["sleeping_energy_multiplier"] = std::max(0.0, params.sleeping_energy_multiplier);
     }
     // 确保攻击伤害存在于黑板（若 YAML 未提供，则使用物种默认值）
     if (bb.doubles.find("attack_damage") == bb.doubles.end()) {
